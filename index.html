@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Signika:wght@300..700&display=swap" rel="stylesheet">
+    <title>Cờ tỷ phú - Phaser Demo</title>
+    <link rel="icon" type="image/png" href="./assets/icon.png">
+    <style>
+        html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden; 
+        font-family: "Rubik", sans-serif;
+        }
+
+        body {
+        background: url('./assets/nen_sanh.png') no-repeat 100% 40% / cover;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        }
+
+        #game-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        }
+
+        #root-game {
+        width: min(1128px, 95vw);
+        height: min(636px, calc(95vw * 636 / 1128));
+        max-width: 1128px;
+        max-height: 636px;
+        background: rgb(255, 255, 255);
+        border: 2px solid #d1cfb7;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+        overflow: hidden;
+        }
+        #root-game, canvas {
+        touch-action: none;
+        }
+    </style>
+  </head>
+  <body>
+    <div id="game-container">
+        <div id="root-game"></div>
+    </div>
+
+    <script src="phaser.js"></script>
+    
+    <script type="module" src="src/main.js"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  </body>
+</html>
