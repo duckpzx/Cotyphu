@@ -19,6 +19,7 @@ import roomService from "./src/server/services/room.service.js";
 import roomRepo from "./src/server/repositories/room.repo.js";
 import tarotService from "./src/server/services/tarot.service.js";
 import questionsService from "./src/server/services/questions.service.js";
+import db from "./src/server/config/db.js";
 
 const SECRET = process.env.JWT_SECRET;
 const app    = express();
@@ -791,7 +792,7 @@ io.on("connection", (socket) => {
         user_id,
         name: data?.name || user.name || "Player",
         characterName: data?.characterName || activeChar?.name || "Unknown",
-        skin: data?.skin || activeChar?.active_skin_id || 1,
+        skin: data?.skin || activeChar?.active_skin_number || 1,
         index: 0,
         planet_color: assignedColor,
         active_tarot_ids: activeTarotIds
@@ -846,9 +847,9 @@ io.on("connection", (socket) => {
       let characterName = "Unknown", skinId = 1;
       try {
         const chars = await characterService.getCharactersByUser(user_id);
-        const ac    = chars.find(c => c.character_id === user.active_character_id) || chars[0];
-        if (ac) { characterName = ac.name || ac.character_name || "Unknown"; skinId = ac.active_skin_id || 1; }
-      } catch(e) {}
+        const ac    = chars.find(c => c.id === user.active_character_id) || chars[0];
+        if (ac) { characterName = ac.name || ac.character_name || "Unknown"; skinId = ac.active_skin_number || 1; }
+      } catch(e) { console.error("Error matching chars", e); }
 
       const isHost = room.host_user_id === user_id;
       const mySlot = findFreeSlot(before);
@@ -905,6 +906,18 @@ io.on("connection", (socket) => {
     } else {
       io.to(fromSock.id).emit("room:swap_declined", { by_name: socket.player_name });
     }
+  });
+
+  socket.on("room:update_character", async (data) => {
+    const room_id = socket.current_room_id; if (!room_id) return;
+    const room = await roomRepo.getRoomById(room_id); if (!room) return;
+    socket.character_name = data.character_name;
+    socket.skin_id = data.skin_id;
+
+    // Build the full player list and emit it to everyone
+    const sockets = await io.in(`room_${room_id}`).fetchSockets();
+    const allPlayers = buildPlayerList(sockets, room.host_user_id);
+    io.to(`room_${room_id}`).emit("room:players", { players: allPlayers, room });
   });
 
   // ── START GAME ───────────────────────────────────────────────────
@@ -1900,6 +1913,277 @@ app.get("/users/:userId/characters/bag", async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error("Lỗi API Bag:", err);
+    res.status(500).json({ success: false, message: "Lỗi server" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  SHOP APIS
+// ═══════════════════════════════════════════════════════════════
+
+// Bảng giá nhân vật (có thể chuyển vào DB sau)
+const CHARACTER_PRICES = {
+  1: 0,       // Dark_Oracle — miễn phí (starter)
+  2: 15000,   // Forest_Ranger
+  3: 25000,   // Golem
+  4: 25000,   // Minotaur
+  5: 0,       // Necromancer_of_the_Shadow (starter)
+  7: 35000,   // Reaper_Man
+  8: 10000,   // Zombie_Villager
+};
+
+// Bảng giá skin
+const SKIN_PRICES = {
+  1: 0,        // Skin sơ cấp — miễn phí (theo nhân vật)
+  2: 15000,    // Skin trung cấp
+  3: 35000,    // Skin cao cấp
+};
+
+// GET /shop/characters — Tất cả nhân vật kèm giá
+app.get("/shop/characters", async (req, res) => {
+  try {
+    const result = await characterService.getCharacters();
+    const characters = (result.characters || []).map(c => ({
+      ...c,
+      price: CHARACTER_PRICES[c.id] ?? 20000,
+    }));
+    res.json({ success: true, characters });
+  } catch (err) {
+    console.error("GET /shop/characters error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// GET /shop/skins — Tất cả skin trong game
+app.get("/shop/skins", async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        cs.id AS skin_id,
+        cs.character_id,
+        cs.skin_number,
+        cs.image,
+        cs.is_default,
+        c.name AS character_name
+      FROM character_skins cs
+      JOIN characters c ON c.id = cs.character_id
+      ORDER BY cs.character_id, cs.skin_number
+    `);
+    const skins = rows.map(s => ({
+      ...s,
+      price: SKIN_PRICES[s.skin_number] ?? 15000,
+    }));
+    res.json({ success: true, skins });
+  } catch (err) {
+    console.error("GET /shop/skins error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// GET /users/:userId/ecoin — Lấy số dư ecoin
+app.get("/users/:userId/ecoin", async (req, res) => {
+  try {
+    const [rows] = await db.query("SELECT ecoin FROM users WHERE id = ?", [Number(req.params.userId)]);
+    if (!rows[0]) return res.status(404).json({ success: false, message: "User not found" });
+    res.json({ success: true, ecoin: Number(rows[0].ecoin || 0) });
+  } catch (err) {
+    console.error("GET ecoin error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// POST /shop/buy-character — Mua nhân vật (trừ ecoin)
+app.post("/shop/buy-character", async (req, res) => {
+  try {
+    const { user_id, character_id } = req.body;
+    if (!user_id || !character_id) {
+      return res.json({ success: false, message: "Thiếu dữ liệu" });
+    }
+
+    const userId = Number(user_id);
+    const charId = Number(character_id);
+
+    // 1) Kiểm tra đã sở hữu chưa
+    const [owned] = await db.query(
+      "SELECT id FROM user_characters WHERE user_id = ? AND character_id = ?",
+      [userId, charId]
+    );
+    if (owned.length > 0) {
+      return res.json({ success: false, message: "Bạn đã sở hữu nhân vật này rồi!" });
+    }
+
+    // 2) Lấy giá
+    const price = CHARACTER_PRICES[charId] ?? 20000;
+
+    // 3) Kiểm tra ecoin
+    const [userRows] = await db.query("SELECT ecoin FROM users WHERE id = ?", [userId]);
+    if (!userRows[0]) return res.json({ success: false, message: "User không tồn tại" });
+
+    const currentEcoin = Number(userRows[0].ecoin || 0);
+    if (currentEcoin < price) {
+      return res.json({
+        success: false,
+        message: `Không đủ Ecoin! Cần ${price.toLocaleString()}, bạn có ${currentEcoin.toLocaleString()}`
+      });
+    }
+
+    // 4) Trừ ecoin
+    if (price > 0) {
+      await db.query("UPDATE users SET ecoin = ecoin - ? WHERE id = ?", [price, userId]);
+    }
+
+    // 5) Thêm nhân vật vào kho
+    await db.query(`
+      INSERT INTO user_characters (user_id, character_id)
+      VALUES (?, ?)
+      ON DUPLICATE KEY UPDATE user_id = user_id
+    `, [userId, charId]);
+
+    // 6) Thêm skin mặc định (skin_number = 1) vào kho
+    const [defaultSkin] = await db.query(
+      "SELECT id FROM character_skins WHERE character_id = ? AND is_default = 1",
+      [charId]
+    );
+    if (defaultSkin[0]) {
+      await db.query(`
+        INSERT INTO user_skins (user_id, skin_id)
+        VALUES (?, ?)
+        ON DUPLICATE KEY UPDATE user_id = user_id
+      `, [userId, defaultSkin[0].id]);
+
+      // Set active skin cho nhân vật mới
+      await db.query(`
+        UPDATE user_characters SET active_skin_id = ? WHERE user_id = ? AND character_id = ?
+      `, [defaultSkin[0].id, userId, charId]);
+    }
+
+    // 7) Lấy ecoin mới
+    const [newUser] = await db.query("SELECT ecoin FROM users WHERE id = ?", [userId]);
+    const newEcoin = Number(newUser[0]?.ecoin || 0);
+
+    res.json({
+      success: true,
+      message: price > 0
+        ? `Mua thành công! -${price.toLocaleString()} Ecoin`
+        : "Nhận nhân vật miễn phí thành công!",
+      ecoin: newEcoin
+    });
+
+  } catch (err) {
+    console.error("POST /shop/buy-character error:", err);
+    res.status(500).json({ success: false, message: "Lỗi server khi mua nhân vật" });
+  }
+});
+
+// POST /shop/buy-skin — Mua trang phục (trừ ecoin)
+app.post("/shop/buy-skin", async (req, res) => {
+  try {
+    const { user_id, skin_id } = req.body;
+    if (!user_id || !skin_id) {
+      return res.json({ success: false, message: "Thiếu dữ liệu" });
+    }
+
+    const userId = Number(user_id);
+    const skinId = Number(skin_id);
+
+    // 1) Kiểm tra đã sở hữu chưa
+    const [owned] = await db.query(
+      "SELECT id FROM user_skins WHERE user_id = ? AND skin_id = ?",
+      [userId, skinId]
+    );
+    if (owned.length > 0) {
+      return res.json({ success: false, message: "Bạn đã sở hữu trang phục này rồi!" });
+    }
+
+    // 2) Lấy thông tin skin
+    const [skinRows] = await db.query(
+      "SELECT skin_number, character_id FROM character_skins WHERE id = ?",
+      [skinId]
+    );
+    if (!skinRows[0]) return res.json({ success: false, message: "Skin không tồn tại" });
+
+    const skinNumber = skinRows[0].skin_number;
+    const charId = skinRows[0].character_id;
+
+    // 3) Kiểm tra có sở hữu nhân vật không
+    const [ownedChar] = await db.query(
+      "SELECT id FROM user_characters WHERE user_id = ? AND character_id = ?",
+      [userId, charId]
+    );
+    if (ownedChar.length === 0) {
+      return res.json({ success: false, message: "Bạn cần sở hữu nhân vật trước khi mua trang phục!" });
+    }
+
+    // 4) Lấy giá
+    const price = SKIN_PRICES[skinNumber] ?? 15000;
+
+    // 5) Kiểm tra ecoin
+    const [userRows] = await db.query("SELECT ecoin FROM users WHERE id = ?", [userId]);
+    const currentEcoin = Number(userRows[0]?.ecoin || 0);
+    if (currentEcoin < price) {
+      return res.json({
+        success: false,
+        message: `Không đủ Ecoin! Cần ${price.toLocaleString()}, bạn có ${currentEcoin.toLocaleString()}`
+      });
+    }
+
+    // 6) Trừ ecoin
+    if (price > 0) {
+      await db.query("UPDATE users SET ecoin = ecoin - ? WHERE id = ?", [price, userId]);
+    }
+
+    // 7) Thêm vào kho
+    await db.query(`
+      INSERT INTO user_skins (user_id, skin_id)
+      VALUES (?, ?)
+      ON DUPLICATE KEY UPDATE user_id = user_id
+    `, [userId, skinId]);
+
+    // 8) Lấy ecoin mới
+    const [newUser] = await db.query("SELECT ecoin FROM users WHERE id = ?", [userId]);
+    const newEcoin = Number(newUser[0]?.ecoin || 0);
+
+    res.json({
+      success: true,
+      message: price > 0
+        ? `Mua trang phục thành công! -${price.toLocaleString()} Ecoin`
+        : "Nhận trang phục miễn phí!",
+      ecoin: newEcoin
+    });
+
+  } catch (err) {
+    console.error("POST /shop/buy-skin error:", err);
+    res.status(500).json({ success: false, message: "Lỗi server khi mua trang phục" });
+  }
+});
+
+// POST /shop/add-ecoin — Thêm ecoin cho user (nạp tiền)
+app.post("/shop/add-ecoin", async (req, res) => {
+  try {
+    const { user_id, amount } = req.body;
+    if (!user_id || !amount) {
+      return res.json({ success: false, message: "Thiếu dữ liệu" });
+    }
+
+    const userId = Number(user_id);
+    const addAmount = Number(amount);
+
+    if (addAmount <= 0) {
+      return res.json({ success: false, message: "Số Ecoin không hợp lệ" });
+    }
+
+    await db.query("UPDATE users SET ecoin = ecoin + ? WHERE id = ?", [addAmount, userId]);
+
+    const [newUser] = await db.query("SELECT ecoin FROM users WHERE id = ?", [userId]);
+    const newEcoin = Number(newUser[0]?.ecoin || 0);
+
+    res.json({
+      success: true,
+      message: `Nạp thành công +${addAmount.toLocaleString()} Ecoin!`,
+      ecoin: newEcoin
+    });
+  } catch (err) {
+    console.error("POST /shop/add-ecoin error:", err);
     res.status(500).json({ success: false, message: "Lỗi server" });
   }
 });

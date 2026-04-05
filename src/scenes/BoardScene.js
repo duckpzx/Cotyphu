@@ -1,7 +1,7 @@
-// src/scenes/BoardScene.js
 import PowerDiceSystem   from "./components/PowerDiceSystem.js";
 import TarotModalSystem  from "./components/TarotModalSystem.js";
 import TarotButtonWidget from "./components/TarotButtonWidget.js";
+import { getActiveProfile, getPlayerData } from "../server/utils/playerData.js";
 
 export default class BoardScene extends Phaser.Scene {
   constructor() {
@@ -1919,20 +1919,21 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
   create(data) {
     const { width, height } = this.scale;
 
-    let playerData = null;
-    try { playerData = JSON.parse(localStorage.getItem("playerData")); } catch(e) {}
+    let playerData = getPlayerData(this);
     if (!playerData) { this.scene.start("LoginScene"); return; }
 
     this.gameRoomId = data?.roomData?.id || null;
 
+    const activeProfile = getActiveProfile(this);
+
     if (data?.characterName) {
       this.playerName    = data.name || playerData?.user?.name || "Player";
-      this.mySkin        = data.skin ?? playerData?.active?.skin ?? 1;
-      this.characterName = data.characterName || playerData?.active?.characterName || "Dark_Oracle";
+      this.mySkin        = data.skin ?? activeProfile.skin_id ?? 1;
+      this.characterName = data.characterName || activeProfile.characterName || "Dark_Oracle";
     } else {
       this.playerName    = playerData?.user?.name || "Player";
-      this.characterName = playerData?.active?.characterName || "Dark_Oracle";
-      this.mySkin        = playerData?.active?.skin || 1;
+      this.characterName = activeProfile.characterName || "Dark_Oracle";
+      this.mySkin        = activeProfile.skin_id || 1;
     }
 
     const bg = this.add.image(width/2, height/2, "bg").setDisplaySize(width, height);

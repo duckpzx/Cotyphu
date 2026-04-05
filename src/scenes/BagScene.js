@@ -1,3 +1,5 @@
+import { getPlayerData, setPlayerData } from "../server/utils/playerData.js";
+
 export default class BagScene extends Phaser.Scene {
     constructor() {
         super("BagScene");
@@ -44,7 +46,7 @@ export default class BagScene extends Phaser.Scene {
         const { width, height } = this.scale;
 
         // Lấy playerData
-        try { this.playerData = JSON.parse(localStorage.getItem("playerData")); } catch(e) {}
+        this.playerData = getPlayerData(this) || {};
         this.playerUserId = this.playerData?.user_id || this.playerData?.user?.id || null;
 
         // ── Background ───────────────────────────────────────────────
@@ -371,6 +373,10 @@ export default class BagScene extends Phaser.Scene {
                         this.myCharacters.forEach(c => {
                             c.is_active_character = (Number(c.character_id) === Number(this.selectedCharId)) ? 1 : 0;
                         });
+                        if (this.playerData?.user) {
+                            this.playerData.user.active_character_id = this.selectedCharId;
+                            setPlayerData(this, this.playerData);
+                        }
                         this.showToast("✅ Đã trang bị nhân vật!");
                         this.buildLeftPanel();
                         this.renderRightPanel();
@@ -843,6 +849,16 @@ export default class BagScene extends Phaser.Scene {
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ skin_id: item.skinId }),
                     });
+                    
+                    if (this.playerData && this.playerData.characters) {
+                        let activeChar = this.playerData.characters.find(c => Number(c.id) === Number(this.selectedCharId));
+                        if (activeChar) {
+                            activeChar.active_skin_number = item.skinNum;
+                            activeChar.active_skin_id = item.skinId || item.id;
+                        }
+                        setPlayerData(this, this.playerData);
+                    }
+                    
                     this.showToast("✅ Đã đổi trang phục!");
                 } catch (e) {
                     console.warn("Save skin failed", e);

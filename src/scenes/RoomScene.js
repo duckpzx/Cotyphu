@@ -1,3 +1,5 @@
+import { getActiveProfile } from "../server/utils/playerData.js";
+
 export default class RoomScene extends Phaser.Scene {
 
   constructor() {
@@ -61,11 +63,10 @@ export default class RoomScene extends Phaser.Scene {
     this.load.image("versus2",       "assets/ui/shared/versus3.png");
 
     // Pre-load idle frames của người chơi hiện tại từ localStorage
-    const pd = this.registry.get("playerData")
-      || JSON.parse(localStorage.getItem("playerData") || "null");
-    const myCharName = pd?.active?.characterName;
-    const mySkinId   = pd?.active?.active_skin_id || 1;
-    this._myCharName = myCharName || null;
+    const activeProfile = getActiveProfile(this);
+    const myCharName = activeProfile.characterName;
+    const mySkinId   = activeProfile.skin_id;
+    this._myCharName = myCharName;
     this._mySkinId   = mySkinId;
 
     if (myCharName) {

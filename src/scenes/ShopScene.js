@@ -1,3 +1,6 @@
+import EcoinManager from "../server/utils/ecoinManager.js";
+import { getPlayerData, setPlayerData } from "../server/utils/playerData.js";
+
 // src/scenes/ShopScene.js
 export default class ShopScene extends Phaser.Scene {
     constructor() {
@@ -9,8 +12,8 @@ export default class ShopScene extends Phaser.Scene {
         this.activeTab = "character";  // "character" | "skin" | "background"
 
         // ── Dữ liệu shop (tất cả item trong game) ──
-        this.allCharacters  = [];   // { id, name, description, skin_number, image }
-        this.allSkins       = [];   // [{ skin_number: 1 }, { skin_number: 2 }, ...]  per-character
+        this.allCharacters  = [];   // { id, name, description, skin_number, image, price }
+        this.allShopSkins   = [];   // { skin_id, character_id, skin_number, character_name, price }
         this.allBackgrounds = [];   // tương lai
 
         // ── Dữ liệu sở hữu ──
@@ -49,9 +52,17 @@ export default class ShopScene extends Phaser.Scene {
     async create() {
         const { width, height } = this.scale;
 
-        try { this.playerData = JSON.parse(localStorage.getItem("playerData")); } catch(e) {}
+        EcoinManager.init(this);
+        this.playerData = getPlayerData(this) || {};
         this.playerUserId = this.playerData?.user_id || this.playerData?.user?.id || null;
-        this.playerEcoin  = Number(this.playerData?.user?.ecoin ?? 0);
+        this.playerEcoin = EcoinManager.get(this);
+        
+        EcoinManager.onChange(this, (newEcoin) => {
+            this.playerEcoin = newEcoin;
+            if (this._ecoinText) {
+                this._ecoinText.setText(EcoinManager.format(newEcoin));
+            }
+        });
 
         // ── Background ──
         const bg = this.add.image(width / 2, height / 2, "shop-bg");
@@ -120,17 +131,27 @@ export default class ShopScene extends Phaser.Scene {
     // ═══════════════════════════════════════════════════════════════
 
     async _loadShopData() {
-        // 1) Load tất cả nhân vật trong game
+        // 1) Load tất cả nhân vật kèm giá từ shop API
         try {
-            const res = await fetch("http://localhost:3000/characters");
+            const res = await fetch("http://localhost:3000/shop/characters");
             const json = await res.json();
             this.allCharacters = json.characters || [];
         } catch(e) {
             console.warn("Shop: Failed to load characters", e);
         }
 
-        // 2) Load nhân vật đã sở hữu
+        // 2) Load tất cả skin trong game kèm giá
+        try {
+            const res = await fetch("http://localhost:3000/shop/skins");
+            const json = await res.json();
+            this.allShopSkins = json.skins || [];
+        } catch(e) {
+            console.warn("Shop: Failed to load skins", e);
+            this.allShopSkins = [];
+        }
+
         if (this.playerUserId) {
+            // 3) Load nhân vật đã sở hữu
             try {
                 const res = await fetch(`http://localhost:3000/users/${this.playerUserId}/characters/bag`);
                 const json = await res.json();
@@ -138,37 +159,49 @@ export default class ShopScene extends Phaser.Scene {
             } catch(e) {
                 console.warn("Shop: Failed to load owned characters", e);
             }
+
+            // 4) Load skins sở hữu (từ login data)
+            this.ownedSkins = this.playerData?.skins || [];
+
+            // 5) Load ecoin thật từ server
+            this.playerEcoin = await EcoinManager.fetchFromServer(this, this.playerUserId);
         }
 
-        // 3) Load skins sở hữu (từ login data)
-        this.ownedSkins = this.playerData?.skins || [];
-
-        // 4) Tạo static pricing cho nhân vật
-        const CHAR_PRICES = {
-            1: 0,       // Dark_Oracle — miễn phí (starter)
-            2: 15000,   // Forest_Ranger
-            3: 25000,   // Golem
-            4: 25000,   // Minotaur
-            5: 0,       // Necromancer_of_the_Shadow (có thể free starter)
-            7: 35000,   // Reaper_Man
-            8: 10000,   // Zombie_Villager
-        };
-        this.allCharacters.forEach(c => {
-            c.price = CHAR_PRICES[c.id] ?? 20000;
-        });
-
-        // 5) Load sprite idle frames cho tất cả nhân vật
+        // 6) Load sprite idle frames cho tất cả nhân vật
         await this._loadAllCharacterSprites();
     }
 
     async _loadAllCharacterSprites() {
         let needsLoad = false;
-
+        
+        const requiredSprites = [];
+        
+        // Add from characters
         for (const char of this.allCharacters) {
-            const charName = char.name;
-            if (!charName) continue;
+            if (char.name) {
+                requiredSprites.push({ charName: char.name, skinNum: char.skin_number || 1 });
+            }
+        }
+        
+        // Add from shop skins (this includes 1, 2, 3)
+        for (const skin of this.allShopSkins) {
+            if (skin.character_name) {
+                requiredSprites.push({ charName: skin.character_name, skinNum: skin.skin_number || 1 });
+            }
+        }
+        
+        // Deduplicate
+        const uniqueSprites = [];
+        const seen = new Set();
+        for (const item of requiredSprites) {
+            const key = `${item.charName}_${item.skinNum}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                uniqueSprites.push(item);
+            }
+        }
 
-            const skinNum = char.skin_number || 1;
+        for (const { charName, skinNum } of uniqueSprites) {
             for (let i = 0; i < 18; i++) {
                 const num = String(i).padStart(3, "0");
                 const frameKey = `shop_${charName}_${skinNum}_idle_${num}`;
@@ -190,9 +223,7 @@ export default class ShopScene extends Phaser.Scene {
         }
 
         // Tạo animation
-        for (const char of this.allCharacters) {
-            const charName = char.name;
-            const skinNum = char.skin_number || 1;
+        for (const { charName, skinNum } of uniqueSprites) {
             const animKey = `shop_${charName}_${skinNum}_idle`;
             if (this.anims.exists(animKey)) continue;
 
@@ -291,7 +322,7 @@ export default class ShopScene extends Phaser.Scene {
         const push = o => { this._headerObjs.push(o); return o; };
 
         // Ecoin badge ở góc trên phải
-        const badgeW = 200, badgeH = 36;
+        const badgeW = 230, badgeH = 36;
         const bx = width - 30 - badgeW / 2;
         const by = 28;
 
@@ -301,14 +332,176 @@ export default class ShopScene extends Phaser.Scene {
         hg.lineStyle(2, 0xd4a030, 0.9);
         hg.strokeRoundedRect(bx - badgeW / 2, by - badgeH / 2, badgeW, badgeH, badgeH / 2);
 
-        const coinIcon = push(this.add.image(bx - badgeW / 2 + 22, by, "coin")
+        push(this.add.image(bx - badgeW / 2 + 22, by, "coin")
             .setDisplaySize(28, 28).setDepth(101));
 
-        this._ecoinText = push(this.add.text(bx + 10, by, this._formatMoney(this.playerEcoin), {
+        this._ecoinText = push(this.add.text(bx - 5, by, this._formatMoney(this.playerEcoin), {
             fontFamily: "Signika", fontSize: "16px",
             color: "#ffe066", fontStyle: "bold",
             stroke: "#000000", strokeThickness: 2,
         }).setOrigin(0.5).setDepth(101));
+
+        // Nút + (Nạp Ecoin)
+        const plusX = bx + badgeW / 2 - 22;
+        const plusG = push(this.add.graphics().setDepth(101));
+        plusG.fillStyle(0x44bb44, 1);
+        plusG.fillCircle(plusX, by, 14);
+        plusG.lineStyle(2, 0xffffff, 0.6);
+        plusG.strokeCircle(plusX, by, 14);
+
+        const plusTxt = push(this.add.text(plusX, by, "+", {
+            fontFamily: "Signika", fontSize: "22px",
+            color: "#ffffff", fontStyle: "bold",
+        }).setOrigin(0.5).setDepth(102));
+
+        const plusZone = push(this.add.zone(plusX, by, 30, 30)
+            .setInteractive({ useHandCursor: true }).setDepth(103));
+        plusZone.on("pointerover", () => { plusG.clear(); plusG.fillStyle(0x66dd66, 1); plusG.fillCircle(plusX, by, 15); plusG.lineStyle(2, 0xffffff, 0.9); plusG.strokeCircle(plusX, by, 15); });
+        plusZone.on("pointerout", () => { plusG.clear(); plusG.fillStyle(0x44bb44, 1); plusG.fillCircle(plusX, by, 14); plusG.lineStyle(2, 0xffffff, 0.6); plusG.strokeCircle(plusX, by, 14); });
+        plusZone.on("pointerup", () => this._showEcoinModal());
+    }
+
+    _showEcoinModal() {
+        const { width, height } = this.scale;
+
+        // Overlay mờ
+        const _modalObjs = [];
+        const push = o => { _modalObjs.push(o); return o; };
+
+        const overlay = push(this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.6)
+            .setDepth(500).setInteractive());
+
+        // Panel
+        const PW = 480, PH = 380;
+        const px = width / 2, py = height / 2;
+
+        const panelG = push(this.add.graphics().setDepth(501));
+        panelG.fillStyle(0xfff0d0, 1);
+        panelG.fillRoundedRect(px - PW / 2, py - PH / 2, PW, PH, 20);
+        panelG.fillStyle(0xffffff, 0.35);
+        panelG.fillRoundedRect(px - PW / 2 + 4, py - PH / 2 + 4, PW - 8, PH * 0.15, 18);
+        panelG.lineStyle(4, 0x8b5e1a, 1);
+        panelG.strokeRoundedRect(px - PW / 2, py - PH / 2, PW, PH, 20);
+
+        // Tiêu đề
+        const titleG = push(this.add.graphics().setDepth(502));
+        titleG.fillStyle(0xd4a030, 1);
+        titleG.fillRoundedRect(px - 85, py - PH / 2 + 12, 170, 34, 17);
+        titleG.fillStyle(0xfff5b0, 0.40);
+        titleG.fillRoundedRect(px - 83, py - PH / 2 + 13, 166, 14, 12);
+        titleG.lineStyle(2.5, 0x8b5e1a, 1);
+        titleG.strokeRoundedRect(px - 85, py - PH / 2 + 12, 170, 34, 17);
+
+        push(this.add.text(px, py - PH / 2 + 29, "💰 NẠP ECOIN", {
+            fontFamily: "Signika", fontSize: "16px",
+            color: "#4a2000", fontStyle: "bold",
+        }).setOrigin(0.5).setDepth(503));
+
+        // Các gói nạp
+        const packages = [
+            { amount: 10000,    label: "10.000",     icon: "🪙",  color: 0x6a8ab0 },
+            { amount: 50000,    label: "50.000",     icon: "💰",  color: 0x44aa44 },
+            { amount: 200000,   label: "200.000",    icon: "💎",  color: 0x8844cc },
+            { amount: 1000000,  label: "1.000.000",  icon: "👑",  color: 0xd4a030 },
+        ];
+
+        const startY = py - PH / 2 + 75;
+        const cardW = 100, cardH = 130, gap = 12;
+        const totalCardsW = packages.length * cardW + (packages.length - 1) * gap;
+        const startX = px - totalCardsW / 2;
+
+        packages.forEach((pkg, i) => {
+            const cx = startX + i * (cardW + gap) + cardW / 2;
+            const cy = startY + cardH / 2;
+
+            const cg = push(this.add.graphics().setDepth(502));
+            const drawPkgCard = (hover = false) => {
+                cg.clear();
+                cg.fillStyle(0x000000, 0.18);
+                cg.fillRoundedRect(cx - cardW / 2 + 2, cy - cardH / 2 + 3, cardW, cardH, 12);
+                cg.fillStyle(pkg.color, hover ? 0.95 : 0.8);
+                cg.fillRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, 12);
+                cg.fillStyle(0xffffff, hover ? 0.25 : 0.15);
+                cg.fillRoundedRect(cx - cardW / 2 + 6, cy - cardH / 2 + 5, cardW - 12, cardH * 0.3, 8);
+                cg.lineStyle(2, 0xffffff, hover ? 0.6 : 0.3);
+                cg.strokeRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, 12);
+            };
+            drawPkgCard();
+
+            push(this.add.text(cx, cy - 30, pkg.icon, { fontSize: "32px" }).setOrigin(0.5).setDepth(503));
+            push(this.add.text(cx, cy + 10, pkg.label, {
+                fontFamily: "Signika", fontSize: "14px",
+                color: "#ffffff", fontStyle: "bold",
+                stroke: "#000000", strokeThickness: 2,
+            }).setOrigin(0.5).setDepth(503));
+            push(this.add.text(cx, cy + 30, "Ecoin", {
+                fontFamily: "Signika", fontSize: "11px", color: "#ffe066",
+            }).setOrigin(0.5).setDepth(503));
+
+            // Nút chọn
+            const btnY2 = cy + cardH / 2 - 16;
+            const btnG = push(this.add.graphics().setDepth(502));
+            btnG.fillStyle(0xffffff, 0.25);
+            btnG.fillRoundedRect(cx - 35, btnY2 - 10, 70, 20, 10);
+
+            push(this.add.text(cx, btnY2, "Chọn", {
+                fontFamily: "Signika", fontSize: "11px", color: "#ffffff", fontStyle: "bold",
+            }).setOrigin(0.5).setDepth(503));
+
+            const zone = push(this.add.zone(cx, cy, cardW, cardH)
+                .setInteractive({ useHandCursor: true }).setDepth(504));
+            zone.on("pointerover", () => drawPkgCard(true));
+            zone.on("pointerout",  () => drawPkgCard(false));
+            zone.on("pointerup", async () => {
+                await this._addEcoin(pkg.amount);
+                _modalObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
+            });
+        });
+
+        // Nút đóng
+        const closeY = py + PH / 2 - 40;
+        const closeG = push(this.add.graphics().setDepth(502));
+        closeG.fillStyle(0xcc4444, 0.9);
+        closeG.fillRoundedRect(px - 50, closeY - 16, 100, 32, 16);
+        closeG.lineStyle(2, 0xffffff, 0.3);
+        closeG.strokeRoundedRect(px - 50, closeY - 16, 100, 32, 16);
+
+        push(this.add.text(px, closeY, "✕ Đóng", {
+            fontFamily: "Signika", fontSize: "14px", color: "#ffffff", fontStyle: "bold",
+        }).setOrigin(0.5).setDepth(503));
+
+        const closeZone = push(this.add.zone(px, closeY, 100, 32)
+            .setInteractive({ useHandCursor: true }).setDepth(504));
+        closeZone.on("pointerup", () => {
+            _modalObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
+        });
+    }
+
+    async _addEcoin(amount) {
+        if (!this.playerUserId) return;
+        try {
+            const res = await fetch("http://localhost:3000/shop/add-ecoin", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ user_id: this.playerUserId, amount }),
+            });
+            const json = await res.json();
+            if (json.success) {
+                this.playerEcoin = json.ecoin;
+                this._refreshEcoinUI();
+                if (this.playerData?.user) {
+                    this.playerData.user.ecoin = json.ecoin;
+                    localStorage.setItem("playerData", JSON.stringify(this.playerData));
+                }
+                this.showToast(`✅ ${json.message}`);
+                this.buildLeftPanel(); // refresh buy buttons
+            } else {
+                this.showToast(`❌ ${json.message}`);
+            }
+        } catch(e) {
+            console.warn("Add ecoin error:", e);
+            this.showToast("❌ Lỗi kết nối!");
+        }
     }
 
     _refreshEcoinUI() {
@@ -640,40 +833,35 @@ export default class ShopScene extends Phaser.Scene {
 
     _buildSkinItems() {
         const items = [];
-        const SKIN_PRICES = { 1: 0, 2: 15000, 3: 35000 };
         const SKIN_LABELS = { 1: "Sơ cấp", 2: "Trung cấp", 3: "Cao cấp" };
 
-        for (const char of this.allCharacters) {
-            for (let skinNum = 1; skinNum <= 3; skinNum++) {
-                const frameKey = `shop_${char.name}_${skinNum}_idle_000`;
-                const isOwnedChar = this._isCharOwned(char.id);
-                // Skin 1 = default, sở hữu nếu đã có nhân vật
-                const isOwnedSkin = skinNum === 1 ? isOwnedChar :
-                    this.ownedSkins.some(s => Number(s.skin_id) === this._getSkinId(char.id, skinNum));
+        for (const skin of this.allShopSkins) {
+            const charName = skin.character_name;
+            const skinNum = skin.skin_number;
+            const frameKey = `shop_${charName}_${skinNum}_idle_000`;
+            const isOwnedChar = this._isCharOwned(skin.character_id);
+            // Skin mặc định sở hữu nếu đã có nhân vật
+            const isOwnedSkin = skin.is_default
+                ? isOwnedChar
+                : this.ownedSkins.some(s => Number(s.skin_id) === Number(skin.skin_id));
 
-                items.push({
-                    id: `${char.id}_${skinNum}`,
-                    type: "skin",
-                    charName: char.name,
-                    name: `${char.name}`,
-                    skinNum,
-                    description: `${SKIN_LABELS[skinNum]} — ${this._getDisplayName(char.name)}`,
-                    price: SKIN_PRICES[skinNum] ?? 15000,
-                    imgKey: frameKey,
-                    isOwned: isOwnedSkin,
-                    isActive: false,
-                    charId: char.id,
-                    label: `${SKIN_LABELS[skinNum]}`
-                });
-            }
+            items.push({
+                id: skin.skin_id,
+                type: "skin",
+                charName,
+                name: charName,
+                skinNum,
+                description: `${SKIN_LABELS[skinNum] || `Skin ${skinNum}`} — ${this._getDisplayName(charName)}`,
+                price: skin.price || 0,
+                imgKey: frameKey,
+                isOwned: isOwnedSkin,
+                isActive: false,
+                charId: skin.character_id,
+                skinId: skin.skin_id,
+                label: `${SKIN_LABELS[skinNum] || `Skin ${skinNum}`}`
+            });
         }
         return items;
-    }
-
-    _getSkinId(charId, skinNum) {
-        // Tạm tính skin_id dựa trên pattern: (charId - 1) * 3 + skinNum
-        // Cần điều chỉnh theo DB thực tế
-        return (charId - 1) * 3 + skinNum;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -841,30 +1029,39 @@ export default class ShopScene extends Phaser.Scene {
 
         if (item.type === "character") {
             try {
-                // Insert vào user_characters
-                const res = await fetch(`http://localhost:3000/create-character`, {
+                const res = await fetch("http://localhost:3000/shop/buy-character", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         user_id: this.playerUserId,
                         character_id: item.id,
-                        name: this.playerData?.user?.name || "Player"
                     }),
                 });
                 const json = await res.json();
                 if (json.success) {
-                    // Trừ tiền local
-                    this.playerEcoin -= (item.price || 0);
-                    this._refreshEcoinUI();
+                    // Cập nhật ecoin qua EcoinManager
+                    EcoinManager.set(this, json.ecoin);
 
-                    // Cập nhật owned
+                    // Cập nhật owned characters cho ShopScene
                     this.ownedCharacters.push({
                         character_id: item.id,
                         name: item.name,
                         active_skin_number: 1,
                     });
 
-                    this.showToast("✅ Mua nhân vật thành công!");
+                    // Cập nhật global playerData để LobbyScene & BagScene có thể thấy
+                    if (this.playerData) {
+                        if (!this.playerData.characters) this.playerData.characters = [];
+                        this.playerData.characters.push({
+                            id: item.id,
+                            name: item.name,
+                            active_skin_id: null,
+                            active_skin_number: 1
+                        });
+                        setPlayerData(this, this.playerData);
+                    }
+
+                    this.showToast(`✅ ${json.message}`);
                     this.buildLeftPanel();
                     this.renderRightPanel();
                 } else {
@@ -875,8 +1072,42 @@ export default class ShopScene extends Phaser.Scene {
                 this.showToast("❌ Lỗi kết nối!");
             }
         } else if (item.type === "skin") {
-            // TODO: Khi có API mua skin
-            this.showToast("⚠️ Tính năng mua trang phục đang phát triển!");
+            if (!item.skinId) {
+                this.showToast("❌ Dữ liệu skin không hợp lệ!");
+                return;
+            }
+            try {
+                const res = await fetch("http://localhost:3000/shop/buy-skin", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        user_id: this.playerUserId,
+                        skin_id: item.skinId,
+                    }),
+                });
+                const json = await res.json();
+                if (json.success) {
+                    EcoinManager.set(this, json.ecoin);
+                    // Thêm vào owned skins
+                    this.ownedSkins.push({ skin_id: item.skinId });
+
+                    // Cập nhật global playerData
+                    if (this.playerData) {
+                        if (!this.playerData.skins) this.playerData.skins = [];
+                        this.playerData.skins.push({ skin_id: item.skinId });
+                        setPlayerData(this, this.playerData);
+                    }
+
+                    this.showToast(`✅ ${json.message}`);
+                    this.buildLeftPanel();
+                    this.renderRightPanel();
+                } else {
+                    this.showToast(`❌ ${json.message || "Lỗi mua trang phục"}`);
+                }
+            } catch(e) {
+                console.warn("Buy skin error:", e);
+                this.showToast("❌ Lỗi kết nối!");
+            }
         }
     }
 
@@ -893,7 +1124,7 @@ export default class ShopScene extends Phaser.Scene {
                 // Cập nhật local
                 if (this.playerData?.user) {
                     this.playerData.user.active_character_id = item.id;
-                    localStorage.setItem("playerData", JSON.stringify(this.playerData));
+                    setPlayerData(this, this.playerData);
                 }
                 this.showToast("✅ Đã trang bị nhân vật!");
                 this.buildLeftPanel();

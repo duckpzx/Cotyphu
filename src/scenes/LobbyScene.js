@@ -1,4 +1,5 @@
-import { getPlayerData, setPlayerData } from "../server/utils/playerData.js";
+import { getPlayerData, setPlayerData, getActiveProfile } from "../server/utils/playerData.js";
+import EcoinManager from "../server/utils/ecoinManager.js";
 
 // src/scenes/LobbyScene.js
 export default class LobbyScene extends Phaser.Scene {
@@ -26,14 +27,13 @@ export default class LobbyScene extends Phaser.Scene {
     const { width, height } = this.scale;
 
     this.player = getPlayerData(this);
+    EcoinManager.init(this);
 
     this.playerName = this.player?.user?.name || "Player";
+    const activeProfile = getActiveProfile(this);
 
-    const activeId = this.player?.user?.active_character_id;
-    const character = this.player?.characters?.find(c => c.id === activeId);
-
-    this.playerSkin = character?.image;
-    this.characterName = character?.name;
+    this.playerSkin = activeProfile.skin_id;
+    this.characterName = activeProfile.characterName;
 
     // ===== NỀN SẢNH =====
     const bg = this.add.image(width / 2, height / 2, "lobby-bg");
@@ -273,12 +273,12 @@ createTopBar() {
     .setDepth(103);
 
   // Text Coin
-  const ecoinValue = Number(this.player?.user?.ecoin ?? 0);
+  const ecoinValue = EcoinManager.get(this);
 
   const coinText = this.add.text(
     coinIcon.x + 50,
     y,
-    ecoinValue.toLocaleString("en-US"),
+    EcoinManager.format(ecoinValue),
     {
       fontFamily: "Signika",
       fontSize: "22px",
@@ -289,6 +289,11 @@ createTopBar() {
   )
   .setOrigin(0, 0.5)
   .setDepth(103);
+
+  // Sync real-time
+  EcoinManager.onChange(this, (newEcoin) => {
+      coinText.setText(EcoinManager.format(newEcoin));
+  });
 
   // Nút cộng (+) - Giống trong ảnh mẫu của bạn
   const plusBtn = this.add.text(coinX + bgWidth - 25, y, "+", {

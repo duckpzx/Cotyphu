@@ -56,22 +56,21 @@ const characterRepo = {
   },
 
   async getCharactersByUser(user_id){
-
     const [rows] = await db.query(`
       SELECT 
         uc.character_id AS id,
         c.name,
-        uc.active_skin_id,
-        s.image
+        COALESCE(uc.active_skin_id, defaultSkin.id) AS active_skin_id,
+        COALESCE(activeSkin.skin_number, defaultSkin.skin_number, 1) AS active_skin_number,
+        COALESCE(activeSkin.image, defaultSkin.image) AS image
       FROM user_characters uc
       JOIN characters c ON c.id = uc.character_id
-      LEFT JOIN character_skins s 
-        ON s.character_id = c.id AND s.is_default = 1
+      LEFT JOIN character_skins activeSkin ON activeSkin.id = uc.active_skin_id
+      LEFT JOIN character_skins defaultSkin ON defaultSkin.character_id = c.id AND defaultSkin.is_default = 1
       WHERE uc.user_id = ?
     `, [user_id]);
 
     return rows;
-
   },
 
   async getOwnedCharactersForBag(user_id) {
