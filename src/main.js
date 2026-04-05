@@ -5,6 +5,9 @@ import TarotScene from "./scenes/TarotScene.js";
 import RegisterScene from "./scenes/RegisterScene.js";
 import LoginScene from "./scenes/LoginScene.js";
 import CreateCharacterScene from "./scenes/CreateCharacterScene.js";
+import RoomListScene from "./scenes/RoomListScene.js";
+import RoomScene from "./scenes/RoomScene.js"
+import BagScene from "./scenes/BagScene.js";
 
 window.onload = function () {
   const root = document.getElementById("root-game");
@@ -32,7 +35,7 @@ window.onload = function () {
       width: rect.width,
       height: rect.height,
     },
-    scene: [LoginScene, LobbyScene, CreateCharacterScene, RegisterScene, BoardScene, TarotScene],
+    scene: [LoginScene, BoardScene, RegisterScene, RoomScene, LobbyScene, RoomListScene, CreateCharacterScene, TarotScene, BagScene],
     physics: {
       default: "arcade",
       arcade: { debug: false },

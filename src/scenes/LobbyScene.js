@@ -1,3 +1,5 @@
+import { getPlayerData, setPlayerData } from "../server/utils/playerData.js";
+
 // src/scenes/LobbyScene.js
 export default class LobbyScene extends Phaser.Scene {
   constructor() {
@@ -20,11 +22,18 @@ export default class LobbyScene extends Phaser.Scene {
     this.load.image("friend","assets/ui/lobby/friend.png");
   }
 
-  create(data) {
+  create() {
     const { width, height } = this.scale;
-    this.playerName = data?.name || "Player";
-    this.playerSkin = data?.character;
-    this.characterName = data.characterName;
+
+    this.player = getPlayerData(this);
+
+    this.playerName = this.player?.user?.name || "Player";
+
+    const activeId = this.player?.user?.active_character_id;
+    const character = this.player?.characters?.find(c => c.id === activeId);
+
+    this.playerSkin = character?.image;
+    this.characterName = character?.name;
 
     // ===== NỀN SẢNH =====
     const bg = this.add.image(width / 2, height / 2, "lobby-bg");
@@ -56,7 +65,7 @@ export default class LobbyScene extends Phaser.Scene {
       this.cameras.main.fadeOut(200);
 
       this.cameras.main.once("camerafadeoutcomplete", () => {
-        this.scene.start("BoardScene",{
+        this.scene.start("RoomListScene",{
           name: this.playerName,
           skin: this.playerSkin,
           characterName: this.characterName
@@ -110,18 +119,16 @@ export default class LobbyScene extends Phaser.Scene {
         .setOrigin(0.5)
         .setInteractive({ cursor: "pointer" });
 
-      // glow xanh nhạt quanh chữ
       txt.setShadow(0, 0, "#00000055", 12, true, true);
 
       txt.on("pointerup", () => {
         console.log("Click menu:", item.key);
-        // TODO: sau này bạn start scene tương ứng, ví dụ:
       });
 
       this.islandTexts.push({ text: txt, config: item });
-
-      this.createTopBar();
     });
+
+    this.createTopBar();
 
     // ===== handle khi resize màn hình =====
     this.scale.on("resize", (gameSize) => {
@@ -266,13 +273,20 @@ createTopBar() {
     .setDepth(103);
 
   // Text Coin
-  const coinText = this.add.text(coinIcon.x + 50, y, "292,668", {
-    fontFamily: "Signika",
-    fontSize: "22px",
-    fontWeight: 600,
-    color: "#ffffff",
-    padding: { left: 15 }
-  })
+  const ecoinValue = Number(this.player?.user?.ecoin ?? 0);
+
+  const coinText = this.add.text(
+    coinIcon.x + 50,
+    y,
+    ecoinValue.toLocaleString("en-US"),
+    {
+      fontFamily: "Signika",
+      fontSize: "22px",
+      fontWeight: 600,
+      color: "#ffffff",
+      padding: { left: 15 }
+    }
+  )
   .setOrigin(0, 0.5)
   .setDepth(103);
 
@@ -320,7 +334,15 @@ createTopBar() {
   const bag = this.add.image(iconStartX + gap * 2, y - 5, "bag")
     .setScale(1)
     .setDepth(103)
-    .setInteractive({ cursor: 'pointer' }); // Thêm ở đây
+    .setInteractive({ cursor: 'pointer' });
+
+  bag.on("pointerup", () => {
+    this.cameras.main.fadeOut(200);
+
+    this.cameras.main.once("camerafadeoutcomplete", () => {
+      this.scene.start("BagScene");
+    });
+  });
 
   const tarot = this.add.image(iconStartX + gap * 3, y - 5, "tarot")
     .setScale(1)

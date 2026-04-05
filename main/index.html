@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tam giác Pascal mod 10</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Signika:wght@300..700&display=swap" rel="stylesheet"><style>
+  :root {
+    --c0: #ff6b6b;
+    --c1: #ffa07a;
+    --c2: #ffd166;
+    --c3: #06d6a0;
+    --c4: #4ecdc4;
+    --c5: #45b7d1;
+    --c6: #96ceb4;
+    --c7: #a29bfe;
+    --c8: #fd79a8;
+    --c9: #e17055;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    min-height: 100vh;
+    background: #0a0a1a;
+    font-family: "Signika", sans-serif;
+    overflow-x: hidden;
+    position: relative;
+  }
+
+  /* Animated background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at 20% 20%, rgba(138, 43, 226, 0.25) 0%, transparent 55%),
+      radial-gradient(ellipse at 80% 80%, rgba(255, 107, 107, 0.2) 0%, transparent 55%),
+      radial-gradient(ellipse at 50% 50%, rgba(69, 183, 209, 0.15) 0%, transparent 60%);
+    animation: bgShift 12s ease-in-out infinite alternate;
+    z-index: 0;
+  }
+
+  @keyframes bgShift {
+    0%   { filter: hue-rotate(0deg); }
+    100% { filter: hue-rotate(45deg); }
+  }
+
+  /* Floating orbs */
+  .orb {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.3;
+    pointer-events: none;
+    z-index: 0;
+    animation: float linear infinite;
+  }
+  .orb1 { width:400px; height:400px; background:#a29bfe; top:-100px; left:-100px; animation-duration: 20s; }
+  .orb2 { width:300px; height:300px; background:#fd79a8; bottom:-80px; right:-80px; animation-duration: 25s; animation-delay:-8s; }
+  .orb3 { width:250px; height:250px; background:#4ecdc4; top:50%; left:60%; animation-duration: 18s; animation-delay:-4s; }
+
+  @keyframes float {
+    0%,100% { transform: translate(0,0) scale(1); }
+    33%      { transform: translate(30px,-30px) scale(1.05); }
+    66%      { transform: translate(-20px,20px) scale(0.95); }
+  }
+
+  .wrapper {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px 60px;
+  }
+
+  /* Glass card */
+  .glass-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 28px;
+    padding: 40px 50px;
+    backdrop-filter: blur(30px);
+    -webkit-backdrop-filter: blur(30px);
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.15);
+    width: 100%;
+    max-width: 700px;
+    margin-bottom: 40px;
+  }
+
+  h1 {
+    font-family: "Signika", sans-serif;
+    font-size: 1.6rem;
+    font-weight: 900;
+    letter-spacing: 2px;
+    background: linear-gradient(135deg, #a29bfe, #fd79a8, #ffd166);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+
+  .subtitle {
+    color: rgba(255,255,255,0.4);
+    font-size: 0.95rem;
+    text-align: center;
+    letter-spacing: 1px;
+    margin-bottom: 32px;
+  }
+
+  .input-group {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    margin-bottom: 16px;
+  }
+
+  input[type="text"] {
+    flex: 1;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 14px;
+    padding: 14px 20px;
+    font-size: 1.15rem;
+    color: #fff;
+    font-family: "Signika", sans-serif;
+    letter-spacing: 4px;
+    outline: none;
+    transition: border-color 0.3s, box-shadow 0.3s, background 0.3s;
+    backdrop-filter: blur(10px);
+  }
+
+  input[type="text"]::placeholder { color: rgba(255,255,255,0.25); letter-spacing: 2px; font-size: 0.9rem; }
+  input[type="text"]:focus {
+    border-color: rgba(162,155,254,0.6);
+    background: rgba(255,255,255,0.09);
+    box-shadow: 0 0 0 3px rgba(162,155,254,0.15), 0 0 30px rgba(162,155,254,0.1);
+  }
+
+  .btn {
+    padding: 14px 28px;
+    border-radius: 14px;
+    border: none;
+    cursor: pointer;
+    font-family: "Signika", sans-serif;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, #a29bfe, #fd79a8);
+    color: #fff;
+    box-shadow: 0 8px 30px rgba(162,155,254,0.35);
+  }
+  .btn-primary::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, #fd79a8, #a29bfe);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .btn-primary:hover::before { opacity: 1; }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 40px rgba(162,155,254,0.45); }
+  .btn-primary:active { transform: translateY(0); }
+  .btn-primary span { position: relative; z-index: 1; }
+
+  .btn-reset {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.6);
+    backdrop-filter: blur(10px);
+  }
+  .btn-reset:hover { background: rgba(255,255,255,0.1); color: #fff; transform: translateY(-2px); }
+
+  .info-bar {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .badge {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 30px;
+    padding: 6px 16px;
+    font-size: 0.82rem;
+    color: rgba(255,255,255,0.55);
+    letter-spacing: 1px;
+  }
+  .badge strong { color: rgba(255,255,255,0.9); }
+
+  /* Triangle container */
+  #triangle-wrapper {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+  }
+
+  #triangle {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .row {
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  .cell {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Signika", sans-serif;
+    font-size: 1.5rem;
+    font-weight: 700;
+    cursor: default;
+    user-select: none;
+    position: relative;
+    transition: transform 0.2s, box-shadow 0.2s;
+    animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .cell:hover {
+    transform: scale(1.25) translateY(-3px);
+    z-index: 10;
+  }
+
+  @keyframes popIn {
+    from { opacity: 0; transform: scale(0.3) rotate(-15deg); }
+    to   { opacity: 1; transform: scale(1)   rotate(0deg); }
+  }
+
+  /* Color per digit 0-9 */
+  .d0 { background: rgba(255,107,107,0.25); border: 1.5px solid rgba(255,107,107,0.6); color: #ff6b6b; box-shadow: 0 0 18px rgba(255,107,107,0.3); }
+  .d1 { background: rgba(255,160,122,0.25); border: 1.5px solid rgba(255,160,122,0.6); color: #ffa07a; box-shadow: 0 0 18px rgba(255,160,122,0.3); }
+  .d2 { background: rgba(255,209,102,0.25); border: 1.5px solid rgba(255,209,102,0.6); color: #ffd166; box-shadow: 0 0 18px rgba(255,209,102,0.3); }
+  .d3 { background: rgba(6,214,160,0.2);    border: 1.5px solid rgba(6,214,160,0.6);   color: #06d6a0; box-shadow: 0 0 18px rgba(6,214,160,0.3); }
+  .d4 { background: rgba(78,205,196,0.2);   border: 1.5px solid rgba(78,205,196,0.6);  color: #4ecdc4; box-shadow: 0 0 18px rgba(78,205,196,0.3); }
+  .d5 { background: rgba(69,183,209,0.2);   border: 1.5px solid rgba(69,183,209,0.6);  color: #45b7d1; box-shadow: 0 0 18px rgba(69,183,209,0.3); }
+  .d6 { background: rgba(150,206,180,0.2);  border: 1.5px solid rgba(150,206,180,0.6); color: #96ceb4; box-shadow: 0 0 18px rgba(150,206,180,0.3); }
+  .d7 { background: rgba(162,155,254,0.25); border: 1.5px solid rgba(162,155,254,0.6); color: #a29bfe; box-shadow: 0 0 18px rgba(162,155,254,0.3); }
+  .d8 { background: rgba(253,121,168,0.25); border: 1.5px solid rgba(253,121,168,0.6); color: #fd79a8; box-shadow: 0 0 18px rgba(253,121,168,0.3); }
+  .d9 { background: rgba(225,112,85,0.25);  border: 1.5px solid rgba(225,112,85,0.6);  color: #e17055; box-shadow: 0 0 18px rgba(225,112,85,0.3); }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 30px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.45);
+  }
+  .legend-dot {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.7rem; font-weight: 700;
+    font-family: "Signika", sans-serif;
+  }
+
+  .empty-state {
+    color: rgba(255,255,255,0.2);
+    font-size: 1rem;
+    letter-spacing: 2px;
+    padding: 40px;
+    font-family: "Signika", sans-serif;
+  }
+
+  .error-msg {
+    color: #ff6b6b;
+    font-size: 0.88rem;
+    margin-top: 8px;
+    letter-spacing: 1px;
+    min-height: 20px;
+  }
+
+  /* Scrollable if big */
+  #triangle-section {
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: visible;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 10px 40px;
+  }
+</style>
+</head>
+<body>
+
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
+<div class="orb orb3"></div>
+
+<div class="wrapper">
+  <div class="glass-card">
+    <h1>PASCAL MOD10</h1>
+    <p class="subtitle">Nhập dãy số · Xem tam giác hội tụ</p>
+
+    <div class="input-group">
+      <input id="inputSequence" type="text" placeholder="Ví dụ: 0382939331" maxlength="20" autocomplete="off" />
+      <button class="btn btn-primary" onclick="generateTriangle()"><span>TẠO</span></button>
+      <button class="btn btn-reset" onclick="resetTriangle()">Reset</button>
+    </div>
+    <div class="error-msg" id="errMsg"></div>
+
+    <div class="info-bar" id="infoBar" style="display:none">
+      <div class="badge">Hàng đầu: <strong id="infoLen">—</strong> chữ số</div>
+      <div class="badge">Tổng hàng: <strong id="infoRows">—</strong></div>
+      <div class="badge">Kết quả: <strong id="infoLast">—</strong></div>
+    </div>
+  </div>
+
+  <div id="triangle-section">
+    <div id="triangle-wrapper">
+      <div id="triangle">
+        <div class="empty-state">✦ Nhập dãy số để bắt đầu ✦</div>
+      </div>
+    </div>
+
+    <div class="legend" id="legend" style="display:none"></div>
+  </div>
+</div>
+
+<script>
+  let allRows = [];
+
+  function generateTriangle() {
+    const input = document.getElementById('inputSequence').value.trim();
+    const err = document.getElementById('errMsg');
+    err.textContent = '';
+
+    if (!input) { err.textContent = '⚠ Vui lòng nhập dãy số.'; return; }
+    if (!/^\d+$/.test(input)) { err.textContent = '⚠ Chỉ nhập chữ số 0–9, không có ký tự khác.'; return; }
+    if (input.length < 2) { err.textContent = '⚠ Cần ít nhất 2 chữ số.'; return; }
+
+    allRows = [input.split('').map(Number)];
+    while (allRows[allRows.length - 1].length > 1) {
+      const prev = allRows[allRows.length - 1];
+      allRows.push(prev.slice(0, -1).map((v, i) => (v + prev[i + 1]) % 10));
+    }
+
+    render();
+    updateInfo(input);
+    buildLegend();
+  }
+
+  function render() {
+    const container = document.getElementById('triangle');
+    container.innerHTML = '';
+
+    allRows.forEach((row, r) => {
+      const rowDiv = document.createElement('div');
+      rowDiv.className = 'row';
+      row.forEach((num, c) => {
+        const cell = document.createElement('div');
+        cell.className = `cell d${num}`;
+        cell.textContent = num;
+        cell.title = `Hàng ${r + 1}, cột ${c + 1} = ${num}`;
+        cell.style.animationDelay = `${(r * row.length + c) * 0.018}s`;
+        rowDiv.appendChild(cell);
+      });
+      container.appendChild(rowDiv);
+    });
+  }
+
+  function updateInfo(input) {
+    document.getElementById('infoBar').style.display = 'flex';
+    document.getElementById('infoLen').textContent = input.length;
+    document.getElementById('infoRows').textContent = allRows.length;
+    document.getElementById('infoLast').textContent = allRows[allRows.length - 1][0];
+  }
+
+  function buildLegend() {
+    const legend = document.getElementById('legend');
+    legend.style.display = 'flex';
+    legend.innerHTML = '';
+    for (let d = 0; d <= 9; d++) {
+      const item = document.createElement('div');
+      item.className = 'legend-item';
+      item.innerHTML = `<div class="legend-dot d${d}">${d}</div>`;
+      legend.appendChild(item);
+    }
+  }
+
+  function resetTriangle() {
+    document.getElementById('inputSequence').value = '';
+    document.getElementById('errMsg').textContent = '';
+    document.getElementById('infoBar').style.display = 'none';
+    document.getElementById('legend').style.display = 'none';
+    document.getElementById('triangle').innerHTML = '<div class="empty-state">✦ Nhập dãy số để bắt đầu ✦</div>';
+    allRows = [];
+  }
+
+  document.getElementById('inputSequence').addEventListener('keydown', e => {
+    if (e.key === 'Enter') generateTriangle();
+  });
+</script>
+</body>
+</html>

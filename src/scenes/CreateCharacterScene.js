@@ -12,8 +12,8 @@ export default class CreateCharacterScene extends Phaser.Scene {
   }
 
   preload() {
-    this.load.image("create_bg", "assets/nen_taikhoan.png");
-    this.load.image("btn_play", "assets/ui/buttons/play.png");
+    this.load.image("create_bg", "./assets/nen_taikhoan.png");
+    this.load.image("btn_play", "./assets/ui/buttons/play.png");
   }
 
   async create() {
@@ -432,22 +432,35 @@ export default class CreateCharacterScene extends Phaser.Scene {
   // ────────────────────────────────────────────────────────────────────────────
   async createCharacter(name) {
     try {
-      const user = JSON.parse(localStorage.getItem("user"));
+      const user = JSON.parse(localStorage.getItem("playerData"));
+      const userId = user.user.id;
       const res = await fetch("http://localhost:3000/create-character", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: user.id, character_id: this.selectedCharacter.id, name })
+        body: JSON.stringify({ user_id: userId, character_id: this.selectedCharacter.id, name })
       });
       const data = await res.json();
 
       if (data.success) {
+        // Update localStorage so the selected character is used immediately in the game
+        const playerData = JSON.parse(localStorage.getItem("playerData")) || {};
+
+        if (playerData.user) {
+          playerData.user.active_character_id = this.selectedCharacter.id;
+        }
+
+        playerData.active = {
+          characterId: this.selectedCharacter.id,
+          characterName: this.selectedCharacter.name,
+          skin: this.selectedCharacter.skin_number,
+          active_skin_id: this.selectedCharacter.skin_number
+        };
+
+        localStorage.setItem("playerData", JSON.stringify(playerData));
+
         if (this.nameInput) this.nameInput.remove();
         if (this._inputWrapper) this._inputWrapper.remove();
-        this.scene.start("LobbyScene", {
-          name: name,
-          characterName: this.selectedCharacter.name,
-          character: this.selectedCharacter.skin_number
-        });
+        this.scene.start("LobbyScene");
       } else {
         alert(data.message);
       }

@@ -147,7 +147,24 @@ export default class LoginScene extends Phaser.Scene {
 
         if(data.success){
 
-          localStorage.setItem("user",JSON.stringify(data.user));
+          const playerData = {
+            user: data.user,
+            characters: data.characters,
+            skins: data.skins,
+            token: data.token, // <-- lưu lại token để dùng cho socket.io auth
+            active: {
+              characterId: data.active?.character_id,
+              characterName: data.active?.characterName,
+              skin: data.active?.active_skin_id,
+              active_skin_id: data.active?.active_skin_id
+            }
+          };
+
+          // lưu RAM (dùng toàn game)
+          this.registry.set("playerData", playerData);
+
+          // lưu local (reload vẫn còn)
+          localStorage.setItem("playerData", JSON.stringify(playerData));
 
           this.showAlert("Đăng nhập thành công");
           console.log("data:", data.user);

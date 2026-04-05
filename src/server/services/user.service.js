@@ -1,9 +1,13 @@
+import dotenv from "dotenv";
+dotenv.config();
+import jwt from "jsonwebtoken";
 import userRepo from "../repositories/user.repo.js";
+
+const SECRET = process.env.JWT_SECRET;
 
 const userService = {
 
   async register(username,email,password){
-
     const exist = await userRepo.findByUsername(username);
 
     if(exist){
@@ -21,39 +25,41 @@ const userService = {
 
     return {
       success:true,
-      message:"Đăng ký thành công",
       userId
+    };
+  },
+
+  async login(username, password){
+
+    const result = await userRepo.login(username, password);
+
+    if(!result){
+      return {
+        success:false,
+        message:"Sai tài khoản hoặc mật khẩu"
+      };
+    }
+
+    const { user } = result;
+
+    const token = jwt.sign(
+      { id: user.id },
+      SECRET,
+      { expiresIn: process.env.JWT_EXPIRES }
+    );
+
+    return {
+      success: true,
+      token,
+      ...result
     };
 
   },
 
-  // ===== LOGIN =====
-  async login(username,password){
-
-    const user = await userRepo.findByUsername(username);
-
-    if(!user){
-      return {
-        success:false,
-        message:"Tài khoản không tồn tại"
-      };
-    }
-
-    if(user.password !== password){
-      return {
-        success:false,
-        message:"Sai mật khẩu"
-      };
-    }
-
-    return {
-      success:true,
-      message:"Đăng nhập thành công",
-      user:user
-    };
-
+  async getUserById(user_id){
+    return await userRepo.findById(user_id);
   }
-  
+
 };
 
 export default userService;
