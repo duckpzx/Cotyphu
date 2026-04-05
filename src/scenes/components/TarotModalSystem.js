@@ -1,31 +1,54 @@
-// ═══════════════════════════════════════════════════════════════════════
-//  TarotModalSystem.js
-//  Hệ thống modal thẻ bài Tarot — hoàn chỉnh, tối ưu
-//  Tích hợp vào BoardScene qua: this.tarotModal = new TarotModalSystem(scene)
-// ═══════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+//  TarotModalSystem.js  — v2 (COMPLETE)
+//  Hệ thống modal thẻ bài Tarot — hoàn chỉnh với validation + targeting
+//
+//  Tích hợp: this.tarotModal = new TarotModalSystem(scene)
+//
+//  Thay thế hoàn toàn file TarotModalSystem.js cũ.
+// ═══════════════════════════════════════════════════════════════════════════
 
 export default class TarotModalSystem {
   constructor(scene) {
-    this.scene   = scene;
-    this._objs   = [];       // tất cả game objects trong modal
-    this._timer  = null;     // interval cập nhật cooldown live
-    this._open   = false;
+    this.scene  = scene;
+    this._objs  = [];
+    this._timer = null;
+    this._open  = false;
+
+    // Targeting state
+    this._targetingListener   = null;
+    this._secondaryListener   = null;
+    this._targetingMode       = null;
+    this._selectedEnemyCell   = null;
+    this._swapCard            = null;
+    this._enemyCells          = [];
   }
 
-  // ─── PUBLIC API ────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  //  PUBLIC API
+  // ─────────────────────────────────────────────────────────────────────────
 
-  /** Mở modal chọn thẻ bài của player hiện tại */
-  open() {
+  open(focusTarotId = null) {
     if (this._open) { this.close(); return; }
-    const sc = this.scene;
+
+    const sc    = this.scene;
     const myUid = sc._myUserId();
-    const me = (sc.gamePlayers || []).find(p => Number(p.user_id) === Number(myUid));
+    const me    = (sc.gamePlayers || []).find(p => Number(p.user_id) === Number(myUid));
     if (!me) return;
 
-    const activeIds = sc._normalizeTarotIds(me.active_tarot_ids);
-    const allCards = sc.tarotCardsByUserId?.[myUid] || [];
+    // ── Kiểm tra điều kiện chung ──────────────────────────────────────────
+    if (!sc._canUseTarotNow()) {
+      const reason = !sc.isMyTurn              ? "Chưa đến lượt của bạn"
+                   : !sc.canRoll               ? "Không thể dùng thẻ sau khi đã tung xúc xắc"
+                   : sc.tarotStateByUserId?.[myUid]?.used_tarot_this_turn
+                                               ? "Đã dùng thẻ trong lượt này"
+                   :                             "Không thể dùng thẻ lúc này";
+      sc._showToast(`⚠️ ${reason}`, "#ff9999", 2000);
+      return;
+    }
 
-    const cards = activeIds
+    const activeIds = sc._normalizeTarotIds(me.active_tarot_ids);
+    const allCards  = sc.tarotCardsByUserId?.[myUid] || [];
+    const cards     = activeIds
       .map(id => allCards.find(c => Number(c.id) === Number(id)))
       .filter(Boolean);
 
@@ -34,73 +57,67 @@ export default class TarotModalSystem {
       return;
     }
 
-    this._build(cards, me, activeIds);
+    this._build(cards, me, activeIds, focusTarotId);
     this._open = true;
     this._startLiveCooldownTicker(cards, myUid);
   }
 
   close() {
+    this._cleanupTargetingListeners();
     this._objs.forEach(o => { try { o?.destroy?.(); } catch {} });
-    this._objs = [];
+    this._objs   = [];
+    this._cardUIs = [];
     if (this._timer) { clearInterval(this._timer); this._timer = null; }
     this._open = false;
-    this._cardUIs = [];
   }
 
   isOpen() { return this._open; }
 
-  // ─── BUILD MODAL ───────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  //  BUILD MODAL
+  // ─────────────────────────────────────────────────────────────────────────
 
-  _build(cards, me, activeIds) {
-    const sc = this.scene;
+  _build(cards, me, activeIds, focusTarotId) {
+    const sc          = this.scene;
     const { width, height } = sc.scale;
-    const S = sc.minRatio || 1;
-    const D = 600; // depth cao để đè lên mọi thứ
-    const push = o => { this._objs.push(o); return o; };
+    const S           = sc.minRatio || 1;
+    const D           = 600;
+    const push        = o => { this._objs.push(o); return o; };
 
     this._cardUIs = [];
 
-    // ── Backdrop mờ, click ra ngoài để đóng ──
+    // ── Backdrop ──────────────────────────────────────────────────────────
     const backdrop = push(
       sc.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0)
-        .setDepth(D)
-        .setInteractive()
+        .setDepth(D).setInteractive()
     );
     sc.tweens.add({ targets: backdrop, alpha: 0.75, duration: 220, ease: 'Power2' });
     backdrop.on("pointerdown", () => this.close());
 
-    // ── Tiêu đề nổi ──
+    // ── Tiêu đề ───────────────────────────────────────────────────────────
     const titleY = height / 2 - 290 * S;
-    push(sc.add.text(width / 2, titleY,
-      "✦  CHỌN THẺ BÀI ĐỂ SỬ DỤNG  ✦", {
-      fontFamily: "Signika",
-      fontSize: Math.floor(30 * S) + "px",
-      color: "#ffe28a",
-      fontStyle: "bold",
-      stroke: "#3a1a00",
-      strokeThickness: 5,
+    push(sc.add.text(width / 2, titleY, "✦  CHỌN THẺ BÀI ĐỂ SỬ DỤNG  ✦", {
+      fontFamily: "Signika", fontSize: Math.floor(30 * S) + "px",
+      color: "#ffe28a", fontStyle: "bold",
+      stroke: "#3a1a00", strokeThickness: 5,
       shadow: { offsetX: 0, offsetY: 3, color: "#000000", blur: 8, fill: true }
     }).setOrigin(0.5).setDepth(D + 2).setAlpha(0));
-
     sc.tweens.add({ targets: this._objs[this._objs.length - 1], alpha: 1, y: titleY - 6 * S, duration: 300, delay: 100, ease: 'Back.easeOut' });
 
-    // ── Subtitle ──
     push(sc.add.text(width / 2, titleY + 38 * S,
       "Mỗi lượt chỉ dùng được 1 thẻ  •  Thẻ có cooldown sau khi sử dụng", {
-      fontFamily: "Signika",
-      fontSize: Math.floor(15 * S) + "px",
-      color: "#c8a060",
-      fontStyle: "italic"
+      fontFamily: "Signika", fontSize: Math.floor(15 * S) + "px",
+      color: "#c8a060", fontStyle: "italic"
     }).setOrigin(0.5).setDepth(D + 2).setAlpha(0));
     sc.tweens.add({ targets: this._objs[this._objs.length - 1], alpha: 1, duration: 300, delay: 150 });
 
-    // ── Layout thẻ ──
-    const CARD_W  = 290 * S;
-    const CARD_H  = 400 * S;
-    const GAP     = 60 * S;
-    const totalW  = cards.length * CARD_W + (cards.length - 1) * GAP;
-    const startX  = width / 2 - totalW / 2;
-    const cardCY  = height / 2 + 10 * S;
+    // ── Layout thẻ ────────────────────────────────────────────────────────
+    const CARD_W = 290 * S;
+    const CARD_H = 400 * S;
+    const GAP    = 60 * S;
+    const totalW = cards.length * CARD_W + (cards.length - 1) * GAP;
+    const startX = width / 2 - totalW / 2;
+    const cardCY = height / 2 + 10 * S;
 
     cards.forEach((card, index) => {
       const cardCX = startX + index * (CARD_W + GAP) + CARD_W / 2;
@@ -109,145 +126,119 @@ export default class TarotModalSystem {
       this._cardUIs.push({ card, ui, cx: cardCX, cy: cardCY });
     });
 
-    // ── Nút Đóng ──
     this._buildCloseBtn(width / 2, height / 2 + 240 * S, S, D, push);
   }
 
-  // ─── BUILD MỘT THẺ ────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  //  BUILD CARD
+  // ─────────────────────────────────────────────────────────────────────────
 
   _buildCard(card, cx, cy, CW, CH, S, D, push, delay, me) {
-    const sc = this.scene;
-    const myUid = sc._myUserId();
+    const sc      = this.scene;
+    const myUid   = sc._myUserId();
     const runtime = sc.tarotStateByUserId?.[myUid]?.tarot_runtime?.[card.id] || {};
-    const now = sc._estimateServerNowMs ? sc._estimateServerNowMs() : Date.now();
-    const remaining = Math.max(0, Math.ceil((Number(runtime.next_available_at || 0) - now) / 1000));
+    const now     = sc._estimateServerNowMs ? sc._estimateServerNowMs() : Date.now();
+    const remaining  = Math.max(0, Math.ceil((Number(runtime.next_available_at || 0) - now) / 1000));
     const onCooldown = remaining > 0;
     const usedThisTurn = !!(sc.tarotStateByUserId?.[myUid]?.used_tarot_this_turn);
 
     const left = cx - CW / 2;
     const top  = cy - CH / 2;
     const RAD  = 20 * S;
+    const ui   = {};
 
-    const ui = {};
-
-    // -- Bóng đổ card --
+    // Bóng đổ
     const shadow = push(sc.add.graphics().setDepth(D + 1).setAlpha(0));
     shadow.fillStyle(0x000000, 0.35);
     shadow.fillRoundedRect(left + 8 * S, top + 12 * S, CW, CH, RAD);
     sc.tweens.add({ targets: shadow, alpha: 1, duration: 280, delay, ease: 'Power2' });
 
-    // -- Nền card --
+    // Nền card
     const bg = push(sc.add.graphics().setDepth(D + 2).setAlpha(0));
     this._drawCardBg(bg, left, top, CW, CH, RAD, onCooldown, S);
     sc.tweens.add({ targets: bg, alpha: 1, y: `-=${8 * S}`, duration: 320, delay, ease: 'Back.easeOut' });
     ui.bg = bg;
 
-    // -- Tên thẻ --
+    // Tên thẻ
     const nameText = push(sc.add.text(cx, top + 26 * S,
       card.name || `Thẻ ${card.id}`, {
-      fontFamily: "Signika",
-      fontSize: Math.floor(20 * S) + "px",
-      color: onCooldown ? "#999999" : "#fff2bf",
-      fontStyle: "bold",
-      align: "center",
-      wordWrap: { width: CW - 28 * S },
-      stroke: "#000000",
-      strokeThickness: 3
+      fontFamily: "Signika", fontSize: Math.floor(20 * S) + "px",
+      color: onCooldown ? "#999999" : "#fff2bf", fontStyle: "bold",
+      align: "center", wordWrap: { width: CW - 28 * S },
+      stroke: "#000000", strokeThickness: 3
     }).setOrigin(0.5, 0).setDepth(D + 5).setAlpha(0));
     sc.tweens.add({ targets: nameText, alpha: 1, duration: 280, delay: delay + 60 });
     ui.nameText = nameText;
 
-    // -- Ảnh thẻ --
+    // Ảnh thẻ
     const imgKey = `tarot_${card.id}`;
     if (sc.textures.exists(imgKey)) {
       const img = push(sc.add.image(cx, top + CH * 0.44, imgKey)
-        .setDisplaySize(CW * 0.62, CH * 0.52)
-        .setDepth(D + 5)
-        .setAlpha(0)
+        .setDisplaySize(CW * 0.62, CH * 0.52).setDepth(D + 5).setAlpha(0)
         .setTint(onCooldown ? 0x555555 : 0xffffff));
       sc.tweens.add({ targets: img, alpha: 1, duration: 300, delay: delay + 80 });
       ui.img = img;
     }
 
-    // -- Mô tả --
+    // Mô tả
     const descText = push(sc.add.text(cx, top + CH * 0.72,
       card.description || "Không có mô tả", {
-      fontFamily: "Signika",
-      fontSize: Math.floor(14 * S) + "px",
+      fontFamily: "Signika", fontSize: Math.floor(14 * S) + "px",
       color: onCooldown ? "#777777" : "#dfe8ff",
-      align: "center",
-      wordWrap: { width: CW - 32 * S },
-      lineSpacing: 4
+      align: "center", wordWrap: { width: CW - 32 * S }, lineSpacing: 4
     }).setOrigin(0.5, 0).setDepth(D + 5).setAlpha(0));
     sc.tweens.add({ targets: descText, alpha: 1, duration: 280, delay: delay + 100 });
-    ui.descText = descText;
 
-    // -- Cooldown label --
-    const cdColor = onCooldown ? "#ff9966" : "#ffe28a";
+    // Cooldown label
     const cdText = push(sc.add.text(cx, top + CH - 68 * S,
       onCooldown ? `⏳ Hồi chiêu: ${remaining}s` : `⚡ CD: ${card.cooldown_seconds || 0}s`, {
-      fontFamily: "Signika",
-      fontSize: Math.floor(16 * S) + "px",
-      color: cdColor,
-      fontStyle: "bold"
+      fontFamily: "Signika", fontSize: Math.floor(16 * S) + "px",
+      color: onCooldown ? "#ff9966" : "#ffe28a", fontStyle: "bold"
     }).setOrigin(0.5).setDepth(D + 5).setAlpha(0));
     sc.tweens.add({ targets: cdText, alpha: 1, duration: 280, delay: delay + 120 });
     ui.cdText = cdText;
 
-    // -- Cooldown progress bar --
-    const barW = CW - 32 * S;
-    const barH = 8 * S;
-    const barX = cx - barW / 2;
-    const barY = top + CH - 50 * S;
-
+    // Cooldown bar
+    const barW = CW - 32 * S, barH = 8 * S;
+    const barX = cx - barW / 2, barY = top + CH - 50 * S;
     const barBg = push(sc.add.graphics().setDepth(D + 4).setAlpha(0));
     barBg.fillStyle(0x333333, 1);
     barBg.fillRoundedRect(barX, barY, barW, barH, barH / 2);
     sc.tweens.add({ targets: barBg, alpha: 1, duration: 280, delay: delay + 130 });
 
     const barFill = push(sc.add.graphics().setDepth(D + 5).setAlpha(0));
-    const maxCd = Number(card.cooldown_seconds || 1);
-    const pct = onCooldown ? (remaining / maxCd) : 0;
-    this._drawCdBar(barFill, barX, barY, barW, barH, pct, onCooldown);
+    const maxCd   = Number(card.cooldown_seconds || 1);
+    this._drawCdBar(barFill, barX, barY, barW, barH, onCooldown ? remaining / maxCd : 0, onCooldown);
     sc.tweens.add({ targets: barFill, alpha: 1, duration: 280, delay: delay + 130 });
     ui.barFill = barFill;
-    ui.barX = barX; ui.barY = barY; ui.barW = barW; ui.barH = barH;
-    ui.maxCd = maxCd;
+    ui.barX = barX; ui.barY = barY; ui.barW = barW; ui.barH = barH; ui.maxCd = maxCd;
 
-    // -- Nút DÙNG / disabled --
+    // Nút DÙNG / Disabled
     if (!onCooldown && !usedThisTurn) {
       this._buildUseButton(card, cx, top + CH - 22 * S, CW, S, D, push, ui);
     } else {
       const reason = usedThisTurn ? "Đã dùng lượt này" : `Đang hồi: ${remaining}s`;
-      const disabledBtn = push(sc.add.graphics().setDepth(D + 5).setAlpha(0));
-      disabledBtn.fillStyle(0x444444, 1);
-      disabledBtn.fillRoundedRect(cx - (CW * 0.7) / 2, top + CH - 38 * S, CW * 0.7, 34 * S, 17 * S);
-      sc.tweens.add({ targets: disabledBtn, alpha: 1, duration: 280, delay: delay + 140 });
-
+      const disBtn = push(sc.add.graphics().setDepth(D + 5).setAlpha(0));
+      disBtn.fillStyle(0x444444, 1);
+      disBtn.fillRoundedRect(cx - (CW * 0.7) / 2, top + CH - 38 * S, CW * 0.7, 34 * S, 17 * S);
+      sc.tweens.add({ targets: disBtn, alpha: 1, duration: 280, delay: delay + 140 });
       const disText = push(sc.add.text(cx, top + CH - 21 * S, reason, {
         fontFamily: "Signika", fontSize: Math.floor(14 * S) + "px", color: "#888888", fontStyle: "bold"
       }).setOrigin(0.5).setDepth(D + 6).setAlpha(0));
       sc.tweens.add({ targets: disText, alpha: 1, duration: 280, delay: delay + 140 });
-      ui.disabledBtn = disabledBtn;
       ui.disText = disText;
     }
 
-    // -- Overlay cooldown tối --
+    // Overlay cooldown
     if (onCooldown) {
       const overlay = push(sc.add.graphics().setDepth(D + 6).setAlpha(0));
       overlay.fillStyle(0x000000, 0.52);
       overlay.fillRoundedRect(left, top, CW, CH, RAD);
       sc.tweens.add({ targets: overlay, alpha: 1, duration: 280, delay });
-      ui.overlay = overlay;
 
-      // Số giây to ở giữa
       const bigCD = push(sc.add.text(cx, cy, `${remaining}`, {
-        fontFamily: "Signika",
-        fontSize: Math.floor(64 * S) + "px",
-        color: "#ffffff",
-        fontStyle: "bold",
-        stroke: "#000000",
-        strokeThickness: 6
+        fontFamily: "Signika", fontSize: Math.floor(64 * S) + "px",
+        color: "#ffffff", fontStyle: "bold", stroke: "#000000", strokeThickness: 6
       }).setOrigin(0.5).setDepth(D + 7).setAlpha(0));
       sc.tweens.add({ targets: bigCD, alpha: 1, duration: 280, delay });
       ui.bigCD = bigCD;
@@ -258,35 +249,21 @@ export default class TarotModalSystem {
 
   _drawCardBg(g, left, top, CW, CH, RAD, onCooldown, S) {
     g.clear();
-    // Nền tối huyền bí
     g.fillStyle(onCooldown ? 0x1a1a2e : 0x0d1b3e, 1);
     g.fillRoundedRect(left, top, CW, CH, RAD);
-
-    // Dải gradient màu trên đầu
-    const topColor = onCooldown ? 0x333333 : 0x1a3a6e;
-    g.fillStyle(topColor, 1);
+    g.fillStyle(onCooldown ? 0x333333 : 0x1a3a6e, 1);
     g.fillRoundedRect(left, top, CW, CH * 0.18, RAD);
     g.fillRect(left, top + CH * 0.12, CW, CH * 0.06);
-
-    // Shine
     g.fillStyle(0xffffff, onCooldown ? 0.04 : 0.10);
     g.fillRoundedRect(left + 6 * S, top + 5 * S, CW - 12 * S, CH * 0.15, RAD - 4 * S);
-
-    // Viền vàng / xám
     g.lineStyle(3 * S, onCooldown ? 0x555555 : 0xf5c542, 1);
     g.strokeRoundedRect(left, top, CW, CH, RAD);
-
-    // Viền nội bộ nhỏ
     g.lineStyle(1 * S, onCooldown ? 0x333333 : 0xc8901a, 0.5);
     g.strokeRoundedRect(left + 5 * S, top + 5 * S, CW - 10 * S, CH - 10 * S, RAD - 3 * S);
-
-    // Góc trang trí
     if (!onCooldown) {
-      const cornerSize = 12 * S;
-      [[left + 8 * S, top + 8 * S], [left + CW - 8 * S, top + 8 * S],
-       [left + 8 * S, top + CH - 8 * S], [left + CW - 8 * S, top + CH - 8 * S]].forEach(([x, y]) => {
-        g.fillStyle(0xf5c542, 0.6);
-        g.fillCircle(x, y, cornerSize / 2);
+      const cs = 12 * S;
+      [[left + 8*S, top + 8*S],[left+CW-8*S, top+8*S],[left+8*S, top+CH-8*S],[left+CW-8*S, top+CH-8*S]].forEach(([x,y]) => {
+        g.fillStyle(0xf5c542, 0.6); g.fillCircle(x, y, cs / 2);
       });
     }
   }
@@ -299,123 +276,473 @@ export default class TarotModalSystem {
       return;
     }
     const fillW = barW * pct;
-    const color = pct > 0.6 ? 0xff4444 : pct > 0.3 ? 0xff9900 : 0xffdd00;
-    g.fillStyle(color, 1);
+    g.fillStyle(pct > 0.6 ? 0xff4444 : pct > 0.3 ? 0xff9900 : 0xffdd00, 1);
     g.fillRoundedRect(barX, barY, Math.max(fillW, 4), barH, barH / 2);
   }
 
   _buildUseButton(card, bx, by, CW, S, D, push) {
-    const sc = this.scene;
+    const sc    = this.scene;
     const BTN_W = CW * 0.72;
     const BTN_H = 38 * S;
 
     const g = push(sc.add.graphics().setDepth(D + 5).setAlpha(0));
-
-    const draw = (hover) => {
+    const draw = (h) => {
       g.clear();
       g.fillStyle(0x000000, 0.3);
-      g.fillRoundedRect(bx - BTN_W / 2 + 3 * S, by - BTN_H / 2 + 5 * S, BTN_W, BTN_H, BTN_H / 2);
+      g.fillRoundedRect(bx - BTN_W/2 + 3*S, by - BTN_H/2 + 5*S, BTN_W, BTN_H, BTN_H/2);
       g.fillGradientStyle(
-        hover ? 0xffcc00 : 0xff9900,
-        hover ? 0xffcc00 : 0xff9900,
-        hover ? 0xff7700 : 0xcc5500,
-        hover ? 0xff7700 : 0xcc5500, 1
+        h ? 0xffcc00 : 0xff9900, h ? 0xffcc00 : 0xff9900,
+        h ? 0xff7700 : 0xcc5500, h ? 0xff7700 : 0xcc5500, 1
       );
-      g.fillRoundedRect(bx - BTN_W / 2, by - BTN_H / 2, BTN_W, BTN_H, BTN_H / 2);
-      g.fillStyle(0xffffff, hover ? 0.35 : 0.20);
-      g.fillRoundedRect(bx - BTN_W / 2 + 6 * S, by - BTN_H / 2 + 4 * S, BTN_W - 12 * S, BTN_H * 0.38, BTN_H / 2 - 3 * S);
-      g.lineStyle(2 * S, 0xffffff, 0.8);
-      g.strokeRoundedRect(bx - BTN_W / 2, by - BTN_H / 2, BTN_W, BTN_H, BTN_H / 2);
+      g.fillRoundedRect(bx - BTN_W/2, by - BTN_H/2, BTN_W, BTN_H, BTN_H/2);
+      g.fillStyle(0xffffff, h ? 0.35 : 0.20);
+      g.fillRoundedRect(bx - BTN_W/2 + 6*S, by - BTN_H/2 + 4*S, BTN_W - 12*S, BTN_H*0.38, BTN_H/2 - 3*S);
+      g.lineStyle(2*S, 0xffffff, 0.8);
+      g.strokeRoundedRect(bx - BTN_W/2, by - BTN_H/2, BTN_W, BTN_H, BTN_H/2);
     };
-
     draw(false);
     sc.tweens.add({ targets: g, alpha: 1, duration: 280, delay: 200 });
 
-    const txt = push(sc.add.text(bx, by + 50, "✨  DÙNG THẺ", {
-      fontFamily: "Signika",
-      fontSize: Math.floor(17 * S) + "px",
-      color: "#ffffff",
-      fontStyle: "bold",
-      stroke: "#663300",
-      strokeThickness: 3
+    const txt = push(sc.add.text(bx, by, "✨  DÙNG THẺ", {
+      fontFamily: "Signika", fontSize: Math.floor(17 * S) + "px",
+      color: "#ffffff", fontStyle: "bold", stroke: "#663300", strokeThickness: 3
     }).setOrigin(0.5).setDepth(D + 6).setAlpha(0));
     sc.tweens.add({ targets: txt, alpha: 1, duration: 280, delay: 200 });
+    sc.tweens.add({ targets: [g, txt], scaleX: { from:1, to:1.04 }, scaleY: { from:1, to:1.04 }, duration:900, yoyo:true, repeat:-1, ease:'Sine.easeInOut' });
 
-    // Pulse nhẹ
-    sc.tweens.add({
-      targets: [g, txt], scaleX: { from: 1, to: 1.04 }, scaleY: { from: 1, to: 1.04 },
-      duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
-    });
-
-    const zone = push(sc.add.zone(bx, by, BTN_W + 10 * S, BTN_H + 10 * S)
-      .setInteractive({ useHandCursor: true })
-      .setDepth(D + 10));
-    zone.on("pointerover", () => draw(true));
-    zone.on("pointerout",  () => draw(false));
-    zone.on("pointerdown", () => {
-      sc.tweens.add({
-        targets: [g, txt], scaleX: 0.92, scaleY: 0.92, duration: 60, yoyo: true,
-        onComplete: () => this._useCard(card)
-      });
+    const zone = push(sc.add.zone(bx, by, BTN_W + 10*S, BTN_H + 10*S)
+      .setInteractive({ useHandCursor: true }).setDepth(D + 10));
+    zone.on("pointerover",  () => draw(true));
+    zone.on("pointerout",   () => draw(false));
+    zone.on("pointerdown",  () => {
+      sc.tweens.add({ targets: [g, txt], scaleX: 0.92, scaleY: 0.92, duration: 60, yoyo: true,
+        onComplete: () => this._useCard(card) });
     });
   }
 
   _buildCloseBtn(bx, by, S, D, push) {
-    const sc = this.scene;
-    const BW = 160 * S, BH = 42 * S;
-    const g = push(sc.add.graphics().setDepth(D + 5).setAlpha(0));
-
+    const sc  = this.scene;
+    const BW  = 160 * S, BH = 42 * S;
+    const g   = push(sc.add.graphics().setDepth(D + 5).setAlpha(0));
     const draw = (h) => {
       g.clear();
       g.fillStyle(h ? 0x884422 : 0x552211, 1);
-      g.fillRoundedRect(bx - BW / 2, by - BH / 2, BW, BH, BH / 2);
-      g.lineStyle(2 * S, h ? 0xff8866 : 0xff5533, 1);
-      g.strokeRoundedRect(bx - BW / 2, by - BH / 2, BW, BH, BH / 2);
+      g.fillRoundedRect(bx - BW/2, by - BH/2, BW, BH, BH/2);
+      g.lineStyle(2*S, h ? 0xff8866 : 0xff5533, 1);
+      g.strokeRoundedRect(bx - BW/2, by - BH/2, BW, BH, BH/2);
     };
-
     draw(false);
     sc.tweens.add({ targets: g, alpha: 1, duration: 280, delay: 300 });
-
     const txt = push(sc.add.text(bx, by, "✕  Đóng", {
-      fontFamily: "Signika", fontSize: Math.floor(16 * S) + "px",
-      color: "#ff9988", fontStyle: "bold"
+      fontFamily: "Signika", fontSize: Math.floor(16 * S) + "px", color: "#ff9988", fontStyle: "bold"
     }).setOrigin(0.5).setDepth(D + 6).setAlpha(0));
     sc.tweens.add({ targets: txt, alpha: 1, duration: 280, delay: 300 });
-
-    const zone = push(sc.add.zone(bx, by, BW + 10 * S, BH + 10 * S)
+    const zone = push(sc.add.zone(bx, by, BW + 10*S, BH + 10*S)
       .setInteractive({ useHandCursor: true }).setDepth(D + 10));
     zone.on("pointerover",  () => draw(true));
     zone.on("pointerout",   () => draw(false));
     zone.on("pointerdown",  () => this.close());
   }
 
-  // ─── SỬ DỤNG THẺ ──────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  //  USE CARD — dispatcher
+  // ─────────────────────────────────────────────────────────────────────────
 
   _useCard(card) {
+    const sc         = this.scene;
+    const effectType = card.effect_type;
+
+    // ── Validation client-side trước khi gửi ──────────────────────────────
+    if (!sc._canUseTarotNow()) {
+      sc._showToast("⚠️ Không thể dùng thẻ lúc này", "#ff9999", 1800);
+      this.close();
+      return;
+    }
+
+    switch (effectType) {
+
+      // Công An — chọn đối thủ mục tiêu
+      case 'skip_turn_enemy':
+        this._enterEnemyPlayerTargeting(card);
+        return;
+
+      // Giải Tỏa — chọn tinh cầu đối thủ để phá
+      case 'destroy_enemy_house':
+        this._enterDestroyTargeting(card);
+        return;
+
+      // Hoán Đổi — 2 bước: chọn tinh cầu đối thủ rồi tinh cầu mình
+      case 'swap_planet':
+        this._enterSwapTargeting(card);
+        return;
+
+      // Các thẻ không cần target: gửi thẳng
+      // extra_roll | steal_cash_percent | move_forward_range |
+      // tax_multiplier | recover_house_money
+      default:
+        this._sendTarotSimple(card);
+        return;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  GỬII ĐƠN GIẢN (không cần targeting)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  _sendTarotSimple(card) {
     const sc = this.scene;
-    sc.socket.emit("game:use_tarot", {
-      room_id: sc.gameRoomId,
+    sc.socket.emit('game:use_tarot', {
+      room_id:  sc.gameRoomId,
       tarot_id: card.id
     });
-    // Hiệu ứng flash rồi đóng — server sẽ emit game:tarot_used
     this._flashEffect(() => this.close());
   }
 
-  _flashEffect(onDone) {
-    const sc = this.scene;
-    const { width, height } = sc.scale;
-    const flash = sc.add.rectangle(width / 2, height / 2, width, height, 0xffdd88, 0)
-      .setDepth(900);
-    sc.tweens.add({
-      targets: flash, alpha: 0.4, duration: 80, yoyo: true,
-      onComplete: () => {
-        flash.destroy();
-        if (onDone) onDone();
-      }
+  // ─────────────────────────────────────────────────────────────────────────
+  //  TARGETING: CÔNG AN — chọn người chơi đối thủ
+  // ─────────────────────────────────────────────────────────────────────────
+
+  _enterEnemyPlayerTargeting(card) {
+    const sc    = this.scene;
+    const myUid = sc._myUserId();
+    this.close(); // đóng modal
+
+    const enemies = (sc.gamePlayers || []).filter(p => Number(p.user_id) !== Number(myUid));
+    if (!enemies.length) {
+      sc._showToast("Không có đối thủ để chỉ định!", "#ff8888");
+      return;
+    }
+
+    // Nếu chỉ có 1 đối thủ (1vs1) → gửi thẳng không cần chọn
+    if (enemies.length === 1) {
+      sc.socket.emit('game:use_tarot', {
+        room_id:        sc.gameRoomId,
+        tarot_id:       card.id,
+        target_user_id: enemies[0].user_id
+      });
+      this._flashEffect(() => {});
+      return;
+    }
+
+    // Team 2v2: hiển thị panel chọn người chơi
+    this._showPlayerSelectPanel(card, enemies, (chosenUid) => {
+      sc.socket.emit('game:use_tarot', {
+        room_id:        sc.gameRoomId,
+        tarot_id:       card.id,
+        target_user_id: chosenUid
+      });
+      this._flashEffect(() => {});
     });
   }
 
-  // ─── LIVE COOLDOWN TICKER ──────────────────────────────────────────────
+  _showPlayerSelectPanel(card, enemies, onChoose) {
+    const sc           = this.scene;
+    const { width, height } = sc.scale;
+    const S            = sc.minRatio || 1;
+    const D            = 650;
+    const panelObjs    = [];
+    const pushP        = o => { panelObjs.push(o); this._objs.push(o); return o; };
+
+    // Backdrop
+    const bd = pushP(sc.add.rectangle(width/2, height/2, width, height, 0x000000, 0.6).setDepth(D).setInteractive());
+    bd.on("pointerdown", () => { panelObjs.forEach(o => o?.destroy?.()); });
+
+    pushP(sc.add.text(width/2, height/2 - 80*S, "Chọn đối thủ:", {
+      fontFamily: "Signika", fontSize: Math.floor(24*S) + "px", color: "#ffe28a", fontStyle: "bold"
+    }).setOrigin(0.5).setDepth(D+1));
+
+    enemies.forEach((enemy, i) => {
+      const bx  = width/2;
+      const by  = height/2 - 20*S + i * 60*S;
+      const BW  = 280*S, BH = 48*S;
+      const bg  = pushP(sc.add.graphics().setDepth(D+1));
+
+      const draw = (h) => {
+        bg.clear();
+        bg.fillStyle(h ? 0x7744aa : 0x441177, 1);
+        bg.fillRoundedRect(bx-BW/2, by-BH/2, BW, BH, BH/2);
+        bg.lineStyle(2*S, 0xff88ff, 1);
+        bg.strokeRoundedRect(bx-BW/2, by-BH/2, BW, BH, BH/2);
+      };
+      draw(false);
+
+      pushP(sc.add.text(bx, by, `👤 ${enemy.name}`, {
+        fontFamily: "Signika", fontSize: Math.floor(18*S) + "px", color: "#ffffff", fontStyle: "bold"
+      }).setOrigin(0.5).setDepth(D+2));
+
+      const zone = pushP(sc.add.zone(bx, by, BW, BH).setInteractive({ useHandCursor: true }).setDepth(D+5));
+      zone.on("pointerover",  () => draw(true));
+      zone.on("pointerout",   () => draw(false));
+      zone.on("pointerdown",  () => {
+        panelObjs.forEach(o => { try { o?.destroy?.(); } catch {} });
+        onChoose(enemy.user_id);
+      });
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  TARGETING: GIẢI TỎA — chọn tinh cầu đối thủ để phá
+  // ─────────────────────────────────────────────────────────────────────────
+
+  _enterDestroyTargeting(card) {
+    const sc    = this.scene;
+    const myUid = sc._myUserId();
+    this.close();
+
+    sc._startDarkMapEffect?.();
+
+    const enemyCells = [];
+    Object.entries(sc.cellStates || {}).forEach(([idx, cell]) => {
+      if (Number(cell.owner_user_id) !== Number(myUid)) {
+        enemyCells.push(Number(idx));
+        const cellObj = sc.boardPath?.[idx];
+        if (cellObj) sc.paintCellGlowAnimated?.(cellObj, 0xff2200);
+      }
+    });
+
+    if (!enemyCells.length) {
+      sc._showToast("Không có tinh cầu đối thủ để phá hủy!", "#ff8888");
+      sc._stopDarkMapEffect?.();
+      return;
+    }
+
+    sc._showToast("Chọn tinh cầu đối thủ để phá hủy", "#ff4444", 0);
+
+    this._targetingListener = (pointer) => {
+      const hitCell = this._getCellAtPointer(pointer);
+      if (!hitCell || !enemyCells.includes(hitCell.index)) return;
+
+      // Clean up
+      sc.input.off("pointerdown", this._targetingListener);
+      this._targetingListener = null;
+      sc._stopDarkMapEffect?.();
+      sc._clearToasts?.();
+
+      // Gửi server
+      sc.socket.emit('game:use_tarot', {
+        room_id:           sc.gameRoomId,
+        tarot_id:          card.id,
+        target_cell_index: hitCell.index
+      });
+
+      // Hiệu ứng phá hủy ở client
+      this._playDestroyEffect(hitCell);
+    };
+
+    sc.input.on("pointerdown", this._targetingListener);
+  }
+
+  _playDestroyEffect(cell) {
+    const sc   = this.scene;
+    const x    = cell.x * sc.scale.width;
+    const y    = cell.y * sc.scale.height;
+    const S    = sc.minRatio || 1;
+
+    // Rung ô
+    sc.tweens.add({
+      targets: { x: 0 }, x: 1, duration: 40, repeat: 5, yoyo: true,
+      onUpdate: (tween) => {
+        const ox = Math.sin(tween.totalProgress * Math.PI * 8) * 8 * S;
+        // rung visual nếu cell có sprite
+        if (cell.sprite) { cell.sprite.x = x + ox; }
+      }
+    });
+
+    // Flash đỏ
+    const flash = sc.add.circle(x, y, 60 * S, 0xff2200, 0.7).setDepth(800);
+    sc.tweens.add({ targets: flash, alpha: 0, scaleX: 2.5, scaleY: 2.5, duration: 400,
+      onComplete: () => flash.destroy() });
+
+    // Particle-like stars
+    for (let i = 0; i < 8; i++) {
+      const angle  = (i / 8) * Math.PI * 2;
+      const dist   = 70 * S;
+      const star   = sc.add.text(x, y, "💥", { fontSize: Math.floor(20 * S) + "px" })
+        .setOrigin(0.5).setDepth(801);
+      sc.tweens.add({
+        targets: star,
+        x: x + Math.cos(angle) * dist,
+        y: y + Math.sin(angle) * dist,
+        alpha: 0, scaleX: 0, scaleY: 0,
+        duration: 500, ease: 'Quad.easeOut',
+        onComplete: () => star.destroy()
+      });
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  TARGETING: HOÁN ĐỔI — 2 bước
+  // ─────────────────────────────────────────────────────────────────────────
+
+  _enterSwapTargeting(card) {
+    const sc    = this.scene;
+    const myUid = sc._myUserId();
+    this.close();
+
+    this._targetingMode = 'swap_step1';
+    this._swapCard      = card;
+
+    sc._startDarkMapEffect?.();
+
+    // Step 1: highlight tinh cầu đối thủ
+    this._enemyCells = [];
+    Object.entries(sc.cellStates || {}).forEach(([idx, cell]) => {
+      if (Number(cell.owner_user_id) !== Number(myUid)) {
+        this._enemyCells.push(Number(idx));
+        const cellObj = sc.boardPath?.[idx];
+        if (cellObj) sc.paintCellGlowAnimated?.(cellObj, 0xffaa00);
+      }
+    });
+
+    if (!this._enemyCells.length) {
+      sc._showToast("Không có tinh cầu đối thủ!", "#ff8888");
+      sc._stopDarkMapEffect?.();
+      return;
+    }
+
+    sc._showToast("Bước 1/2 — Chọn tinh cầu của đối thủ", "#ffaa00", 0);
+
+    this._targetingListener = (pointer) => {
+      const hitCell = this._getCellAtPointer(pointer);
+      if (!hitCell || !this._enemyCells.includes(hitCell.index)) return;
+
+      this._selectedEnemyCell = hitCell.index;
+      this._targetingMode     = 'swap_step2';
+
+      // Chuyển sang step 2: highlight tinh cầu của mình
+      sc.input.off("pointerdown", this._targetingListener);
+      sc._stopDarkMapEffect?.();
+      sc._clearToasts?.();
+      sc._startDarkMapEffect?.();
+
+      const myCells = [];
+      Object.entries(sc.cellStates || {}).forEach(([idx, cell]) => {
+        if (Number(cell.owner_user_id) === Number(myUid)) {
+          myCells.push(Number(idx));
+          const cellObj = sc.boardPath?.[idx];
+          if (cellObj) sc.paintCellGlowAnimated?.(cellObj, 0x44ff88);
+        }
+      });
+
+      if (!myCells.length) {
+        sc._showToast("Bạn không có tinh cầu để hoán đổi!", "#ff8888");
+        sc._stopDarkMapEffect?.();
+        return;
+      }
+
+      sc._showToast("Bước 2/2 — Chọn tinh cầu của bạn", "#44ff88", 0);
+
+      this._secondaryListener = (pointer2) => {
+        const hitCell2 = this._getCellAtPointer(pointer2);
+        if (!hitCell2 || !myCells.includes(hitCell2.index)) return;
+
+        // Clean up
+        sc.input.off("pointerdown", this._secondaryListener);
+        this._secondaryListener = null;
+        sc._stopDarkMapEffect?.();
+        sc._clearToasts?.();
+
+        // Gửi server
+        sc.socket.emit('game:use_tarot', {
+          room_id:           sc.gameRoomId,
+          tarot_id:          card.id,
+          target_cell_index: this._selectedEnemyCell,   // ô đối thủ
+          my_cell_index:     hitCell2.index              // ô của mình
+        });
+
+        // Animation hoán đổi
+        this._playSwapAnimation(
+          sc.boardPath[this._selectedEnemyCell],
+          hitCell2,
+          () => {}
+        );
+      };
+
+      sc.input.on("pointerdown", this._secondaryListener);
+    };
+
+    sc.input.on("pointerdown", this._targetingListener);
+  }
+
+  _playSwapAnimation(cellA, cellB, onDone) {
+    const sc = this.scene;
+    const ax = cellA.x * sc.scale.width,  ay = cellA.y * sc.scale.height;
+    const bx = cellB.x * sc.scale.width,  by = cellB.y * sc.scale.height;
+    const S  = sc.minRatio || 1;
+
+    const iconA = sc.add.text(ax, ay, "🔴", { fontSize: Math.floor(28 * S) + "px" }).setOrigin(0.5).setDepth(900);
+    const iconB = sc.add.text(bx, by, "🟢", { fontSize: Math.floor(28 * S) + "px" }).setOrigin(0.5).setDepth(900);
+
+    sc.tweens.add({ targets: iconA, x: bx, y: by, duration: 600, ease: 'Quad.easeInOut' });
+    sc.tweens.add({
+      targets: iconB, x: ax, y: ay, duration: 600, ease: 'Quad.easeInOut',
+      onComplete: () => {
+        iconA.destroy(); iconB.destroy();
+        if (onDone) onDone();
+      }
+    });
+
+    // Flash ở 2 ô
+    [{ x: ax, y: ay }, { x: bx, y: by }].forEach(pos => {
+      const fl = sc.add.circle(pos.x, pos.y, 50 * S, 0xffffff, 0.5).setDepth(899);
+      sc.tweens.add({ targets: fl, alpha: 0, scaleX: 1.8, scaleY: 1.8, duration: 500,
+        onComplete: () => fl.destroy() });
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  HIT TEST — tìm cell tại pointer
+  // ─────────────────────────────────────────────────────────────────────────
+
+  _getCellAtPointer(pointer) {
+    const sc      = this.scene;
+    const radius  = 50 * (sc.minRatio || 1);
+    for (const cell of (sc.boardPath || [])) {
+      const cx = cell.x * sc.scale.width;
+      const cy = cell.y * sc.scale.height;
+      if (Math.hypot(pointer.x - cx, pointer.y - cy) < radius) return cell;
+    }
+    return null;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  CLEANUP
+  // ─────────────────────────────────────────────────────────────────────────
+
+  _cleanupTargetingListeners() {
+    const sc = this.scene;
+    if (this._targetingListener) {
+      sc.input.off("pointerdown", this._targetingListener);
+      this._targetingListener = null;
+    }
+    if (this._secondaryListener) {
+      sc.input.off("pointerdown", this._secondaryListener);
+      this._secondaryListener = null;
+    }
+    sc._stopDarkMapEffect?.();
+    sc._clearToasts?.();
+    this._targetingMode     = null;
+    this._selectedEnemyCell = null;
+    this._swapCard          = null;
+    this._enemyCells        = [];
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  FLASH EFFECT
+  // ─────────────────────────────────────────────────────────────────────────
+
+  _flashEffect(onDone) {
+    const sc              = this.scene;
+    const { width, height } = sc.scale;
+    const flash = sc.add.rectangle(width/2, height/2, width, height, 0xffdd88, 0).setDepth(900);
+    sc.tweens.add({ targets: flash, alpha: 0.4, duration: 80, yoyo: true,
+      onComplete: () => { flash.destroy(); if (onDone) onDone(); }
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  LIVE COOLDOWN TICKER
+  // ─────────────────────────────────────────────────────────────────────────
 
   _startLiveCooldownTicker(cards, myUid) {
     if (this._timer) clearInterval(this._timer);
@@ -426,25 +753,21 @@ export default class TarotModalSystem {
   }
 
   _updateCooldownDisplays(cards, myUid) {
-    const sc = this.scene;
+    const sc  = this.scene;
     const now = sc._estimateServerNowMs ? sc._estimateServerNowMs() : Date.now();
 
     (this._cardUIs || []).forEach(({ card, ui }) => {
-      const runtime = sc.tarotStateByUserId?.[myUid]?.tarot_runtime?.[card.id] || {};
+      const runtime   = sc.tarotStateByUserId?.[myUid]?.tarot_runtime?.[card.id] || {};
       const remaining = Math.max(0, Math.ceil((Number(runtime.next_available_at || 0) - now) / 1000));
-      const maxCd = Number(card.cooldown_seconds || 1);
-      const pct = remaining > 0 ? (remaining / maxCd) : 0;
+      const maxCd     = Number(card.cooldown_seconds || 1);
+      const pct       = remaining > 0 ? remaining / maxCd : 0;
 
       if (ui.cdText) {
         ui.cdText.setText(remaining > 0 ? `⏳ Hồi chiêu: ${remaining}s` : `⚡ CD: ${maxCd}s`);
         ui.cdText.setColor(remaining > 0 ? "#ff9966" : "#ffe28a");
       }
-      if (ui.barFill) {
-        this._drawCdBar(ui.barFill, ui.barX, ui.barY, ui.barW, ui.barH, pct, remaining > 0);
-      }
-      if (ui.bigCD) {
-        ui.bigCD.setText(remaining > 0 ? `${remaining}` : '');
-      }
+      if (ui.barFill) this._drawCdBar(ui.barFill, ui.barX, ui.barY, ui.barW, ui.barH, pct, remaining > 0);
+      if (ui.bigCD)   ui.bigCD.setText(remaining > 0 ? `${remaining}` : '');
     });
   }
 }

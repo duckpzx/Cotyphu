@@ -8,6 +8,7 @@ import CreateCharacterScene from "./scenes/CreateCharacterScene.js";
 import RoomListScene from "./scenes/RoomListScene.js";
 import RoomScene from "./scenes/RoomScene.js"
 import BagScene from "./scenes/BagScene.js";
+import ShopScene from "./scenes/ShopScene.js";
 
 window.onload = function () {
   const root = document.getElementById("root-game");
@@ -35,7 +36,7 @@ window.onload = function () {
       width: rect.width,
       height: rect.height,
     },
-    scene: [LoginScene, BoardScene, RegisterScene, RoomScene, LobbyScene, RoomListScene, CreateCharacterScene, TarotScene, BagScene],
+    scene: [LoginScene, BoardScene, RegisterScene, RoomScene, LobbyScene, RoomListScene, CreateCharacterScene, TarotScene, BagScene, ShopScene],
     physics: {
       default: "arcade",
       arcade: { debug: false },

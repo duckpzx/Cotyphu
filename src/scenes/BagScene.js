@@ -10,13 +10,14 @@ export default class BagScene extends Phaser.Scene {
         this.activeTab = "character";
 
         // Dữ liệu từ server
-        this.myCharacters  = [];   // { character_id, active_skin_id, ... }
-        this.mySkins       = [];   // { skin_id, ... }
+        this.myCharacters  = [];   // { character_id, name, active_skin_id, active_skin_number, is_active_character, ... }
+        this.mySkins       = [];   // { skin_id, skin_number, is_active, ... }
         this.myBackgrounds = [];   // tương lai
 
         // Character đang preview bên trái
         this.selectedCharId    = null;
         this.selectedSkinId    = null;
+        this.selectedSkinNum   = null;
         this.selectedBgId      = null;
 
         // Objects cần xóa khi đổi tab / reload
@@ -56,7 +57,7 @@ export default class BagScene extends Phaser.Scene {
         // ── Layout ───────────────────────────────────────────────────
         const GAP        = 20;
         const LEFT_W     = 360;
-        const RIGHT_W    = width - LEFT_W - GAP - 40;  // linh hoạt theo màn
+        const RIGHT_W    = width - LEFT_W - GAP - 40;
         const PANEL_H    = height - 100;
         const START_X    = 20;
 
@@ -114,81 +115,125 @@ export default class BagScene extends Phaser.Scene {
     async loadAllAssets() {
         if (!this.playerUserId) return;
 
+        // ── 1. Tải danh sách nhân vật sở hữu ─────────────────────
         try {
             const charRes = await fetch(`http://localhost:3000/users/${this.playerUserId}/characters/bag`);
             const charJson = await charRes.json();
             this.myCharacters = charJson.data || [];
-
             console.log("myCharacters từ server:", JSON.stringify(this.myCharacters, null, 2));
         } catch (e) {
             console.warn("Failed to load characters", e);
             return;
         }
 
-        if (this.myCharacters.length > 0) {
-            const activeChar =
-                this.myCharacters.find(c => Number(c.is_active_character) === 1) ||
-                this.myCharacters.find(c =>
-                    Number(c.character_id) === Number(this.playerData?.user?.active_character_id || this.playerData?.active_character_id)
-                ) ||
-                this.myCharacters[0];
+        if (this.myCharacters.length === 0) return;
 
-            this.selectedCharId = activeChar?.character_id || null;
-            this.selectedSkinId = activeChar?.active_skin_id || null;
-        }
+        // ── 2. Xác định nhân vật active ──────────────────────────
+        const activeChar =
+            this.myCharacters.find(c => Number(c.is_active_character) === 1) ||
+            this.myCharacters[0];
+
+        this.selectedCharId = activeChar.character_id;
+        this.selectedSkinNum = activeChar.active_skin_number || 1;
+        this.selectedSkinId = activeChar.active_skin_id || null;
+
+        // ── 3. Tải sprite frames cho TẤT CẢ nhân vật (skin active) ──
+        //    + Tải thêm tất cả skin 1,2,3 cho nhân vật đang chọn
+        await this._loadCharacterSprites();
+
+        // ── 4. Tạo animations ────────────────────────────────────
+        this._createAllBagAnimations();
+    }
+
+    /**
+     * Tải sprite idle frames cho tất cả nhân vật (skin active)
+     * và TẤT CẢ skin (1-3) của nhân vật đang chọn
+     */
+    async _loadCharacterSprites() {
+        let needsLoad = false;
 
         for (const char of this.myCharacters) {
             const charName = char.name;
-            const skinNum  = char.active_skin_number || 1;
+            if (!charName) continue;
 
-            const testPath = `assets/characters/${charName}/${charName}_${skinNum}/PNG/PNG Sequences/Idle/0_${charName}_Idle_000.png`;
-            console.log("Thử load path:", testPath);
+            // Xác định skin nào cần load cho nhân vật này
+            const skinsToLoad = new Set();
+            skinsToLoad.add(char.active_skin_number || 1);
 
-            for (let i = 0; i < 18; i++) {
-                const num      = String(i).padStart(3, "0");
-                const frameKey = `bag_${charName}_${skinNum}_idle_${num}`;
-                if (!this.textures.exists(frameKey)) {
-                    this.load.image(
-                        frameKey,
-                        `assets/characters/${charName}/${charName}_${skinNum}/PNG/PNG Sequences/Idle/0_${charName}_Idle_${num}.png`
-                    );
+            // Nếu là nhân vật đang chọn, load thêm tất cả skin 1-3
+            if (Number(char.character_id) === Number(this.selectedCharId)) {
+                skinsToLoad.add(1);
+                skinsToLoad.add(2);
+                skinsToLoad.add(3);
+            }
+
+            for (const skinNum of skinsToLoad) {
+                for (let i = 0; i < 18; i++) {
+                    const num      = String(i).padStart(3, "0");
+                    const frameKey = `bag_${charName}_${skinNum}_idle_${num}`;
+                    if (!this.textures.exists(frameKey)) {
+                        const path = `assets/characters/${charName}/${charName}_${skinNum}/PNG/PNG Sequences/Idle/0_${charName}_Idle_${num}.png`;
+                        this.load.image(frameKey, path);
+                        needsLoad = true;
+                    }
                 }
             }
         }
 
-        await new Promise(resolve => {
-            this.load.once("complete", resolve);
-            this.load.start();
-        });
+        if (needsLoad) {
+            // Xử lý lỗi load image (skin folder có thể không tồn tại)
+            this.load.on('loaderror', (fileObj) => {
+                // Bỏ qua lỗi load — skin chưa mua sẽ không có file
+            });
 
-        for (const char of this.myCharacters) {
-            const skinNum = char.active_skin_number || 1;
-            const key = `bag_${char.name}_${skinNum}_idle_000`;
-            console.log(`Texture "${key}" tồn tại:`, this.textures.exists(key));
+            await new Promise(resolve => {
+                this.load.once("complete", resolve);
+                this.load.start();
+            });
         }
-
-        this.createBagAnimations();
     }
 
-    createBagAnimations() {
+    /**
+     * Tạo tất cả animation idle cho các nhân vật + skin đã load
+     */
+    _createAllBagAnimations() {
         for (const char of this.myCharacters) {
             const charName = char.name;
-            const skinNum  = char.active_skin_number || 1; // chỉ skin đang active
+            if (!charName) continue;
 
-            const animKey = `bag_${charName}_${skinNum}_idle`;
-            if (this.anims.exists(animKey)) continue;
+            const skinsToCreate = new Set();
+            skinsToCreate.add(char.active_skin_number || 1);
 
-            const frames = [];
-            for (let i = 0; i < 18; i++) {
-                const num = String(i).padStart(3, "0");
-                frames.push({ key: `bag_${charName}_${skinNum}_idle_${num}` });
+            if (Number(char.character_id) === Number(this.selectedCharId)) {
+                for (let s = 1; s <= 3; s++) skinsToCreate.add(s);
             }
-            this.anims.create({
-                key: animKey,
-                frames,
-                frameRate: 10,
-                repeat: -1
-            });
+
+            for (const skinNum of skinsToCreate) {
+                const animKey = `bag_${charName}_${skinNum}_idle`;
+                if (this.anims.exists(animKey)) continue;
+
+                // Kiểm tra frame đầu tiên tồn tại
+                const firstFrame = `bag_${charName}_${skinNum}_idle_000`;
+                if (!this.textures.exists(firstFrame)) continue;
+
+                const frames = [];
+                for (let i = 0; i < 18; i++) {
+                    const num = String(i).padStart(3, "0");
+                    const key = `bag_${charName}_${skinNum}_idle_${num}`;
+                    if (this.textures.exists(key)) {
+                        frames.push({ key });
+                    }
+                }
+
+                if (frames.length > 0) {
+                    this.anims.create({
+                        key: animKey,
+                        frames,
+                        frameRate: 10,
+                        repeat: -1
+                    });
+                }
+            }
         }
     }
 
@@ -236,7 +281,7 @@ export default class BagScene extends Phaser.Scene {
         // Hiển thị nhân vật đang chọn
         const currentChar = this.getCurrentCharacter();
         const charName    = currentChar?.name || "";
-        const skinNum     = currentChar?.active_skin_number || 1;
+        const skinNum     = this.selectedSkinNum || currentChar?.active_skin_number || 1;
         const animKey     = `bag_${charName}_${skinNum}_idle`;
         const firstFrame  = `bag_${charName}_${skinNum}_idle_000`;
 
@@ -261,8 +306,8 @@ export default class BagScene extends Phaser.Scene {
         }
 
         // ── Tên nhân vật ────────────────────────────────────────────
-        const playerName = this.playerData?.username || this.playerData?.user?.username || "Người chơi";
-        push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H + 16, playerName, {
+        const displayName = currentChar?.name || "Chưa chọn";
+        push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H + 16, displayName, {
             fontFamily: "Signika", fontSize: "20px",
             color: "#5c3300", fontStyle: "bold",
             stroke: "#f5dfa0", strokeThickness: 2,
@@ -281,28 +326,61 @@ export default class BagScene extends Phaser.Scene {
             color: "#8b5e1a", fontStyle: "italic",
         }).setDepth(5));
 
-        const activeSkinNumber = Number(currentChar?.active_skin_number || 1);
-
-        const skinLabelMap = {
-            1: "Sơ cấp",
-            2: "Trung cấp",
-            3: "Cao cấp"
-        };
-
-        const skinName = skinLabelMap[activeSkinNumber] || "Sơ cấp";
+        const activeSkinNumber = Number(skinNum);
+        const skinLabelMap = { 1: "Sơ cấp", 2: "Trung cấp", 3: "Cao cấp" };
+        const skinName = skinLabelMap[activeSkinNumber] || `Skin ${activeSkinNumber}`;
 
         push(this.add.text(leftCX - LEFT_W / 2 + 20, skinLabelY + 22, skinName, {
-            fontFamily: "Signika",
-            fontSize: "15px",
-            color: "#4a2000",
-            fontStyle: "bold",
+            fontFamily: "Signika", fontSize: "15px",
+            color: "#4a2000", fontStyle: "bold",
         }).setDepth(5));
 
-        // ── Nút ĐEO / THÁO (placeholder) ────────────────────────────
+        // ── Info nhân vật ────────────────────────────────────────────
+        if (currentChar) {
+            const infoY = skinLabelY + 52;
+            const isActive = Number(currentChar.is_active_character) === 1;
+
+            push(this.add.text(leftCX - LEFT_W / 2 + 20, infoY, `✦  Trạng thái: ${isActive ? "Đang sử dụng" : "Chưa trang bị"}`, {
+                fontFamily: "Signika", fontSize: "13px",
+                color: isActive ? "#2a8b2a" : "#8b5e1a", fontStyle: "italic",
+            }).setDepth(5));
+        }
+
+        // ── Nút TRANG BỊ ────────────────────────────────────────────
         const btnY = panelY + PANEL_H / 2 - 46;
-        this._buildActionBtn(leftCX, btnY, 180, 42, "⚔️  Trang Bị", 0xd4a030, 0x8a5e10, () => {
-            this.showToast("Đã trang bị!");
-        });
+        const currentCharObj = this.getCurrentCharacter();
+        const isCurrentActive = currentCharObj && Number(currentCharObj.is_active_character) === 1;
+
+        this._buildActionBtn(leftCX, btnY, 180, 42,
+            isCurrentActive ? "✓ Đang Trang Bị" : "⚔️ Trang Bị",
+            isCurrentActive ? 0x3a8a3a : 0xd4a030,
+            isCurrentActive ? 0x1a5a1a : 0x8a5e10,
+            async () => {
+                if (isCurrentActive) {
+                    this.showToast("Nhân vật đã được trang bị rồi!");
+                    return;
+                }
+                if (this.playerUserId && this.selectedCharId) {
+                    try {
+                        await fetch(`http://localhost:3000/users/${this.playerUserId}/characters/active`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ character_id: this.selectedCharId }),
+                        });
+                        // Cập nhật local state
+                        this.myCharacters.forEach(c => {
+                            c.is_active_character = (Number(c.character_id) === Number(this.selectedCharId)) ? 1 : 0;
+                        });
+                        this.showToast("✅ Đã trang bị nhân vật!");
+                        this.buildLeftPanel();
+                        this.renderRightPanel();
+                    } catch (e) {
+                        console.warn("Save character failed", e);
+                        this.showToast("❌ Lỗi khi trang bị!");
+                    }
+                }
+            }
+        );
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -403,28 +481,65 @@ export default class BagScene extends Phaser.Scene {
 
         let items = [];
 
-if (this.activeTab === "character") {
-    items = this.myCharacters.map(c => {
-        const skinNum = c.active_skin_number || 1;
-        return {
-            id: c.id,
-            type: "character",
-            imgKey: `bag_${c.name}_${skinNum}_idle_000`, // ← key đúng
-            label: c.name || `Nhân vật ${c.character_id}`,
-            activeSkinId: c.active_skin_id
-        };
-    });
-}
-
-        if (this.activeTab === "skin") {
-            items = this.mySkins.map(s => ({
-                id: s.skin_id,
-                type: "skin",
-                imgKey: `skin_${s.skin_id}`,
-                label: `Skin ${s.skin_number || s.skin_id}`
-            }));
+        // ── Tab Nhân Vật ─────────────────────────────────────────
+        if (this.activeTab === "character") {
+            items = this.myCharacters.map(c => {
+                const skinNum = c.active_skin_number || 1;
+                const isActive = Number(c.is_active_character) === 1;
+                return {
+                    id: c.character_id,
+                    type: "character",
+                    imgKey: `bag_${c.name}_${skinNum}_idle_000`,
+                    label: c.name || `Nhân vật ${c.character_id}`,
+                    isActive,
+                    skinNum,
+                    charName: c.name
+                };
+            });
         }
 
+        // ── Tab Trang Phục ───────────────────────────────────────
+        if (this.activeTab === "skin") {
+            const currentChar = this.getCurrentCharacter();
+            const charName = currentChar?.name || "";
+
+            if (this.mySkins.length > 0) {
+                // Hiển thị skin từ server (user_skins)
+                items = this.mySkins.map(s => {
+                    const skinNum = s.skin_number || 1;
+                    const isActive = Number(s.is_active) === 1;
+                    return {
+                        id: s.skin_id,
+                        type: "skin",
+                        imgKey: `bag_${charName}_${skinNum}_idle_000`,
+                        label: this._getSkinLabel(skinNum),
+                        isActive,
+                        skinNum,
+                        skinId: s.skin_id,
+                        charName
+                    };
+                });
+            } else {
+                // Fallback: nếu chưa có data skin từ server, hiện 3 skin mặc định
+                for (let s = 1; s <= 3; s++) {
+                    const frameKey = `bag_${charName}_${s}_idle_000`;
+                    const hasTexture = this.textures.exists(frameKey);
+                    items.push({
+                        id: s,
+                        type: "skin",
+                        imgKey: hasTexture ? frameKey : null,
+                        label: this._getSkinLabel(s),
+                        isActive: s === (this.selectedSkinNum || 1),
+                        skinNum: s,
+                        skinId: null,
+                        charName,
+                        locked: !hasTexture
+                    });
+                }
+            }
+        }
+
+        // ── Tab Phông Nền ────────────────────────────────────────
         if (this.activeTab === "background") {
             items = this.myBackgrounds.map(b => ({
                 id: b.bg_id,
@@ -436,38 +551,28 @@ if (this.activeTab === "character") {
 
         if (items.length === 0) {
             const currentChar = this.getCurrentCharacter();
+            const emptyMsg = this.activeTab === "skin"
+                ? `Nhân vật ${currentChar?.name || ""} chưa có trang phục nào`
+                : this.activeTab === "background"
+                    ? "Chưa có phông nền nào."
+                    : "Chưa có nhân vật nào.";
 
-            push(this.add.text(
-                rightCX,
-                panelY,
-                this.activeTab === "skin"
-                    ? `Nhân vật ${currentChar?.name || ""} chưa có trang phục nào`
-                    : "Chưa có vật phẩm nào.",
-                {
-                    fontFamily: "Signika",
-                    fontSize: "16px",
-                    color: "#9b7040",
-                    align: "center"
-                }
-            ).setOrigin(0.5).setDepth(10));
+            push(this.add.text(rightCX, panelY, emptyMsg, {
+                fontFamily: "Signika", fontSize: "16px",
+                color: "#9b7040", align: "center"
+            }).setOrigin(0.5).setDepth(10));
 
             return;
         }
 
         const ROWS   = 2;
         const COLS   = Math.ceil(items.length / ROWS);
-
-        // tăng khoảng cách viền trong
         const PAD_X  = 26;
         const PAD_Y  = 22;
-
-        // tăng khoảng cách giữa các card
         const GAP_X  = 16;
         const GAP_Y  = 16;
 
         const availW = RIGHT_W - PAD_X * 2;
-        const availH = GRID_H  - PAD_Y * 2;
-
         const CARD_W = Math.min(132, (availW - GAP_X * (Math.min(COLS, 4) - 1)) / Math.min(COLS, 4));
         const CARD_H = Math.floor(CARD_W * 1.30);
 
@@ -510,9 +615,11 @@ if (this.activeTab === "character") {
     _buildItemCard(x, y, w, h, item) {
         const container = this.add.container(x, y);
         const r = 10;
-        const isActive = (item.type === "character" && item.id === this.selectedCharId)
-                      || (item.type === "skin"      && item.id === this.selectedSkinId)
-                      || (item.type === "background"&& item.id === this.selectedBgId);
+        const isActive = !!item.isActive ||
+            (item.type === "character" && Number(item.id) === Number(this.selectedCharId)) ||
+            (item.type === "skin"      && item.skinNum === this.selectedSkinNum) ||
+            (item.type === "background" && item.id === this.selectedBgId);
+        const isLocked = !!item.locked;
 
         const bg = this.add.graphics();
 
@@ -521,21 +628,24 @@ if (this.activeTab === "character") {
             // Bóng
             bg.fillStyle(0x000000, 0.22);
             bg.fillRoundedRect(3, 5, w, h, r);
-            // Nền card — màu xanh navy như TarotScene
-            bg.fillStyle(0x0d2a4a, 1);
+            // Nền card
+            bg.fillStyle(isLocked ? 0x1a1a2a : 0x0d2a4a, 1);
             bg.fillRoundedRect(0, 0, w, h, r);
             // Dải sáng trên
-            bg.fillStyle(0x1a5090, 0.55);
+            bg.fillStyle(isLocked ? 0x333355 : 0x1a5090, 0.55);
             bg.fillRoundedRect(0, 0, w, h * 0.45, r);
             // Shine
             bg.fillStyle(0xffffff, hover ? 0.20 : 0.11);
             bg.fillRoundedRect(8, 6, w - 16, h * 0.22, r - 3);
-            // Viền: nếu active — vàng sáng; bình thường — vàng nâu
+            // Viền
             if (isActive) {
                 bg.lineStyle(3, 0xffe030, 1.0);
                 bg.strokeRoundedRect(0, 0, w, h, r);
                 bg.lineStyle(1.5, 0xffffff, 0.35);
                 bg.strokeRoundedRect(3, 3, w - 6, h - 6, r - 2);
+            } else if (isLocked) {
+                bg.lineStyle(2, 0x444466, 0.6);
+                bg.strokeRoundedRect(0, 0, w, h, r);
             } else if (hover) {
                 bg.lineStyle(2.5, 0xc8a060, 0.9);
                 bg.strokeRoundedRect(0, 0, w, h, r);
@@ -560,23 +670,32 @@ if (this.activeTab === "character") {
             badgeObj = this.add.container(0, 0, [badgeG, badgeTxt]);
         }
 
+        // Badge "Chưa mở khóa"
+        let lockBadge = null;
+        if (isLocked) {
+            lockBadge = this.add.text(w / 2, h / 2 - 10, "🔒", {
+                fontSize: "28px"
+            }).setOrigin(0.5);
+        }
+
         // Ảnh item
         let imgObj = null;
         const imgKey = item.imgKey;
-        if (this.textures.exists(imgKey)) {
+        if (imgKey && this.textures.exists(imgKey)) {
             imgObj = this.add.image(w / 2, h * 0.46, imgKey);
             const scale = Math.min((w - 18) / imgObj.width, (h * 0.58) / imgObj.height);
             imgObj.setScale(scale);
-        } else {
+            if (isLocked) imgObj.setAlpha(0.3);
+        } else if (!isLocked) {
             imgObj = this.add.text(w / 2, h * 0.46, "🎭", {
                 fontFamily: "Signika", fontSize: "38px",
             }).setOrigin(0.5);
         }
 
-        // Tên item — cắt ngắn nếu dài
+        // Tên item
         const labelTxt = this.add.text(w / 2, h - 20, item.label, {
             fontFamily: "Signika", fontSize: "12px",
-            color: isActive ? "#ffe066" : "#a8d0f0",
+            color: isActive ? "#ffe066" : isLocked ? "#666688" : "#a8d0f0",
             fontStyle: "bold",
             align: "center",
             wordWrap: { width: w - 10 },
@@ -590,95 +709,83 @@ if (this.activeTab === "character") {
             });
         }
 
-        const children = [bg, imgObj, labelTxt];
-        if (badgeObj) children.push(badgeObj);
+        const children = [bg];
+        if (imgObj)    children.push(imgObj);
+        children.push(labelTxt);
+        if (badgeObj)  children.push(badgeObj);
+        if (lockBadge) children.push(lockBadge);
         container.add(children);
 
         // Interactive
-        container.setInteractive(
-            new Phaser.Geom.Rectangle(0, 0, w, h),
-            Phaser.Geom.Rectangle.Contains
-        );
-        container.input.cursor = "pointer";
+        if (!isLocked) {
+            container.setInteractive(
+                new Phaser.Geom.Rectangle(0, 0, w, h),
+                Phaser.Geom.Rectangle.Contains
+            );
+            container.input.cursor = "pointer";
 
-        container.on("pointerover", () => { drawCard(true); this.tweens.add({ targets: container, scaleX: 1.04, scaleY: 1.04, duration: 90 }); });
-        container.on("pointerout",  () => { drawCard(false); this.tweens.add({ targets: container, scaleX: 1, scaleY: 1, duration: 90 }); });
-        container.on("pointerup",   () => {
-            if (this._dragMoved) return;
-            this._onSelectItem(item);
-        });
+            container.on("pointerover", () => { drawCard(true); this.tweens.add({ targets: container, scaleX: 1.04, scaleY: 1.04, duration: 90 }); });
+            container.on("pointerout",  () => { drawCard(false); this.tweens.add({ targets: container, scaleX: 1, scaleY: 1, duration: 90 }); });
+            container.on("pointerup",   () => {
+                if (this._dragMoved) return;
+                this._onSelectItem(item);
+            });
+        }
 
         return container;
     }
 
+    /**
+     * Tải danh sách skin đã sở hữu cho một nhân vật cụ thể
+     */
     async loadSkinsForCharacter(characterId = null) {
         const targetCharId = Number(characterId || this.selectedCharId);
-        if (!this.playerUserId || !targetCharId) return;
-
-        try {
-            const res = await fetch(`http://localhost:3000/users/${this.playerUserId}/characters/${targetCharId}/skins`);
-            
-            if (!res.ok) {
-                this.mySkins = []; // Nếu server lỗi, gán mảng rỗng để không crash
-                return;
-            }
-
-            const json = await res.json();
-            // Kiểm tra chắc chắn json.data là mảng
-            this.mySkins = Array.isArray(json.data) ? json.data : (Array.isArray(json) ? json : []);
-
-            let needsLoad = false;
-            this.mySkins.forEach(s => {
-                const key = `skin_${s.skin_id}`;
-                if (!this.textures.exists(key)) {
-                    this.load.image(key, `assets/skins/${s.skin_id}/thumb.png`);
-                    needsLoad = true;
-                }
-            });
-
-            if (needsLoad) {
-                this.load.start();
-            }
-        } catch (e) {
-            console.warn("Failed to load skins", e);
-            this.mySkins = [];
-        }
-    }
-
-    async loadSkinsForSelectedCharacter() {
-        if (!this.playerUserId || !this.selectedCharId) {
+        if (!this.playerUserId || !targetCharId) {
             this.mySkins = [];
             return;
         }
 
         try {
-            const res = await fetch(
-                `http://localhost:3000/users/${this.playerUserId}/characters/${this.selectedCharId}/skins`
-            );
+            const res = await fetch(`http://localhost:3000/users/${this.playerUserId}/characters/${targetCharId}/skins`);
 
             if (!res.ok) {
-                const raw = await res.text();
-                console.error("Skin API lỗi:", res.status, raw);
+                console.warn("Skin API lỗi:", res.status);
                 this.mySkins = [];
                 return;
             }
 
             const json = await res.json();
-            this.mySkins = json.data || [];
+            this.mySkins = Array.isArray(json.data) ? json.data : (Array.isArray(json) ? json : []);
+            console.log("mySkins từ server:", JSON.stringify(this.mySkins, null, 2));
 
-            // preload ảnh skin thumbnail
-            this.mySkins.forEach(s => {
-                const key = `skin_${s.skin_id}`;
-                if (!this.textures.exists(key)) {
-                    this.load.image(key, `assets/skins/${s.skin_id}/thumb.png`);
+            // Preload sprites cho các skin chưa load
+            const currentChar = this.getCurrentCharacter();
+            const charName = currentChar?.name || "";
+            if (!charName) return;
+
+            let needsLoad = false;
+            for (const skin of this.mySkins) {
+                const skinNum = skin.skin_number || 1;
+                for (let i = 0; i < 18; i++) {
+                    const num = String(i).padStart(3, "0");
+                    const frameKey = `bag_${charName}_${skinNum}_idle_${num}`;
+                    if (!this.textures.exists(frameKey)) {
+                        this.load.image(frameKey,
+                            `assets/characters/${charName}/${charName}_${skinNum}/PNG/PNG Sequences/Idle/0_${charName}_Idle_${num}.png`
+                        );
+                        needsLoad = true;
+                    }
                 }
-            });
+            }
 
-            await new Promise(resolve => {
-                this.load.once("complete", resolve);
-                this.load.start();
-            });
-
+            if (needsLoad) {
+                this.load.on('loaderror', () => {});
+                await new Promise(resolve => {
+                    this.load.once("complete", resolve);
+                    this.load.start();
+                });
+                this._createAllBagAnimations();
+            }
         } catch (e) {
             console.warn("Failed to load skins", e);
             this.mySkins = [];
@@ -693,7 +800,12 @@ if (this.activeTab === "character") {
             this.selectedCharId = item.id;
 
             const currentChar = this.getCurrentCharacter();
+            this.selectedSkinNum = currentChar?.active_skin_number || 1;
             this.selectedSkinId = currentChar?.active_skin_id || null;
+
+            // Load sprites cho nhân vật mới chọn (tất cả skin)
+            await this._loadCharacterSprites();
+            this._createAllBagAnimations();
 
             if (this.activeTab === "skin") {
                 await this.loadSkinsForCharacter(item.id);
@@ -702,34 +814,41 @@ if (this.activeTab === "character") {
             this.buildLeftPanel();
             this.renderRightPanel();
 
-            if (this.playerUserId) {
-                try {
-                    await fetch(`http://localhost:3000/users/${this.playerUserId}/characters/active`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ character_id: item.id }),
-                    });
-                } catch (e) {
-                    console.warn("Save character failed", e);
-                }
-            }
         } else if (item.type === "skin") {
-            this.selectedSkinId = item.id;   // id có thể là skin_number
+            this.selectedSkinNum = item.skinNum;
+            this.selectedSkinId = item.skinId || item.id;
+
             const currentChar = this.getCurrentCharacter();
             if (currentChar) {
-                currentChar.active_skin_id = item.id;
+                currentChar.active_skin_number = item.skinNum;
+                currentChar.active_skin_id = item.skinId || item.id;
             }
-            this.buildLeftPanel();     // ← sẽ tạo sprite mới với skin vừa chọn
+
+            // Tải và tạo animation cho skin mới nếu chưa có
+            const charName = item.charName || currentChar?.name;
+            const animKey = `bag_${charName}_${item.skinNum}_idle`;
+            if (!this.anims.exists(animKey)) {
+                await this._loadCharacterSprites();
+                this._createAllBagAnimations();
+            }
+
+            this.buildLeftPanel();
             this.renderRightPanel();
 
             // Gọi API cập nhật active skin trên server
-            if (this.playerUserId && this.selectedCharId) {
-                await fetch(`http://localhost:3000/users/${this.playerUserId}/characters/${this.selectedCharId}/skin`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ skin_id: item.id }),
-                });
+            if (this.playerUserId && this.selectedCharId && item.skinId) {
+                try {
+                    await fetch(`http://localhost:3000/users/${this.playerUserId}/characters/${this.selectedCharId}/skin`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ skin_id: item.skinId }),
+                    });
+                    this.showToast("✅ Đã đổi trang phục!");
+                } catch (e) {
+                    console.warn("Save skin failed", e);
+                }
             }
+
         } else if (item.type === "background") {
             this.selectedBgId = item.id;
             this.renderRightPanel();
@@ -883,14 +1002,13 @@ if (this.activeTab === "character") {
         });
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  HELPERS
+    // ═══════════════════════════════════════════════════════════════
+
     getCurrentCharacter() {
         if (!this.selectedCharId) return null;
         return this.myCharacters.find(c => Number(c.character_id) === Number(this.selectedCharId)) || null;
-    }
-
-    getSkinsOfSelectedCharacter() {
-        const currentChar = this.getCurrentCharacter();
-        return currentChar?.skins || [];
     }
 
     ensureSelectedCharacter() {
@@ -909,7 +1027,13 @@ if (this.activeTab === "character") {
 
         const currentChar = this.getCurrentCharacter();
         if (currentChar) {
-            this.selectedSkinId = currentChar.active_skin_id || currentChar.active_skin_number || null;
+            this.selectedSkinNum = currentChar.active_skin_number || 1;
+            this.selectedSkinId = currentChar.active_skin_id || null;
         }
+    }
+
+    _getSkinLabel(skinNum) {
+        const map = { 1: "Sơ cấp", 2: "Trung cấp", 3: "Cao cấp" };
+        return map[skinNum] || `Skin ${skinNum}`;
     }
 }

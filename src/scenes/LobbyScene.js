@@ -331,6 +331,13 @@ createTopBar() {
     .setDepth(103)
     .setInteractive({ cursor: 'pointer' }); // Thêm ở đây
 
+  shop.on("pointerup", () => {
+    this.cameras.main.fadeOut(200);
+    this.cameras.main.once("camerafadeoutcomplete", () => {
+      this.scene.start("ShopScene");
+    });
+  });
+
   const bag = this.add.image(iconStartX + gap * 2, y - 5, "bag")
     .setScale(1)
     .setDepth(103)

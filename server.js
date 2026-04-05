@@ -191,198 +191,337 @@ function getTargetEnemyCell(gs, cur, targetUserId = null, targetCellIndex = null
   return enemyCells[0] || null;
 }
 
+// server.js – bổ sung vào game state
+// Mỗi player có thêm:
+//   pending_tarot_effect: null | { type, params, used }
+//   extra_roll_queued: bool
+//   rent_refund_pending: bool
+//   steal_pending: { active, targetUserIds, percent }
+
+// Hàm xử lý thẻ mở rộng
 async function applyTarotEffect(gs, cur, tarotDef, payload = {}) {
-  const room_id = gs.room_id;
-  const effectType = String(tarotDef.effect_type || "").trim().toLowerCase();
-
-  // 1. Công An - skip_turn_enemy
-  if (effectType === "skip_turn_enemy") {
-    const target = getTargetEnemy(gs, cur, payload.target_user_id);
-    if (!target) {
-      io.to(cur.socket_id).emit("game:tarot_denied", { message: "Không có đối thủ để dùng thẻ" });
-      return false;
-    }
-
-    target.skip_next_turn = (target.skip_next_turn || 0) + 1;
-
-    io.to(`game_${room_id}`).emit("game:skill_event", {
-      type: "skip_turn_enemy",
-      user_id: cur.user_id,
-      name: cur.name,
-      target_user_id: target.user_id,
-      target_name: target.name
-    });
-    return true;
-  }
-
-  // 2. Xúc Xắc Ma Thuật
-  if (effectType === "extra_roll") {
-    gs.phase = "IDLE";
-    cur.has_extra_roll = true;
-
-    io.to(`game_${room_id}`).emit("game:skill_event", {
-      type: "extra_roll",
-      user_id: cur.user_id,
-      name: cur.name
-    });
-    return true;
-  }
-
-  // 3. Nhận Trợ Giúp
-  if (effectType === "steal_cash_percent") {
-    const target = getTargetEnemy(gs, cur, payload.target_user_id);
-    if (!target) {
-      io.to(cur.socket_id).emit("game:tarot_denied", { message: "Không có đối thủ để cướp tiền" });
-      return false;
-    }
-
-    const amount = Math.floor((target.cash || 0) * percent / 100);
-
-    target.cash = Math.max(0, (target.cash || 0) - amount);
-    cur.cash = (cur.cash || 0) + amount;
-
-    io.to(`game_${room_id}`).emit("game:skill_event", {
-      type: "steal_cash_percent",
-      user_id: cur.user_id,
-      name: cur.name,
-      target_user_id: target.user_id,
-      target_name: target.name,
-      amount
-    });
-    return true;
-  }
-
-  // 4. Nhanh Chân
-  if (effectType === "move_forward_range") {
-    const maxStep = Math.max(1, 6);
-    const steps = Math.floor(Math.random() * maxStep) + 1;
-
-    io.to(`game_${room_id}`).emit("game:skill_event", {
-      type: "move_forward_range",
-      user_id: cur.user_id,
-      name: cur.name,
-      step: steps
-    });
-    return true;
-  }
-
-  // 5. Tài Phiệt
-  // Đề xuất luật rõ ràng: buff x2 cho lần thu thuê tiếp theo của người dùng
-  if (effectType === "tax_multiplier") {
-    cur.tax_multiplier_active = true;
-    cur.tax_multiplier_value = Math.max(1.2, 2.6);
-    cur.tax_multiplier_charges = 1;
-
-    io.to(`game_${room_id}`).emit("game:skill_event", {
-      type: "tax_multiplier",
-      user_id: cur.user_id,
-      name: cur.name,
-      multiplier: cur.tax_multiplier_value
-    });
-    return true;
-  }
-
-  // 6. Thần Giữ Của
-  // Đề xuất luật rõ ràng: miễn/hoàn 1 lần tiền thuê kế tiếp
-  if (effectType === "recover_house_money") {
-    cur.recover_house_money_charges = 1;
-
-    io.to(`game_${room_id}`).emit("game:skill_event", {
-      type: "recover_house_money",
-      user_id: cur.user_id,
-      name: cur.name
-    });
-    return true;
-  }
-
-  // 7. Giải Tỏa
-  if (effectType === "destroy_enemy_house") {
-    const targetCell = getTargetEnemyCell(gs, cur, payload.target_user_id, payload.target_cell_index);
-    if (!targetCell) {
-      io.to(cur.socket_id).emit("game:tarot_denied", { message: "Đối thủ không có tinh cầu để phá" });
-      return false;
-    }
-
-    delete gs.cellStates[targetCell.cell_index];
-
-    io.to(`game_${room_id}`).emit("game:skill_event", {
-      type: "destroy_enemy_house",
-      user_id: cur.user_id,
-      name: cur.name,
-      cell_index: targetCell.cell_index
-    });
-
-    io.to(`game_${room_id}`).emit("game:cell_destroyed", {
-      cell_index: targetCell.cell_index,
-      had_planet: true
-    });
-
-    return true;
-  }
-
-  // 8. Hoán Đổi
-  // Đề xuất luật rõ ràng: hoán đổi 1 ô ngẫu nhiên của bạn với 1 ô ngẫu nhiên của đối thủ
-  if (effectType === "swap_planet") {
-    const targetEnemy = getTargetEnemy(gs, cur, payload.target_user_id);
-    if (!targetEnemy) {
-      io.to(cur.socket_id).emit("game:tarot_denied", { message: "Không có đối thủ để hoán đổi" });
-      return false;
-    }
-
-    const myCells = getOwnedCells(gs, cur.user_id);
-    const enemyCells = getOwnedCells(gs, targetEnemy.user_id);
-
-    if (!myCells.length || !enemyCells.length) {
-      io.to(cur.socket_id).emit("game:tarot_denied", {
-        message: "Cần cả bạn và đối thủ đều có tinh cầu để hoán đổi"
+  const effectType = tarotDef.effect_type;
+  const room_id    = gs.room_id;
+ 
+  // ── Helper: lấy danh sách user_id đối thủ (hỗ trợ team 2v2) ──────────────
+  const getEnemyIds = () => {
+    const enemies = gs.players.filter(p => p.user_id !== cur.user_id);
+    // Team 2v2: trả về cả 2 đối thủ bên kia; 1vs1: chỉ 1 người
+    return enemies.map(e => e.user_id);
+  };
+ 
+  // ── Helper: lấy tất cả cellState thuộc về user_id ──────────────────────────
+  const getOwnedCellEntries = (userId) =>
+    Object.entries(gs.cellStates || {})
+      .filter(([_, c]) => Number(c.owner_user_id) === Number(userId))
+      .map(([idx, c]) => ({ cell_index: Number(idx), ...c }));
+ 
+  switch (effectType) {
+ 
+    // ═══════════════════════════════════════════════════════════════════════
+    //  1. CÔNG AN — skip_turn_enemy
+    //     Mất lượt 1 đối thủ chỉ định (team: chọn 1 người phía đối)
+    // ═══════════════════════════════════════════════════════════════════════
+    case 'skip_turn_enemy': {
+      // Validate target
+      const targetUserId = Number(payload.target_user_id) || getEnemyIds()[0];
+      if (!targetUserId) return false;
+ 
+      const target = gs.players.find(p => Number(p.user_id) === targetUserId);
+      if (!target) return false;
+ 
+      // Không cho phép target chính mình
+      if (Number(target.user_id) === Number(cur.user_id)) return false;
+ 
+      // Tích lũy: nếu bị dùng 2 thẻ liên tiếp thì mất 2 lượt
+      target.skip_next_turn = (target.skip_next_turn || 0) + 1;
+ 
+      io.to(`game_${room_id}`).emit('game:skill_event', {
+        type:           'skip_turn_enemy',
+        user_id:        cur.user_id,
+        name:           cur.name,
+        target_user_id: target.user_id,
+        target_name:    target.name,
+        skip_count:     target.skip_next_turn
       });
-      return false;
+ 
+      return true;
     }
-
-    const myCell = myCells[Math.floor(Math.random() * myCells.length)];
-    const enemyCell = enemyCells[Math.floor(Math.random() * enemyCells.length)];
-
-    const myOld = gs.cellStates[myCell.cell_index];
-    const enemyOld = gs.cellStates[enemyCell.cell_index];
-
-    gs.cellStates[myCell.cell_index] = {
-      ...myOld,
-      owner_user_id: targetEnemy.user_id,
-      planet_color: targetEnemy.planet_color
-    };
-
-    gs.cellStates[enemyCell.cell_index] = {
-      ...enemyOld,
-      owner_user_id: cur.user_id,
-      planet_color: cur.planet_color
-    };
-
-    io.to(`game_${room_id}`).emit("game:skill_event", {
-      type: "swap_planet",
-      user_id: cur.user_id,
-      name: cur.name,
-      target_user_id: targetEnemy.user_id,
-      target_name: targetEnemy.name,
-      cell_a: {
-        cell_index: myCell.cell_index,
-        owner_user_id: targetEnemy.user_id,
-        planet_color: targetEnemy.planet_color,
-        build_cost: gs.cellStates[myCell.cell_index].build_cost
-      },
-      cell_b: {
-        cell_index: enemyCell.cell_index,
-        owner_user_id: cur.user_id,
-        planet_color: cur.planet_color,
-        build_cost: gs.cellStates[enemyCell.cell_index].build_cost
-      }
-    });
-    return true;
+ 
+    // ═══════════════════════════════════════════════════════════════════════
+    //  2. XÚC XẮC MA THUẬT — extra_roll
+    //     Sau khi kết thúc lượt bình thường → được tung lại ngay lập tức
+    // ═══════════════════════════════════════════════════════════════════════
+    case 'extra_roll': {
+      // Đánh dấu: sau khi lượt kết thúc sẽ set lại IDLE cho chính người này
+      cur.extra_roll_queued = true;
+ 
+      io.to(`game_${room_id}`).emit('game:skill_event', {
+        type:    'extra_roll',
+        user_id: cur.user_id,
+        name:    cur.name
+      });
+ 
+      return true;
+    }
+ 
+    // ═══════════════════════════════════════════════════════════════════════
+    //  3. NHẬN TRỢ GIÚP — steal_cash_percent
+    //     Pending: kích hoạt sau khi tung xúc xắc xong (ngay khi ROLLING)
+    //     1vs1: lấy 20% tiền 1 người; team: lấy 20% tiền cả 2 đối thủ
+    // ═══════════════════════════════════════════════════════════════════════
+    case 'steal_cash_percent': {
+      const percent    = Number(tarotDef.effect_params?.percent ?? 20);
+      const enemyIds   = getEnemyIds();
+      if (!enemyIds.length) return false;
+ 
+      cur.pending_steal = {
+        active:        true,
+        targetUserIds: enemyIds,
+        percent
+      };
+ 
+      io.to(`game_${room_id}`).emit('game:skill_event', {
+        type:    'steal_cash_percent_pending',
+        user_id: cur.user_id,
+        name:    cur.name,
+        percent
+      });
+ 
+      return true;
+    }
+ 
+    // ═══════════════════════════════════════════════════════════════════════
+    //  4. NHANH CHÂN — move_forward_range
+    //     Pending: kích hoạt sau khi di chuyển chính xong
+    //     Ưu tiên ô an toàn (không phải nhà đối thủ) nếu có
+    // ═══════════════════════════════════════════════════════════════════════
+    case 'move_forward_range': {
+      const min = Number(tarotDef.effect_params?.min ?? 1);
+      const max = Number(tarotDef.effect_params?.max ?? 6);
+ 
+      cur.pending_extra_move = {
+        active:          true,
+        min,
+        max,
+        avoidEnemyCells: true
+      };
+ 
+      io.to(`game_${room_id}`).emit('game:skill_event', {
+        type:    'move_forward_range_pending',
+        user_id: cur.user_id,
+        name:    cur.name,
+        min,
+        max
+      });
+ 
+      return true;
+    }
+ 
+    // ═══════════════════════════════════════════════════════════════════════
+    //  5. TÀI PHIỆT — tax_multiplier
+    //     Chọn ngẫu nhiên 1–2 tinh cầu của mình → buff hệ số thuế x1.2–x1.6
+    //     Lưu vào cellState: { tax_multiplier, tax_multiplier_active }
+    // ═══════════════════════════════════════════════════════════════════════
+    case 'tax_multiplier': {
+      const ownedCells = getOwnedCellEntries(cur.user_id);
+      if (!ownedCells.length) return false;
+ 
+      const countToBuff = Math.min(
+        ownedCells.length,
+        Number(tarotDef.effect_params?.count ?? 2)
+      );
+ 
+      // Xáo trộn và chọn
+      const shuffled = [...ownedCells].sort(() => Math.random() - 0.5);
+      const selected = shuffled.slice(0, countToBuff);
+ 
+      const buffedCells = selected.map(c => {
+        // Multiplier ngẫu nhiên trong khoảng [1.2, 1.6]
+        const [mMin, mMax] = tarotDef.effect_params?.multiplier_range ?? [1.2, 1.6];
+        const mult = +(mMin + Math.random() * (mMax - mMin)).toFixed(2);
+ 
+        const cellState = gs.cellStates[c.cell_index];
+        if (cellState) {
+          cellState.tax_multiplier        = mult;
+          cellState.tax_multiplier_active = true;
+        }
+ 
+        return { index: c.cell_index, multiplier: mult };
+      });
+ 
+      io.to(`game_${room_id}`).emit('game:skill_event', {
+        type:        'tax_multiplier',
+        user_id:     cur.user_id,
+        name:        cur.name,
+        cells:       buffedCells   // [{index, multiplier}, ...]
+      });
+ 
+      return true;
+    }
+ 
+    // ═══════════════════════════════════════════════════════════════════════
+    //  6. THẦN GIỮ CỦA — recover_house_money
+    //     Pending: trong lượt này nếu trả thuê → được hoàn lại 100%
+    //     Nếu không dẫm vào nhà đối thủ → hết hiệu lực sau lượt
+    // ═══════════════════════════════════════════════════════════════════════
+    case 'recover_house_money': {
+      cur.rent_refund_pending = true;
+ 
+      io.to(`game_${room_id}`).emit('game:skill_event', {
+        type:    'recover_house_money',
+        user_id: cur.user_id,
+        name:    cur.name
+      });
+ 
+      return true;
+    }
+ 
+    // ═══════════════════════════════════════════════════════════════════════
+    //  7. GIẢI TỎA — destroy_enemy_house
+    //     Xóa 1 tinh cầu / công trình đối thủ do client chỉ định
+    //     Validation: ô phải tồn tại & không thuộc mình
+    // ═══════════════════════════════════════════════════════════════════════
+    case 'destroy_enemy_house': {
+      const targetCellIndex = Number(payload.target_cell_index);
+      if (isNaN(targetCellIndex)) return false;
+ 
+      const targetCell = gs.cellStates[targetCellIndex];
+      if (!targetCell) return false; // ô trống
+      if (Number(targetCell.owner_user_id) === Number(cur.user_id)) return false; // không được phá của mình
+ 
+      const previousOwner = targetCell.owner_user_id;
+      delete gs.cellStates[targetCellIndex];
+ 
+      io.to(`game_${room_id}`).emit('game:cell_destroyed', {
+        cell_index:     targetCellIndex,
+        had_planet:     true,
+        destroyed_by:   cur.user_id,
+        destroyer_name: cur.name,
+        previous_owner: previousOwner
+      });
+ 
+      io.to(`game_${room_id}`).emit('game:skill_event', {
+        type:            'destroy_enemy_house',
+        user_id:         cur.user_id,
+        name:            cur.name,
+        target_cell:     targetCellIndex,
+        previous_owner:  previousOwner
+      });
+ 
+      return true;
+    }
+ 
+    // ═══════════════════════════════════════════════════════════════════════
+    //  8. HOÁN ĐỔI — swap_planet
+    //     Hoán đổi quyền sở hữu 2 tinh cầu (1 của mình, 1 của đối thủ)
+    //     Payload: { target_cell_index: enemyCell, my_cell_index: myCell }
+    // ═══════════════════════════════════════════════════════════════════════
+    case 'swap_planet': {
+      const enemyCellIdx = Number(payload.target_cell_index);
+      const myCellIdx    = Number(payload.my_cell_index);
+ 
+      if (isNaN(enemyCellIdx) || isNaN(myCellIdx)) return false;
+ 
+      const myCell    = gs.cellStates[myCellIdx];
+      const enemyCell = gs.cellStates[enemyCellIdx];
+ 
+      if (!myCell || !enemyCell) return false;
+      if (Number(myCell.owner_user_id)    !== Number(cur.user_id)) return false;
+      if (Number(enemyCell.owner_user_id) === Number(cur.user_id)) return false;
+ 
+      const previousMyOwner    = myCell.owner_user_id;
+      const previousEnemyOwner = enemyCell.owner_user_id;
+      const previousMyColor    = myCell.planet_color;
+      const previousEnemyColor = enemyCell.planet_color;
+ 
+      // Hoán đổi chủ sở hữu + màu tinh cầu
+      myCell.owner_user_id    = previousEnemyOwner;
+      myCell.planet_color     = previousEnemyColor;
+      enemyCell.owner_user_id = previousMyOwner;
+      enemyCell.planet_color  = previousMyColor;
+ 
+      // Nếu cell bị buff tax thì giữ nguyên buff (buff theo ô, không theo người)
+      // Đây là thiết kế có chủ đích
+ 
+      io.to(`game_${room_id}`).emit('game:skill_event', {
+        type:                   'swap_planet',
+        user_id:                cur.user_id,
+        name:                   cur.name,
+        my_cell_index:          myCellIdx,
+        enemy_cell_index:       enemyCellIdx,
+        new_my_owner:           myCell.owner_user_id,
+        new_my_color:           myCell.planet_color,
+        new_enemy_owner:        enemyCell.owner_user_id,
+        new_enemy_color:        enemyCell.planet_color
+      });
+ 
+      return true;
+    }
+ 
+    default:
+      console.warn(`[TarotEffect] Unknown effect_type: ${effectType}`);
+      return false;
   }
+}
 
-  io.to(cur.socket_id).emit("game:tarot_denied", {
-    message: `effect_type "${tarotDef.effect_type}" chưa được hỗ trợ`
+function applyPendingSteal(gs, cur) {
+  if (!cur.pending_steal?.active) return;
+ 
+  const { targetUserIds, percent } = cur.pending_steal;
+  let totalStolen = 0;
+  const breakdown = [];
+ 
+  targetUserIds.forEach(uid => {
+    const target = gs.players.find(p => Number(p.user_id) === Number(uid));
+    if (!target || target.cash <= 0) return;
+ 
+    const stealAmount = Math.floor(target.cash * percent / 100);
+    if (stealAmount <= 0) return;
+ 
+    target.cash -= stealAmount;
+    cur.cash    += stealAmount;
+    totalStolen += stealAmount;
+    breakdown.push({ from_user_id: uid, from_name: target.name, amount: stealAmount });
   });
-  return false;
+ 
+  // Reset pending
+  cur.pending_steal = null;
+ 
+  if (totalStolen > 0) {
+    io.to(`game_${gs.room_id}`).emit('game:steal_effect', {
+      user_id:    cur.user_id,
+      name:       cur.name,
+      total:      totalStolen,
+      breakdown,              // [{from_user_id, from_name, amount}]
+      percent
+    });
+ 
+    // Đồng bộ cash mới cho tất cả
+    emitCashSync(gs);
+  }
+}
+
+// Hook xử lý extra move sau khi di chuyển chính
+function applyPendingExtraMove(gs, cur, currentIndex, boardPath) {
+  if (!cur.pending_extra_move?.active) return null;
+  const { min, max, avoidEnemyCells } = cur.pending_extra_move;
+  let steps = Math.floor(Math.random() * (max - min + 1)) + min;
+  if (avoidEnemyCells) {
+    // Tìm số bước an toàn (không dừng vào ô đối thủ)
+    let bestSteps = steps;
+    for (let s = 1; s <= steps; s++) {
+      const targetIdx = (currentIndex + s) % TOTAL_CELLS;
+      const cellState = gs.cellStates[targetIdx];
+      if (!cellState || cellState.owner_user_id === cur.user_id) {
+        bestSteps = s;
+        break;
+      }
+    }
+    steps = bestSteps;
+  }
+  cur.pending_extra_move = null;
+  return steps;
 }
 
 /** Shuffle Fisher-Yates */
@@ -1600,6 +1739,9 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     delete players[socket.id];
     io.emit("playerDisconnected", socket.id);
   });
+
+
+
 });
 
 // ===== ROUTES =====
@@ -1714,12 +1856,13 @@ app.get("/users/:userId/characters", async (req, res) => {
 
 app.get("/users/:userId/characters/:characterId/skins", async (req, res) => {
     try {
-        const result = await characterService.getOwnedSkinsByUserAndCharacter(
+        const result = await characterService.getOwnedSkinsForBag(
             Number(req.params.userId),
             Number(req.params.characterId)
         );
         res.json(result);
     } catch (err) {
+        console.error("GET skins error:", err);
         res.status(500).json({ success: false, message: "Server error" });
     }
 });
@@ -1749,18 +1892,12 @@ app.post("/users/:userId/characters/:characterId/skin", async (req, res) => {
   }
 });
 
-// Thêm route này vào server.js
+// Route lấy nhân vật cho BagScene — dùng getOwnedCharactersForBag để có đầy đủ dữ liệu
 app.get("/users/:userId/characters/bag", async (req, res) => {
   try {
     const userId = Number(req.params.userId);
-    // Gọi characterService để lấy danh sách nhân vật
-    const result = await characterService.getCharactersByUser(userId);
-    
-    // BagScene của bạn đang mong đợi dữ liệu nằm trong biến "data"
-    res.json({
-      success: true,
-      data: result 
-    });
+    const result = await characterService.getOwnedCharactersForBag(userId);
+    res.json(result);
   } catch (err) {
     console.error("Lỗi API Bag:", err);
     res.status(500).json({ success: false, message: "Lỗi server" });

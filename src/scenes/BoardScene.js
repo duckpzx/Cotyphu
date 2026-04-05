@@ -161,119 +161,152 @@ _closeTarotModal() { this.tarotModal?.close(); }
       });
     });
 
-    // ── game:init ────────────────────────────────────────────────
-this.socket.on("game:init", (data) => {
-  const myUid = this._myUserId();
-  this.gamePlayers = data.players;
-  this.cellStates = data.cellStates || {};
-  this.isMyTurn = (data.current_turn_user_id === myUid);
-  this.canRoll = this.isMyTurn;
-  this.gameRoomId = data.room_id || this.gameRoomId;
-  this.serverClockOffsetMs = Number(data.server_now_ms || Date.now()) - Date.now();
-
-  this.createPlayerPanels(this.minRatio);
-  this._refreshPlayerPanelsFromGameState();
-
-  data.players.forEach((gp) => {
-    this._ingestTarotPlayerData(gp);
-  });
-
-  const me = data.players.find(p => p.user_id === myUid);
-  if (me) {
-    this.myPlanetColor = me.planet_color;
-    const myColor = this._getPlayerColor(this.myPlanetColor);
-    this.playerNameText.setColor(myColor);
-    this.playerNameText.setText(me.name);
-  }
-
-  data.players.forEach(p => {
-    const otherPlayer = this.otherPlayers[p.socket_id] ||
-      Object.values(this.otherPlayers).find(op => op.user_id === p.user_id);
-    if (otherPlayer && otherPlayer.nameText) {
-      const color = this._getPlayerColor(p.planet_color);
-      otherPlayer.nameText.setColor(color);
-      otherPlayer.planet_color = p.planet_color;
-    }
-  });
-
-  if (!this.tarotCardsByUserId) this.tarotCardsByUserId = {};
-  if (!this.tarotStateByUserId) this.tarotStateByUserId = {};
-
-  data.players.forEach((gp) => {
-    let ids = gp.active_tarot_ids;
-
-    if (typeof ids === "string") {
-      try {
-        ids = JSON.parse(ids);
-      } catch {
-        ids = [];
+    // Thêm vào setupSocketEvents
+    this.socket.on('game:extra_move', (data) => {
+      if (data.user_id === this._myUserId()) {
+        this._movePlayerSteps(data.steps, () => {
+          this.socket.emit('game:move_done', { room_id: this.gameRoomId, cell_index: this.currentIndex });
+        });
       }
-    }
+    });
 
-    if (Array.isArray(ids) && ids.length) {
-      this.updatePlayerTarotSlotsByUserId(gp.user_id, ids);
-    }
+    this.socket.on('game:extra_turn', (data) => {
+      if (data.user_id === this._myUserId()) {
+        this.isMyTurn = true;
+        this.canRoll = true;
+        this._applyTurnState();
+        this._updateTurnInfo();
+        this._showTurnBanner('✨ Lượt thêm từ Xúc Xắc Ma Thuật!', '#ffcc44');
+      }
+    });
 
-    if (Array.isArray(gp.tarot_cards) && gp.tarot_cards.length) {
-      this.tarotCardsByUserId[gp.user_id] = gp.tarot_cards;
-    }
+    this.socket.on('game:steal_effect', (data) => {
+      const isMe = data.user_id === this._myUserId();
+      this._showToast(`${isMe ? 'Bạn' : data.name} đã cướp ${this._formatMoney(data.amount)} từ đối thủ!`,
+        isMe ? '#ffaa44' : '#ff8844');
+      this._updatePlayerStatsInUI();
+    });
 
-    if (gp.tarot_runtime) {
-      this.tarotStateByUserId[gp.user_id] = {
-        tarot_runtime: gp.tarot_runtime,
-        used_tarot_this_turn: !!gp.used_tarot_this_turn
-      };
-    }
-  });
+    this.socket.on('game:rent_refund', (data) => {
+      if (data.user_id === this._myUserId()) {
+        this._showToast(`🛡️ Thần Giữ Của hoàn trả ${this._formatMoney(data.amount)}!`, '#88ff88');
+        this._updatePlayerStatsInUI();
+      }
+    });
 
-  this._applyTurnState();
-  this._updateTurnInfo();
-  this._renderAllCells(this.cellStates);
-  this._updatePlayerStatsInUI();
+    // ── game:init ────────────────────────────────────────────────
+    this.socket.on("game:init", (data) => {
+      const myUid = this._myUserId();
+      this.gamePlayers = data.players;
+      this.cellStates = data.cellStates || {};
+      this.isMyTurn = (data.current_turn_user_id === myUid);
+      this.canRoll = this.isMyTurn;
+      this.gameRoomId = data.room_id || this.gameRoomId;
+      this.serverClockOffsetMs = Number(data.server_now_ms || Date.now()) - Date.now();
 
-  this._bindMyTarotSlotClicks();
-  this._refreshAllTarotCooldownUIs();
-  this._startTarotUiTicker();
-});
+      this.createPlayerPanels(this.minRatio);
+      this._refreshPlayerPanelsFromGameState();
+
+      data.players.forEach((gp) => {
+        this._ingestTarotPlayerData(gp);
+      });
+
+      const me = data.players.find(p => p.user_id === myUid);
+      if (me) {
+        this.myPlanetColor = me.planet_color;
+        const myColor = this._getPlayerColor(this.myPlanetColor);
+        this.playerNameText.setColor(myColor);
+        this.playerNameText.setText(me.name);
+      }
+
+      data.players.forEach(p => {
+        const otherPlayer = this.otherPlayers[p.socket_id] ||
+          Object.values(this.otherPlayers).find(op => op.user_id === p.user_id);
+        if (otherPlayer && otherPlayer.nameText) {
+          const color = this._getPlayerColor(p.planet_color);
+          otherPlayer.nameText.setColor(color);
+          otherPlayer.planet_color = p.planet_color;
+        }
+      });
+
+      if (!this.tarotCardsByUserId) this.tarotCardsByUserId = {};
+      if (!this.tarotStateByUserId) this.tarotStateByUserId = {};
+
+      data.players.forEach((gp) => {
+        let ids = gp.active_tarot_ids;
+
+        if (typeof ids === "string") {
+          try {
+            ids = JSON.parse(ids);
+          } catch {
+            ids = [];
+          }
+        }
+
+        if (Array.isArray(ids) && ids.length) {
+          this.updatePlayerTarotSlotsByUserId(gp.user_id, ids);
+        }
+
+        if (Array.isArray(gp.tarot_cards) && gp.tarot_cards.length) {
+          this.tarotCardsByUserId[gp.user_id] = gp.tarot_cards;
+        }
+
+        if (gp.tarot_runtime) {
+          this.tarotStateByUserId[gp.user_id] = {
+            tarot_runtime: gp.tarot_runtime,
+            used_tarot_this_turn: !!gp.used_tarot_this_turn
+          };
+        }
+      });
+
+      this._applyTurnState();
+      this._updateTurnInfo();
+      this._renderAllCells(this.cellStates);
+      this._updatePlayerStatsInUI();
+
+      this._bindMyTarotSlotClicks();
+      this._refreshAllTarotCooldownUIs();
+      this._startTarotUiTicker();
+    });
 
     // ── game:turn_changed ────────────────────────────────────────
-this.socket.on("game:turn_changed", (data) => {
-  const myUid = this._myUserId();
-  this.isMyTurn            = (data.current_turn_user_id === myUid);
-  this.currentTurnSocketId = data.socket_id || data.current_turn || null;
-  this.mustAnswerNext      = !!data.must_answer;
-  this.canRoll             = this.isMyTurn && !this.mustAnswerNext;
+    this.socket.on("game:turn_changed", (data) => {
+      const myUid = this._myUserId();
+      this.isMyTurn            = (data.current_turn_user_id === myUid);
+      this.currentTurnSocketId = data.socket_id || data.current_turn || null;
+      this.mustAnswerNext      = !!data.must_answer;
+      this.canRoll             = this.isMyTurn && !this.mustAnswerNext;
 
-  if (data.server_now_ms) {
-    this.serverClockOffsetMs = Number(data.server_now_ms) - Date.now();
-  }
+      if (data.server_now_ms) {
+        this.serverClockOffsetMs = Number(data.server_now_ms) - Date.now();
+      }
 
-  if (this.mustAnswerNext && this.isMyTurn) {
-    this.infoText.setText("❗ Bạn phải trả lời câu hỏi, không được tung xúc xắc").setColor("#ff8844");
-    this.powerDice?.hide();
-    if (this.diceSprite) this.diceSprite.setVisible(false);
-    if (this.diceShadow) this.diceShadow.setVisible(false);
-  }
+      if (this.mustAnswerNext && this.isMyTurn) {
+        this.infoText.setText("❗ Bạn phải trả lời câu hỏi, không được tung xúc xắc").setColor("#ff8844");
+        this.powerDice?.hide();
+        if (this.diceSprite) this.diceSprite.setVisible(false);
+        if (this.diceShadow) this.diceShadow.setVisible(false);
+      }
 
-  this._applyTurnState();
-  this._updateTurnInfo();
-  this._showTurnBanner(
-    this.isMyTurn ? "🎲 Lượt của bạn! Nhấn SPACE" : `⏸ Lượt của ${data.name}...`,
-    this.isMyTurn ? "#ffdd00" : "#aaaaaa"
-  );
+      this._applyTurnState();
+      this._updateTurnInfo();
+      this._showTurnBanner(
+        this.isMyTurn ? "🎲 Lượt của bạn! Nhấn SPACE" : `⏸ Lượt của ${data.name}...`,
+        this.isMyTurn ? "#ffdd00" : "#aaaaaa"
+      );
 
-    // Trong handler game:turn_changed, thêm đoạn này:
-  if (this.tarotStateByUserId[myUid]) {
-    // Server sẽ emit tarot_state mới, nhưng reset local ngay để UI phản hồi nhanh
-    if (data.current_turn_user_id !== myUid) {
-      // Lượt người khác — không reset của mình
-    }
-  }
-  // Thêm: mở/đóng nút tarot theo lượt
-  this._applyTurnState();  // dòng này đã có, đảm bảo gọi sau khi set isMyTurn
+        // Trong handler game:turn_changed, thêm đoạn này:
+      if (this.tarotStateByUserId[myUid]) {
+        // Server sẽ emit tarot_state mới, nhưng reset local ngay để UI phản hồi nhanh
+        if (data.current_turn_user_id !== myUid) {
+          // Lượt người khác — không reset của mình
+        }
+      }
+      // Thêm: mở/đóng nút tarot theo lượt
+      this._applyTurnState();  // dòng này đã có, đảm bảo gọi sau khi set isMyTurn
 
-  this._refreshAllTarotCooldownUIs();
-});
+      this._refreshAllTarotCooldownUIs();
+    });
 
     // ── game:dice_result — NGUỒN DUY NHẤT ───────────────────────
     //  Cả online lẫn offline đều đi qua đây.
