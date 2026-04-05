@@ -14,6 +14,7 @@ export default class TarotModalSystem {
     this._timer = null;
     this._open  = false;
 
+    
     // Targeting state
     this._targetingListener   = null;
     this._secondaryListener   = null;

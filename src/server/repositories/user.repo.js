@@ -64,11 +64,18 @@ const userRepo = {
       WHERE user_id = ?
     `, [user.id]);
 
+    const [backgrounds] = await db.query(`
+      SELECT background_id
+      FROM user_backgrounds
+      WHERE user_id = ?
+    `, [user.id]);
+
     return {
       user,
       active: active[0] || null,
       characters,
-      skins
+      skins,
+      backgrounds
     };
   },
 

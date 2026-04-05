@@ -145,6 +145,37 @@ export default class BagScene extends Phaser.Scene {
 
         // ── 4. Tạo animations ────────────────────────────────────
         this._createAllBagAnimations();
+        // ── 5. Tải backgrounds ────────────────────────────────────
+        try {
+            const bgRes = await fetch(`http://localhost:3000/users/${this.playerUserId}/backgrounds/bag`);
+            const bgJson = await bgRes.json();
+            this.myBackgrounds = bgJson.data || [];
+        } catch (e) {
+            console.warn("Failed to load backgrounds", e);
+        }
+
+        const activeBgId = this.playerData?.user?.active_bg_id || this.playerData?.active_bg_id || null;
+        if (activeBgId) {
+            this.selectedBgId = activeBgId;
+        } else if (this.myBackgrounds.length > 0) {
+            this.selectedBgId = this.myBackgrounds[0].background_id || this.myBackgrounds[0].id;
+        }
+
+        let needsBgLoad = false;
+        for (const bg of this.myBackgrounds) {
+            const imgKey = `bg_${bg.background_id || bg.id}`;
+            if (!this.textures.exists(imgKey) && bg.image_path) {
+                this.load.image(imgKey, bg.image_path);
+                needsBgLoad = true;
+            }
+        }
+        if (needsBgLoad) {
+            this.load.on('loaderror', () => {});
+            await new Promise(resolve => {
+                this.load.once("complete", resolve);
+                this.load.start();
+            });
+        }
     }
 
     /**
@@ -280,113 +311,184 @@ export default class BagScene extends Phaser.Scene {
         prevG.lineStyle(1.5, 0xffffff, 0.15);
         prevG.strokeRoundedRect(PREVIEW_X + 3, PREVIEW_Y + 3, PREVIEW_W - 6, PREVIEW_H - 6, 12);
 
-        // Hiển thị nhân vật đang chọn
-        const currentChar = this.getCurrentCharacter();
-        const charName    = currentChar?.name || "";
-        const skinNum     = this.selectedSkinNum || currentChar?.active_skin_number || 1;
-        const animKey     = `bag_${charName}_${skinNum}_idle`;
-        const firstFrame  = `bag_${charName}_${skinNum}_idle_000`;
+        // ── Tùy chọn hiển thị Left Panel dựa trên Tab ────────────────
+        if (this.activeTab === "background") {
+            const currentBg = this.myBackgrounds.find(b => Number(b.background_id || b.id) === Number(this.selectedBgId));
+            const activeBgId = Number(this.playerData?.user?.active_bg_id || this.playerData?.active_bg_id);
+            const isCurrentActive = currentBg && Number(currentBg.background_id || currentBg.id) === activeBgId;
 
-        if (charName && this.textures.exists(firstFrame)) {
-            const sprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2, firstFrame));
-            const scale  = Math.min((PREVIEW_W - 20) / sprite.width, (PREVIEW_H - 20) / sprite.height);
-            sprite.setScale(scale).setDepth(5);
+            const bgKey = `bg_${this.selectedBgId}`;
+            if (this.selectedBgId && this.textures.exists(bgKey)) {
+                const sprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2, bgKey));
+                const wRatio = (PREVIEW_W - 20) / sprite.width;
+                const hRatio = (PREVIEW_H - 20) / sprite.height;
+                sprite.setScale(Math.max(wRatio, hRatio)).setDepth(5);
+                
+                const maskShape = push(this.make.graphics());
+                maskShape.fillRoundedRect(PREVIEW_X + 5, PREVIEW_Y + 5, PREVIEW_W - 10, PREVIEW_H - 10, 10);
+                sprite.setMask(maskShape.createGeometryMask());
 
-            if (this.anims.exists(animKey)) {
-                sprite.play(animKey);
-            }
+                // ── Đè nhân vật + Aura lên trên nền ──
+                const currentChar = this.getCurrentCharacter();
+                if (currentChar) {
+                    const charName = currentChar.name;
+                    const skinNum = currentChar.active_skin_number || 1;
+                    const animKey = `bag_${charName}_${skinNum}_idle`;
+                    const frame0 = `bag_${charName}_${skinNum}_idle_000`;
 
-            // Float animation
-            this.tweens.add({
-                targets: sprite, y: sprite.y - 6,
-                duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
-            });
-        } else {
-            push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H / 2, "👤", {
-                fontFamily: "Signika", fontSize: "56px",
-            }).setOrigin(0.5).setDepth(5));
-        }
+                    if (this.textures.exists(frame0)) {
+                        const charScale = Math.min((PREVIEW_W - 20) / this.textures.get(frame0).getSourceImage().width, (PREVIEW_H - 20) / this.textures.get(frame0).getSourceImage().height) * 0.9;
+                        
+                        // Aura
+                        const aura = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2 + 10, frame0));
+                        aura.setScale(charScale * 1.15).setTint(0xffeeaa).setAlpha(0.6).setBlendMode(Phaser.BlendModes.ADD).setDepth(6);
+                        
+                        // Sprite
+                        const charSprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2 + 10, frame0));
+                        charSprite.setScale(charScale).setDepth(7);
 
-        // ── Tên nhân vật ────────────────────────────────────────────
-        const displayName = currentChar?.name || "Chưa chọn";
-        push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H + 16, displayName, {
-            fontFamily: "Signika", fontSize: "20px",
-            color: "#5c3300", fontStyle: "bold",
-            stroke: "#f5dfa0", strokeThickness: 2,
-        }).setOrigin(0.5).setDepth(5));
+                        if (this.anims.exists(animKey)) { charSprite.play(animKey); aura.play(animKey); }
 
-        // ── Divider ──────────────────────────────────────────────────
-        const divY2 = PREVIEW_Y + PREVIEW_H + 44;
-        const dg = push(this.add.graphics().setDepth(5));
-        dg.lineStyle(1.5, 0xc8a060, 0.6);
-        dg.lineBetween(leftCX - LEFT_W / 2 + 20, divY2, leftCX + LEFT_W / 2 - 20, divY2);
-
-        // ── Nhân vật đang mặc skin nào ──────────────────────────────
-        const skinLabelY = divY2 + 18;
-        push(this.add.text(leftCX - LEFT_W / 2 + 20, skinLabelY, "✦  Trang phục đang dùng:", {
-            fontFamily: "Signika", fontSize: "13px",
-            color: "#8b5e1a", fontStyle: "italic",
-        }).setDepth(5));
-
-        const activeSkinNumber = Number(skinNum);
-        const skinLabelMap = { 1: "Sơ cấp", 2: "Trung cấp", 3: "Cao cấp" };
-        const skinName = skinLabelMap[activeSkinNumber] || `Skin ${activeSkinNumber}`;
-
-        push(this.add.text(leftCX - LEFT_W / 2 + 20, skinLabelY + 22, skinName, {
-            fontFamily: "Signika", fontSize: "15px",
-            color: "#4a2000", fontStyle: "bold",
-        }).setDepth(5));
-
-        // ── Info nhân vật ────────────────────────────────────────────
-        if (currentChar) {
-            const infoY = skinLabelY + 52;
-            const isActive = Number(currentChar.is_active_character) === 1;
-
-            push(this.add.text(leftCX - LEFT_W / 2 + 20, infoY, `✦  Trạng thái: ${isActive ? "Đang sử dụng" : "Chưa trang bị"}`, {
-                fontFamily: "Signika", fontSize: "13px",
-                color: isActive ? "#2a8b2a" : "#8b5e1a", fontStyle: "italic",
-            }).setDepth(5));
-        }
-
-        // ── Nút TRANG BỊ ────────────────────────────────────────────
-        const btnY = panelY + PANEL_H / 2 - 46;
-        const currentCharObj = this.getCurrentCharacter();
-        const isCurrentActive = currentCharObj && Number(currentCharObj.is_active_character) === 1;
-
-        this._buildActionBtn(leftCX, btnY, 180, 42,
-            isCurrentActive ? "✓ Đang Trang Bị" : "⚔️ Trang Bị",
-            isCurrentActive ? 0x3a8a3a : 0xd4a030,
-            isCurrentActive ? 0x1a5a1a : 0x8a5e10,
-            async () => {
-                if (isCurrentActive) {
-                    this.showToast("Nhân vật đã được trang bị rồi!");
-                    return;
-                }
-                if (this.playerUserId && this.selectedCharId) {
-                    try {
-                        await fetch(`http://localhost:3000/users/${this.playerUserId}/characters/active`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ character_id: this.selectedCharId }),
-                        });
-                        // Cập nhật local state
-                        this.myCharacters.forEach(c => {
-                            c.is_active_character = (Number(c.character_id) === Number(this.selectedCharId)) ? 1 : 0;
-                        });
-                        if (this.playerData?.user) {
-                            this.playerData.user.active_character_id = this.selectedCharId;
-                            setPlayerData(this, this.playerData);
-                        }
-                        this.showToast("✅ Đã trang bị nhân vật!");
-                        this.buildLeftPanel();
-                        this.renderRightPanel();
-                    } catch (e) {
-                        console.warn("Save character failed", e);
-                        this.showToast("❌ Lỗi khi trang bị!");
+                        this.tweens.add({ targets: [charSprite, aura], y: charSprite.y - 6, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+                        this.tweens.add({ targets: aura, scaleX: charScale * 1.25, scaleY: charScale * 1.25, alpha: { from: 0.6, to: 0.1 }, duration: 800, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
                     }
                 }
+            } else {
+                push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H / 2, "🖼", {
+                    fontFamily: "Signika", fontSize: "56px",
+                }).setOrigin(0.5).setDepth(5));
             }
-        );
+
+            const displayName = currentBg?.name || `Phông nền ${this.selectedBgId || ""}`;
+            push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H + 16, displayName, {
+                fontFamily: "Signika", fontSize: "20px", color: "#5c3300", fontStyle: "bold",
+                stroke: "#f5dfa0", strokeThickness: 2,
+            }).setOrigin(0.5).setDepth(5));
+
+            const divY2 = PREVIEW_Y + PREVIEW_H + 44;
+            const dg = push(this.add.graphics().setDepth(5));
+            dg.lineStyle(1.5, 0xc8a060, 0.6);
+            dg.lineBetween(leftCX - LEFT_W / 2 + 20, divY2, leftCX + LEFT_W / 2 - 20, divY2);
+
+            if (currentBg) {
+                push(this.add.text(leftCX - LEFT_W / 2 + 20, divY2 + 18, `✦  Trạng thái: ${isCurrentActive ? "Đang sử dụng" : "Chưa trang bị"}`, {
+                    fontFamily: "Signika", fontSize: "13px",
+                    color: isCurrentActive ? "#2a8b2a" : "#8b5e1a", fontStyle: "italic",
+                }).setDepth(5));
+            }
+
+            const btnY = panelY + PANEL_H / 2 - 46;
+            this._buildActionBtn(leftCX, btnY, 180, 42,
+                isCurrentActive ? "✓ Đang Trang Bị" : "🖼 Trang Bị",
+                isCurrentActive ? 0x3a8a3a : 0xd4a030,
+                isCurrentActive ? 0x1a5a1a : 0x8a5e10,
+                async () => {
+                    if (isCurrentActive) { this.showToast("Phông nền đã được trang bị rồi!"); return; }
+                    if (this.playerUserId && this.selectedBgId) {
+                        try {
+                            await fetch(`http://localhost:3000/users/${this.playerUserId}/backgrounds/active`, {
+                                method: "POST", headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ background_id: this.selectedBgId }),
+                            });
+                            if (this.playerData) {
+                                if (this.playerData.user) this.playerData.user.active_bg_id = this.selectedBgId;
+                                this.playerData.active_bg_id = this.selectedBgId;
+                                setPlayerData(this, this.playerData);
+                            }
+                            this.showToast("✅ Đã trang bị phông nền!");
+                            this.buildLeftPanel();
+                            this.renderRightPanel();
+                        } catch (e) {
+                            console.warn("Save background failed", e);
+                            this.showToast("❌ Lỗi khi trang bị!");
+                        }
+                    }
+                }
+            );
+        } else {
+            // Hiển thị nhân vật đang chọn
+            const currentChar = this.getCurrentCharacter();
+            const charName    = currentChar?.name || "";
+            const skinNum     = this.selectedSkinNum || currentChar?.active_skin_number || 1;
+            const animKey     = `bag_${charName}_${skinNum}_idle`;
+            const firstFrame  = `bag_${charName}_${skinNum}_idle_000`;
+
+            if (charName && this.textures.exists(firstFrame)) {
+                const sprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2, firstFrame));
+                const scale  = Math.min((PREVIEW_W - 20) / sprite.width, (PREVIEW_H - 20) / sprite.height);
+                sprite.setScale(scale).setDepth(5);
+
+                if (this.anims.exists(animKey)) sprite.play(animKey);
+                this.tweens.add({ targets: sprite, y: sprite.y - 6, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+            } else {
+                push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H / 2, "👤", { fontFamily: "Signika", fontSize: "56px" }).setOrigin(0.5).setDepth(5));
+            }
+
+            const displayName = currentChar?.name || "Chưa chọn";
+            push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H + 16, displayName, {
+                fontFamily: "Signika", fontSize: "20px", color: "#5c3300", fontStyle: "bold",
+                stroke: "#f5dfa0", strokeThickness: 2,
+            }).setOrigin(0.5).setDepth(5));
+
+            const divY2 = PREVIEW_Y + PREVIEW_H + 44;
+            const dg = push(this.add.graphics().setDepth(5));
+            dg.lineStyle(1.5, 0xc8a060, 0.6);
+            dg.lineBetween(leftCX - LEFT_W / 2 + 20, divY2, leftCX + LEFT_W / 2 - 20, divY2);
+
+            const skinLabelY = divY2 + 18;
+            push(this.add.text(leftCX - LEFT_W / 2 + 20, skinLabelY, "✦  Trang phục đang dùng:", {
+                fontFamily: "Signika", fontSize: "13px", color: "#8b5e1a", fontStyle: "italic",
+            }).setDepth(5));
+
+            const activeSkinNumber = Number(skinNum);
+            const skinLabelMap = { 1: "Sơ cấp", 2: "Trung cấp", 3: "Cao cấp" };
+            const skinName = skinLabelMap[activeSkinNumber] || `Skin ${activeSkinNumber}`;
+
+            push(this.add.text(leftCX - LEFT_W / 2 + 20, skinLabelY + 22, skinName, {
+                fontFamily: "Signika", fontSize: "15px", color: "#4a2000", fontStyle: "bold",
+            }).setDepth(5));
+
+            if (currentChar) {
+                const infoY = skinLabelY + 52;
+                const isActive = Number(currentChar.is_active_character) === 1;
+
+                push(this.add.text(leftCX - LEFT_W / 2 + 20, infoY, `✦  Trạng thái: ${isActive ? "Đang sử dụng" : "Chưa trang bị"}`, {
+                    fontFamily: "Signika", fontSize: "13px", color: isActive ? "#2a8b2a" : "#8b5e1a", fontStyle: "italic",
+                }).setDepth(5));
+            }
+
+            const btnY = panelY + PANEL_H / 2 - 46;
+            const currentCharObj = this.getCurrentCharacter();
+            const isCurrentActive = currentCharObj && Number(currentCharObj.is_active_character) === 1;
+
+            this._buildActionBtn(leftCX, btnY, 180, 42,
+                isCurrentActive ? "✓ Đang Trang Bị" : "⚔️ Trang Bị",
+                isCurrentActive ? 0x3a8a3a : 0xd4a030,
+                isCurrentActive ? 0x1a5a1a : 0x8a5e10,
+                async () => {
+                    if (isCurrentActive) { this.showToast("Nhân vật đã được trang bị rồi!"); return; }
+                    if (this.playerUserId && this.selectedCharId) {
+                        try {
+                            await fetch(`http://localhost:3000/users/${this.playerUserId}/characters/active`, {
+                                method: "POST", headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ character_id: this.selectedCharId }),
+                            });
+                            this.myCharacters.forEach(c => c.is_active_character = (Number(c.character_id) === Number(this.selectedCharId)) ? 1 : 0);
+                            if (this.playerData?.user) {
+                                this.playerData.user.active_character_id = this.selectedCharId;
+                                setPlayerData(this, this.playerData);
+                            }
+                            this.showToast("✅ Đã trang bị nhân vật!");
+                            this.buildLeftPanel();
+                            this.renderRightPanel();
+                        } catch (e) {
+                            console.warn("Save character failed", e);
+                            this.showToast("❌ Lỗi khi trang bị!");
+                        }
+                    }
+                }
+            );
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -471,9 +573,15 @@ export default class BagScene extends Phaser.Scene {
     //  PANEL PHẢI — Grid item theo tab
     // ═══════════════════════════════════════════════════════════════
     renderRightPanel() {
+        let oldGridX = null;
+        if (this._gridContainer) { 
+            oldGridX = this._gridContainer.x;
+            this._gridContainer.destroy(); 
+            this._gridContainer = null; 
+        }
+
         this._rightObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
         this._rightObjs = [];
-        if (this._gridContainer) { this._gridContainer.destroy(); this._gridContainer = null; }
 
         const { rightCX, panelY, RIGHT_W, PANEL_H } = this._layout;
 
@@ -547,11 +655,13 @@ export default class BagScene extends Phaser.Scene {
 
         // ── Tab Phông Nền ────────────────────────────────────────
         if (this.activeTab === "background") {
+            const activeBgId = Number(this.playerData?.user?.active_bg_id || this.playerData?.active_bg_id);
             items = this.myBackgrounds.map(b => ({
-                id: b.bg_id,
+                id: b.background_id || b.id,
                 type: "background",
-                imgKey: `bg_${b.bg_id}`,
-                label: `Phông nền ${b.bg_id}`
+                imgKey: `bg_${b.background_id || b.id}`,
+                label: b.name || `Phông nền ${b.background_id || b.id}`,
+                isActive: Number(b.background_id || b.id) === activeBgId
             }));
         }
 
@@ -600,9 +710,14 @@ export default class BagScene extends Phaser.Scene {
         this._minX  = gridStartX;
         this._maxX  = Math.min(gridStartX, gridStartX - (totalW - (RIGHT_W - PAD_X * 2)));
         this._velocityX = 0;
-        this._gridContainer.x = gridStartX;
+        
+        if (oldGridX !== null) {
+            this._gridContainer.x = Phaser.Math.Clamp(oldGridX, this._maxX, this._minX);
+        } else {
+            this._gridContainer.x = gridStartX;
+        }
 
-        const maskShape = this.make.graphics();
+        const maskShape = push(this.make.graphics());
         maskShape.fillRoundedRect(
             rightCX - RIGHT_W / 2 + 18,
             top + 6,
@@ -621,10 +736,15 @@ export default class BagScene extends Phaser.Scene {
     _buildItemCard(x, y, w, h, item) {
         const container = this.add.container(x, y);
         const r = 10;
-        const isActive = !!item.isActive ||
+        
+        // isSelected chỉ dùng để highlight card đang chọn
+        const isSelected = 
             (item.type === "character" && Number(item.id) === Number(this.selectedCharId)) ||
             (item.type === "skin"      && item.skinNum === this.selectedSkinNum) ||
             (item.type === "background" && item.id === this.selectedBgId);
+            
+        // isActive dùng để hiện badge "Đang dùng" - bug fixed!
+        const isActive = !!item.isActive;
         const isLocked = !!item.locked;
 
         const bg = this.add.graphics();
@@ -644,7 +764,7 @@ export default class BagScene extends Phaser.Scene {
             bg.fillStyle(0xffffff, hover ? 0.20 : 0.11);
             bg.fillRoundedRect(8, 6, w - 16, h * 0.22, r - 3);
             // Viền
-            if (isActive) {
+            if (isSelected) {
                 bg.lineStyle(3, 0xffe030, 1.0);
                 bg.strokeRoundedRect(0, 0, w, h, r);
                 bg.lineStyle(1.5, 0xffffff, 0.35);
@@ -689,11 +809,14 @@ export default class BagScene extends Phaser.Scene {
         const imgKey = item.imgKey;
         if (imgKey && this.textures.exists(imgKey)) {
             imgObj = this.add.image(w / 2, h * 0.46, imgKey);
-            const scale = Math.min((w - 18) / imgObj.width, (h * 0.58) / imgObj.height);
+            const wRatio = (w - 18) / imgObj.width;
+            const hRatio = (h * 0.58) / imgObj.height;
+            const scale = Math.min(wRatio, hRatio);
             imgObj.setScale(scale);
+
             if (isLocked) imgObj.setAlpha(0.3);
         } else if (!isLocked) {
-            imgObj = this.add.text(w / 2, h * 0.46, "🎭", {
+            imgObj = this.add.text(w / 2, h * 0.46, item.type === "background" ? "🖼" : "🎭", {
                 fontFamily: "Signika", fontSize: "38px",
             }).setOrigin(0.5);
         }
@@ -701,14 +824,14 @@ export default class BagScene extends Phaser.Scene {
         // Tên item
         const labelTxt = this.add.text(w / 2, h - 20, item.label, {
             fontFamily: "Signika", fontSize: "12px",
-            color: isActive ? "#ffe066" : isLocked ? "#666688" : "#a8d0f0",
+            color: isSelected ? "#ffe066" : isLocked ? "#666688" : "#a8d0f0",
             fontStyle: "bold",
             align: "center",
             wordWrap: { width: w - 10 },
         }).setOrigin(0.5);
 
-        // Glow animation nếu active
-        if (isActive) {
+        // Glow animation nếu selected
+        if (isSelected) {
             this.tweens.add({
                 targets: bg, alpha: { from: 1, to: 0.80 },
                 duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
@@ -802,6 +925,18 @@ export default class BagScene extends Phaser.Scene {
     //  CHỌN ITEM
     // ═══════════════════════════════════════════════════════════════
     async _onSelectItem(item) {
+        if (item.locked) {
+            this.showToast("Trang phục này chưa được mở khóa!");
+            return;
+        }
+
+        if (item.type === "background") {
+            this.selectedBgId = item.id;
+            this.buildLeftPanel();
+            this.renderRightPanel();
+            return;
+        }
+
         if (item.type === "character") {
             this.selectedCharId = item.id;
 

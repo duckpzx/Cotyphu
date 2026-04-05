@@ -2187,3 +2187,106 @@ app.post("/shop/add-ecoin", async (req, res) => {
     res.status(500).json({ success: false, message: "Lỗi server" });
   }
 });
+
+// GET /shop/backgrounds — Tất cả phông nền
+app.get("/shop/backgrounds", async (req, res) => {
+  try {
+    const [rows] = await db.query("SELECT * FROM backgrounds ORDER BY id ASC");
+    const formattedRows = rows.map(r => {
+      if (r.image_path) {
+        const parts = r.image_path.replace(/\\/g, "/").split("/");
+        r.image_path = "assets/ui/bg/" + parts[parts.length - 1];
+        console.log(`[Shop API] ID ${r.id} -> ${r.image_path}`);
+      }
+      return r;
+    });
+    res.json({ success: true, backgrounds: formattedRows });
+  } catch (err) {
+    console.error("GET /shop/backgrounds error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// POST /shop/buy-background — Mua phông nền
+app.post("/shop/buy-background", async (req, res) => {
+  try {
+    const { user_id, background_id } = req.body;
+    if (!user_id || !background_id) return res.json({ success: false, message: "Thiếu dữ liệu" });
+
+    const userId = Number(user_id);
+    const bgId = Number(background_id);
+
+    // Kiểm tra đã sở hữu
+    const [owned] = await db.query("SELECT * FROM user_backgrounds WHERE user_id = ? AND background_id = ?", [userId, bgId]);
+    if (owned.length > 0) return res.json({ success: false, message: "Bạn đã sở hữu phông nền này rồi!" });
+
+    // Lấy thông tin phông nền
+    const [bg] = await db.query("SELECT price_ecoin FROM backgrounds WHERE id = ?", [bgId]);
+    if (!bg[0]) return res.json({ success: false, message: "Phông nền không tồn tại" });
+    const price = Number(bg[0].price_ecoin || 0);
+
+    // Kiểm tra ecoin
+    const [userRows] = await db.query("SELECT ecoin FROM users WHERE id = ?", [userId]);
+    const currentEcoin = Number(userRows[0]?.ecoin || 0);
+    if (currentEcoin < price) {
+      return res.json({ success: false, message: `Không đủ Ecoin! Cần ${price.toLocaleString()}` });
+    }
+
+    // Trừ ecoin
+    if (price > 0) {
+      await db.query("UPDATE users SET ecoin = ecoin - ? WHERE id = ?", [price, userId]);
+    }
+
+    // Thêm vào kho
+    await db.query("INSERT INTO user_backgrounds (user_id, background_id) VALUES (?, ?)", [userId, bgId]);
+
+    const [newUser] = await db.query("SELECT ecoin FROM users WHERE id = ?", [userId]);
+    res.json({
+      success: true,
+      message: price > 0 ? `Mua thành công! -${price.toLocaleString()} Ecoin` : "Nhận miễn phí thành công!",
+      ecoin: Number(newUser[0]?.ecoin || 0)
+    });
+  } catch (err) {
+    console.error("POST /shop/buy-background error:", err);
+    res.status(500).json({ success: false, message: "Lỗi server khi mua phông nền" });
+  }
+});
+
+// GET /users/:userId/backgrounds/bag — Danh sách phông nền sở hữu
+app.get("/users/:userId/backgrounds/bag", async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT b.* 
+      FROM user_backgrounds ub
+      JOIN backgrounds b ON b.id = ub.background_id
+      WHERE ub.user_id = ?
+    `, [Number(req.params.userId)]);
+    
+    const formattedRows = rows.map(r => {
+      if (r.image_path) {
+        const parts = r.image_path.replace(/\\/g, "/").split("/");
+        r.image_path = "assets/ui/bg/" + parts[parts.length - 1];
+        console.log(`[Bag API] User ${req.params.userId} ID ${r.id} -> ${r.image_path}`);
+      }
+      return r;
+    });
+    
+    res.json({ success: true, data: formattedRows });
+  } catch (err) {
+    console.error("GET bag backgrounds error:", err);
+    res.status(500).json({ success: false, message: "Lỗi server" });
+  }
+});
+
+// POST /users/:userId/backgrounds/active — Đổi phông nền
+app.post("/users/:userId/backgrounds/active", async (req, res) => {
+  try {
+    const userId = Number(req.params.userId);
+    const bgId = Number(req.body.background_id);
+    await db.query("UPDATE users SET active_bg_id = ? WHERE id = ?", [bgId, userId]);
+    res.json({ success: true, message: "Đổi phông nền thành công" });
+  } catch (err) {
+    console.error("POST active background error:", err);
+    res.status(500).json({ success: false, message: "Lỗi server" });
+  }
+});

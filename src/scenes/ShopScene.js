@@ -150,6 +150,16 @@ export default class ShopScene extends Phaser.Scene {
             this.allShopSkins = [];
         }
 
+        // 3) Load tất cả backgrounds
+        try {
+            const res = await fetch("http://localhost:3000/shop/backgrounds");
+            const json = await res.json();
+            this.allBackgrounds = json.backgrounds || [];
+        } catch(e) {
+            console.warn("Shop: Failed to load backgrounds", e);
+            this.allBackgrounds = [];
+        }
+
         if (this.playerUserId) {
             // 3) Load nhân vật đã sở hữu
             try {
@@ -163,12 +173,16 @@ export default class ShopScene extends Phaser.Scene {
             // 4) Load skins sở hữu (từ login data)
             this.ownedSkins = this.playerData?.skins || [];
 
-            // 5) Load ecoin thật từ server
+            // 5) Load backgrounds sở hữu (từ login data)
+            this.ownedBgIds = this.playerData?.backgrounds?.map(b => Number(b.background_id)) || [];
+
+            // 6) Load ecoin thật từ server
             this.playerEcoin = await EcoinManager.fetchFromServer(this, this.playerUserId);
         }
 
-        // 6) Load sprite idle frames cho tất cả nhân vật
+        // 7) Load sprite idle frames cho tất cả nhân vật và background
         await this._loadAllCharacterSprites();
+        await this._loadAllBackgroundSprites();
     }
 
     async _loadAllCharacterSprites() {
@@ -280,12 +294,38 @@ export default class ShopScene extends Phaser.Scene {
         }
     }
 
+    async _loadAllBackgroundSprites() {
+        let needsLoad = false;
+        for (const bg of this.allBackgrounds) {
+            const imgKey = `bg_${bg.id}`;
+            if (!this.textures.exists(imgKey) && bg.image_path) {
+                this.load.image(imgKey, bg.image_path);
+                needsLoad = true;
+            }
+        }
+        if (needsLoad) {
+            this.load.on('loaderror', () => {});
+            await new Promise(resolve => {
+                this.load.once("complete", resolve);
+                this.load.start();
+            });
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  HELPERS — ownership / status
     // ═══════════════════════════════════════════════════════════════
 
     _isCharOwned(charId) {
         return this.ownedCharacters.some(c => Number(c.character_id) === Number(charId));
+    }
+
+    _isBgOwned(bgId) {
+        return this.ownedBgIds.includes(Number(bgId));
+    }
+
+    _isBgActive(bgId) {
+        return Number(this.playerData?.user?.active_bg_id) === Number(bgId);
     }
 
     _isCharActive(charId) {
@@ -562,29 +602,73 @@ export default class ShopScene extends Phaser.Scene {
         prevG.strokeRoundedRect(PREVIEW_X + 3, PREVIEW_Y + 3, PREVIEW_W - 6, PREVIEW_H - 6, 12);
 
         // ── Sprite preview ──
-        const charName = item.charName || item.name || "";
-        const skinNum  = item.skinNum || 1;
-        const animKey  = `shop_${charName}_${skinNum}_idle`;
-        const frame0   = `shop_${charName}_${skinNum}_idle_000`;
+        if (item.type === "background") {
+            const bgKey = `bg_${item.id}`;
+            if (this.textures.exists(bgKey)) {
+                const sprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2, bgKey));
+                const wRatio = (PREVIEW_W - 20) / sprite.width;
+                const hRatio = (PREVIEW_H - 20) / sprite.height;
+                sprite.setScale(Math.max(wRatio, hRatio)).setDepth(5);
+                
+                const maskShape = push(this.make.graphics());
+                maskShape.fillRoundedRect(PREVIEW_X + 5, PREVIEW_Y + 5, PREVIEW_W - 10, PREVIEW_H - 10, 10);
+                sprite.setMask(maskShape.createGeometryMask());
 
-        if (charName && this.textures.exists(frame0)) {
-            const sprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2, frame0));
-            const scale  = Math.min((PREVIEW_W - 20) / sprite.width, (PREVIEW_H - 20) / sprite.height);
-            sprite.setScale(scale).setDepth(5);
-            if (this.anims.exists(animKey)) sprite.play(animKey);
+                // ── Đè nhân vật + Aura lên trên nền ──
+                const activeChar = this.playerData?.characters?.find(c => Number(c.is_active_character) === 1) || (this.allCharacters && this.allCharacters[0]);
+                if (activeChar) {
+                    const charName = activeChar.name;
+                    const skinNum = activeChar.active_skin_number || 1;
+                    const animKey = `shop_${charName}_${skinNum}_idle`;
+                    const frame0 = `shop_${charName}_${skinNum}_idle_000`;
 
-            this.tweens.add({
-                targets: sprite, y: sprite.y - 6,
-                duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
-            });
+                    if (this.textures.exists(frame0)) {
+                        const charScale = Math.min((PREVIEW_W - 20) / this.textures.get(frame0).getSourceImage().width, (PREVIEW_H - 20) / this.textures.get(frame0).getSourceImage().height) * 0.9;
+                        
+                        // Aura chớp sáng
+                        const aura = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2 + 10, frame0));
+                        aura.setScale(charScale * 1.15).setTint(0xffeeaa).setAlpha(0.6).setBlendMode(Phaser.BlendModes.ADD).setDepth(6);
+                        
+                        // Nhân vật
+                        const charSprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2 + 10, frame0));
+                        charSprite.setScale(charScale).setDepth(7);
+
+                        if (this.anims.exists(animKey)) { charSprite.play(animKey); aura.play(animKey); }
+
+                        this.tweens.add({ targets: [charSprite, aura], y: charSprite.y - 6, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+                        this.tweens.add({ targets: aura, scaleX: charScale * 1.25, scaleY: charScale * 1.25, alpha: { from: 0.6, to: 0.1 }, duration: 800, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+                    }
+                }
+            } else {
+                push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H / 2, "🖼", {
+                    fontSize: "56px",
+                }).setOrigin(0.5).setDepth(5));
+            }
         } else {
-            push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H / 2, "👤", {
-                fontSize: "56px",
-            }).setOrigin(0.5).setDepth(5));
+            const charName = item.charName || item.name || "";
+            const skinNum  = item.skinNum || 1;
+            const animKey  = `shop_${charName}_${skinNum}_idle`;
+            const frame0   = `shop_${charName}_${skinNum}_idle_000`;
+
+            if (charName && this.textures.exists(frame0)) {
+                const sprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2, frame0));
+                const scale  = Math.min((PREVIEW_W - 20) / sprite.width, (PREVIEW_H - 20) / sprite.height);
+                sprite.setScale(scale).setDepth(5);
+                if (this.anims.exists(animKey)) sprite.play(animKey);
+
+                this.tweens.add({
+                    targets: sprite, y: sprite.y - 6,
+                    duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
+                });
+            } else {
+                push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H / 2, "👤", {
+                    fontSize: "56px",
+                }).setOrigin(0.5).setDepth(5));
+            }
         }
 
         // ── Tên item ──
-        const displayName = this._getDisplayName(charName);
+        const displayName = item.label || this._getDisplayName(item.charName || item.name || "");
         push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H + 18, displayName, {
             fontFamily: "Signika", fontSize: "20px",
             color: "#5c3300", fontStyle: "bold",
@@ -751,7 +835,13 @@ export default class ShopScene extends Phaser.Scene {
             } else {
                 this.selectedItem = null;
             }
-        } else if (this.activeTab === "background") {
+        } else if (this.activeTab === "background" && this.allBackgrounds.length > 0) {
+            const b = this.allBackgrounds[0];
+            this.selectedItem = {
+                id: b.id, type: "background", name: b.name || `Phông nền ${b.id}`, description: "Một phông nền tuyệt đẹp cho phòng chơi.",
+                price: Number(b.price_ecoin) || 0, imgKey: `bg_${b.id}`
+            };
+        } else {
             this.selectedItem = null;
         }
     }
@@ -761,9 +851,15 @@ export default class ShopScene extends Phaser.Scene {
     // ═══════════════════════════════════════════════════════════════
 
     renderRightPanel() {
+        let oldGridX = null;
+        if (this._gridContainer) { 
+            oldGridX = this._gridContainer.x;
+            this._gridContainer.destroy(); 
+            this._gridContainer = null; 
+        }
+
         this._rightObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
         this._rightObjs = [];
-        if (this._gridContainer) { this._gridContainer.destroy(); this._gridContainer = null; }
 
         const { rightCX, panelY, RIGHT_W, PANEL_H } = this._layout;
         const top    = panelY - PANEL_H / 2 + 58;
@@ -784,7 +880,14 @@ export default class ShopScene extends Phaser.Scene {
         } else if (this.activeTab === "skin") {
             items = this._buildSkinItems();
         } else if (this.activeTab === "background") {
-            items = [];
+            items = this.allBackgrounds.map(b => ({
+                id: b.id, type: "background", name: b.name || `Phông nền ${b.id}`,
+                label: b.name || `Phông nền ${b.id}`, description: "Một phông nền tuyệt đẹp cho phòng chơi.",
+                price: Number(b.price_ecoin) || 0,
+                imgKey: `bg_${b.id}`,
+                isOwned: this._isBgOwned(b.id),
+                isActive: false
+            }));
         }
 
         if (items.length === 0) {
@@ -820,7 +923,12 @@ export default class ShopScene extends Phaser.Scene {
         this._minX = gridStartX;
         this._maxX = Math.min(gridStartX, gridStartX - (totalW - (RIGHT_W - PAD_X * 2)));
         this._velocityX = 0;
-        this._gridContainer.x = gridStartX;
+        
+        if (oldGridX !== null) {
+            this._gridContainer.x = Phaser.Math.Clamp(oldGridX, this._maxX, this._minX);
+        } else {
+            this._gridContainer.x = gridStartX;
+        }
 
         const maskShape = this.make.graphics();
         maskShape.fillRoundedRect(
@@ -916,10 +1024,13 @@ export default class ShopScene extends Phaser.Scene {
         let imgObj = null;
         if (item.imgKey && this.textures.exists(item.imgKey)) {
             imgObj = this.add.image(w / 2, h * 0.40, item.imgKey);
-            const scale = Math.min((w - 18) / imgObj.width, (h * 0.50) / imgObj.height);
+            const wRatio = (w - 18) / imgObj.width;
+            const hRatio = (h * 0.50) / imgObj.height;
+            // For backgrounds we want to fit inside the card to avoid complicated local/world mask scaling issues in scrollviews
+            const scale = Math.min(wRatio, hRatio);
             imgObj.setScale(scale);
         } else {
-            imgObj = this.add.text(w / 2, h * 0.38, "🎭", { fontSize: "36px" }).setOrigin(0.5);
+            imgObj = this.add.text(w / 2, h * 0.38, item.type === "background" ? "🖼" : "🎭", { fontSize: "36px" }).setOrigin(0.5);
         }
 
         // Tên
@@ -988,6 +1099,12 @@ export default class ShopScene extends Phaser.Scene {
             this.renderRightPanel();
         });
 
+        container.on('destroy', () => {
+            if (container.maskShape) {
+                container.maskShape.destroy();
+            }
+        });
+
         return container;
     }
 
@@ -1014,6 +1131,7 @@ export default class ShopScene extends Phaser.Scene {
         if (!item) return false;
         if (item.type === "character") return this._isCharOwned(item.id);
         if (item.type === "skin") return !!item.isOwned;
+        if (item.type === "background") return this._isBgOwned(item.id);
         return false;
     }
 
@@ -1021,6 +1139,7 @@ export default class ShopScene extends Phaser.Scene {
         if (!item) return false;
         if (item.type === "character") return this._isCharActive(item.id);
         if (item.type === "skin") return !!item.isActive;
+        if (item.type === "background") return this._isBgActive(item.id);
         return false;
     }
 
@@ -1106,6 +1225,37 @@ export default class ShopScene extends Phaser.Scene {
                 }
             } catch(e) {
                 console.warn("Buy skin error:", e);
+                this.showToast("❌ Lỗi kết nối!");
+            }
+        } else if (item.type === "background") {
+            try {
+                const res = await fetch("http://localhost:3000/shop/buy-background", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        user_id: this.playerUserId,
+                        background_id: item.id,
+                    }),
+                });
+                const json = await res.json();
+                if (json.success) {
+                    EcoinManager.set(this, json.ecoin);
+                    this.ownedBgIds.push(item.id);
+
+                    if (this.playerData) {
+                        if (!this.playerData.backgrounds) this.playerData.backgrounds = [];
+                        this.playerData.backgrounds.push({ background_id: item.id });
+                        localStorage.setItem("playerData", JSON.stringify(this.playerData));
+                    }
+
+                    this.showToast(`✅ ${json.message}`);
+                    this.buildLeftPanel();
+                    this.renderRightPanel();
+                } else {
+                    this.showToast(`❌ ${json.message || "Lỗi mua phông nền"}`);
+                }
+            } catch(e) {
+                console.warn("Buy background error:", e);
                 this.showToast("❌ Lỗi kết nối!");
             }
         }
