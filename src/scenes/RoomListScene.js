@@ -1,3 +1,5 @@
+import { getActiveBackgroundPath } from "../server/utils/playerData.js";
+
 export default class RoomListScene extends Phaser.Scene {
 
   constructor() {

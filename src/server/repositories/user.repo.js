@@ -37,13 +37,29 @@ const userRepo = {
       user.active_tarot_ids = [];
     }
 
+    const [activeBg] = await db.query(`
+      SELECT image_path
+      FROM backgrounds
+      WHERE id = ?
+    `, [user.active_bg_id || 0]);
+
+    if(activeBg[0] && activeBg[0].image_path) {
+        const parts = activeBg[0].image_path.replace(/\\/g, "/").split("/");
+        user.active_bg_path = "assets/ui/bg/" + parts[parts.length - 1];
+    } else {
+        user.active_bg_path = "assets/ui/nen_chung.png";
+    }
+
     const [active] = await db.query(`
       SELECT 
         uc.character_id,
         c.name AS characterName,
-        uc.active_skin_id
+        uc.active_skin_id,
+        COALESCE(activeSkin.skin_number, defaultSkin.skin_number, 1) AS active_skin_number
       FROM user_characters uc
       JOIN characters c ON c.id = uc.character_id
+      LEFT JOIN character_skins activeSkin ON activeSkin.id = uc.active_skin_id
+      LEFT JOIN character_skins defaultSkin ON defaultSkin.character_id = c.id AND defaultSkin.is_default = 1
       WHERE uc.user_id = ? 
         AND uc.character_id = ?
     `, [user.id, user.active_character_id]);
@@ -52,9 +68,12 @@ const userRepo = {
       SELECT 
         uc.character_id AS id,
         c.name,
-        uc.active_skin_id
+        uc.active_skin_id,
+        COALESCE(activeSkin.skin_number, defaultSkin.skin_number, 1) AS active_skin_number
       FROM user_characters uc
       JOIN characters c ON c.id = uc.character_id
+      LEFT JOIN character_skins activeSkin ON activeSkin.id = uc.active_skin_id
+      LEFT JOIN character_skins defaultSkin ON defaultSkin.character_id = c.id AND defaultSkin.is_default = 1
       WHERE uc.user_id = ?
     `, [user.id]);
 
@@ -95,6 +114,19 @@ const userRepo = {
           : user.active_tarot_ids;
     } else {
       user.active_tarot_ids = [];
+    }
+
+    const [activeBg] = await db.query(`
+      SELECT image_path
+      FROM backgrounds
+      WHERE id = ?
+    `, [user.active_bg_id || 0]);
+
+    if(activeBg[0] && activeBg[0].image_path) {
+        const parts = activeBg[0].image_path.replace(/\\/g, "/").split("/");
+        user.active_bg_path = "assets/ui/bg/" + parts[parts.length - 1];
+    } else {
+        user.active_bg_path = "assets/ui/nen_chung.png";
     }
 
     return user;

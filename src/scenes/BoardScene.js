@@ -1500,7 +1500,7 @@ this.socket.on("game:tarot_denied", (data) => {
         for (let i = 0; i < 18; i++) {
           const num = String(i).padStart(3, "0");
           this.load.image(`${character}_${skin}_idle_${num}`,
-            `./assets/characters/${character}/${image}/PNG/PNG Sequences/Idle/0_${character}_Idle_${num}.png`);
+            `./assets/characters/${character}/${image}/PNG/PNG Sequences/Idle Blinking/0_${character}_Idle Blinking_${num}.png`);
         }
         for (let i = 0; i < 12; i++) {
           const num = String(i).padStart(3, "0");
@@ -1955,8 +1955,8 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
         room_id:       this.gameRoomId,
         name:          playerData?.user?.name || "Player",
         user_id:       playerData?.user?.id,
-        characterName: playerData?.active?.characterName || "Necromancer_of_the_Shadow",
-        skin:          playerData?.active?.skin || 1
+        characterName: this.characterName || activeProfile.characterName || "Dark_Oracle",
+        skin:          this.mySkin || activeProfile.skin_id || 1
       });
       if (this.gameRoomId) {
         setTimeout(() => {
