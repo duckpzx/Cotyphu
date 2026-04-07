@@ -80,6 +80,21 @@ export default class RoomScene extends Phaser.Scene {
         }
       }
     }
+
+    // Pre-load background của mình từ localStorage
+    const playerData = this.registry.get("playerData") || JSON.parse(localStorage.getItem("playerData") || "null");
+    const myBgId   = playerData?.user?.active_bg_id || playerData?.active_bg_id;
+    const myBgs    = playerData?.backgrounds || [];
+    if (myBgId) {
+      const bgKey  = `bg_${myBgId}`;
+      const bgData = myBgs.find(b => Number(b.background_id || b.id) === Number(myBgId));
+      const bgPath = bgData?.image_path;
+      if (bgPath && !this.textures.exists(bgKey)) {
+        this.load.image(bgKey, bgPath);
+      }
+      this._myBgId   = myBgId;
+      this._myBgPath = bgPath || null;
+    }
   }
 
   create() {
@@ -397,12 +412,11 @@ export default class RoomScene extends Phaser.Scene {
 
     players.forEach(p => {
       if (!p?.character_name || p.character_name === "Unknown" || !p.skin_id) return;
-      const name       = p.character_name;                        // vd: "Minotaur"
-      const skinNumber = p.skin_id;                               // vd: 1
-      const image      = name + "_" + skinNumber;                 // vd: "Minotaur_1"
+      const name       = p.character_name;
+      const skinNumber = p.skin_id;
+      const image      = name + "_" + skinNumber;
       const frameKey0  = `${name}_${skinNumber}_idle_000`;
 
-      // Nếu frame đầu tiên chưa load thì load cả 18 frames
       if (!this.textures.exists(frameKey0)) {
         for (let i = 0; i < 18; i++) {
           const num  = String(i).padStart(3, "0");
@@ -411,17 +425,36 @@ export default class RoomScene extends Phaser.Scene {
           toLoad.push({ key, path });
         }
       }
+
+      // Preload background nếu có active_bg_id
+      if (p.active_bg_id && p.active_bg_path) {
+        const bgKey = `bg_${p.active_bg_id}`;
+        if (!this.textures.exists(bgKey)) {
+          toLoad.push({ key: bgKey, path: p.active_bg_path });
+        }
+      }
     });
 
     if (toLoad.length === 0) { onDone(); return; }
 
-    let errorCount = 0;
+    const pendingKeys = new Set(toLoad.map(t => t.key));
+    let done = 0;
+    const total = pendingKeys.size;
+    const onComplete = (key) => {
+      if (!pendingKeys.has(key)) return;
+      pendingKeys.delete(key);
+      if (++done >= total) {
+        this.load.off("filecomplete", onComplete);
+        this.load.off("loaderror",    onError);
+        onDone();
+      }
+    };
+    const onError = (fileObj) => {
+      onComplete(fileObj?.key || fileObj);
+    };
+    this.load.on("filecomplete", onComplete);
+    this.load.on("loaderror",    onError);
     toLoad.forEach(({ key, path }) => this.load.image(key, path));
-    this.load.once("complete", onDone);
-    this.load.once("loaderror", () => {
-      errorCount++;
-      if (errorCount >= toLoad.length) onDone();
-    });
     this.load.start();
   }
 
@@ -693,6 +726,26 @@ export default class RoomScene extends Phaser.Scene {
     avatarBg.fillStyle(0x0a2a55, 0.7);
     avatarBg.fillRoundedRect(-hw + 8, -hh + 22, avatarW, avatarH, 10);
 
+    // ── Background image nếu player có active_bg_id ───────────────────
+    let bgImgObj = null;
+    if (player.active_bg_id) {
+      const bgKey = `bg_${player.active_bg_id}`;
+      if (this.textures.exists(bgKey)) {
+        bgImgObj = this.add.image(0, -hh + 22 + avatarH / 2, bgKey);
+        const wRatio = avatarW / bgImgObj.width;
+        const hRatio = avatarH / bgImgObj.height;
+        bgImgObj.setScale(Math.max(wRatio, hRatio));
+
+        // Mask để không tràn ra ngoài khung
+        const maskG = this.make.graphics({ add: false });
+        maskG.fillStyle(0xffffff);
+        maskG.fillRoundedRect(
+          cx - hw + 8, cy - hh + 22, avatarW, avatarH, 10
+        );
+        bgImgObj.setMask(maskG.createGeometryMask());
+      }
+    }
+
     const avatarCY  = -hh + 22 + avatarH / 2;
     const avatarSize = Math.min(avatarW * 0.88, avatarH * 0.88);
     let   avatar;
@@ -755,7 +808,7 @@ export default class RoomScene extends Phaser.Scene {
       this._showAlert(`Người chơi: ${player.name}\nSocket: ${player.socket_id}`);
     });
 
-    container.add([bg, avatarBg, avatar, charLabel, ...vipItems, ...readyItems, infoIcon]);
+    container.add([bg, avatarBg, ...(bgImgObj ? [bgImgObj] : []), avatar, charLabel, ...vipItems, ...readyItems, infoIcon]);
 
     // ── Hover / click để đổi chỗ ─────────────────────────────────────────
     container.setSize(sw, sh).setInteractive({ cursor: "pointer" });

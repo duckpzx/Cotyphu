@@ -65,9 +65,10 @@ const userRepo = {
     `, [user.id]);
 
     const [backgrounds] = await db.query(`
-      SELECT background_id
-      FROM user_backgrounds
-      WHERE user_id = ?
+      SELECT ub.background_id, b.image_path, b.name
+      FROM user_backgrounds ub
+      JOIN backgrounds b ON b.id = ub.background_id
+      WHERE ub.user_id = ?
     `, [user.id]);
 
     return {

@@ -183,19 +183,18 @@ export default class BagScene extends Phaser.Scene {
      * và TẤT CẢ skin (1-3) của nhân vật đang chọn
      */
     async _loadCharacterSprites() {
-        let needsLoad = false;
+        const toLoad = [];
 
         for (const char of this.myCharacters) {
             const charName = char.name;
             if (!charName) continue;
 
-            // Xác định skin nào cần load cho nhân vật này
             const skinsToLoad = new Set();
+            // Luôn load skin 1 (tab Nhân Vật luôn dùng skin 1 làm thumbnail)
+            skinsToLoad.add(1);
             skinsToLoad.add(char.active_skin_number || 1);
 
-            // Nếu là nhân vật đang chọn, load thêm tất cả skin 1-3
             if (Number(char.character_id) === Number(this.selectedCharId)) {
-                skinsToLoad.add(1);
                 skinsToLoad.add(2);
                 skinsToLoad.add(3);
             }
@@ -205,25 +204,34 @@ export default class BagScene extends Phaser.Scene {
                     const num      = String(i).padStart(3, "0");
                     const frameKey = `bag_${charName}_${skinNum}_idle_${num}`;
                     if (!this.textures.exists(frameKey)) {
-                        const path = `assets/characters/${charName}/${charName}_${skinNum}/PNG/PNG Sequences/Idle/0_${charName}_Idle_${num}.png`;
-                        this.load.image(frameKey, path);
-                        needsLoad = true;
+                        toLoad.push({
+                            key:  frameKey,
+                            path: `assets/characters/${charName}/${charName}_${skinNum}/PNG/PNG Sequences/Idle/0_${charName}_Idle_${num}.png`
+                        });
                     }
                 }
             }
         }
 
-        if (needsLoad) {
-            // Xử lý lỗi load image (skin folder có thể không tồn tại)
-            this.load.on('loaderror', (fileObj) => {
-                // Bỏ qua lỗi load — skin chưa mua sẽ không có file
-            });
+        if (!toLoad.length) return;
 
-            await new Promise(resolve => {
-                this.load.once("complete", resolve);
-                this.load.start();
-            });
-        }
+        await new Promise(resolve => {
+            const keys = new Set(toLoad.map(t => t.key));
+            let done = 0;
+            const tick = (key) => {
+                if (!keys.has(key)) return;
+                if (++done >= keys.size) {
+                    this.load.off("filecomplete", tick);
+                    this.load.off("loaderror",    errTick);
+                    resolve();
+                }
+            };
+            const errTick = (file) => tick(file.key);
+            this.load.on("filecomplete", tick);
+            this.load.on("loaderror",    errTick);
+            toLoad.forEach(({ key, path }) => this.load.image(key, path));
+            this.load.start();
+        });
     }
 
     /**
@@ -377,42 +385,17 @@ export default class BagScene extends Phaser.Scene {
             dg.lineStyle(1.5, 0xc8a060, 0.6);
             dg.lineBetween(leftCX - LEFT_W / 2 + 20, divY2, leftCX + LEFT_W / 2 - 20, divY2);
 
-            if (currentBg) {
-                push(this.add.text(leftCX - LEFT_W / 2 + 20, divY2 + 18,
-                    `✦  Trạng thái: ${isCurrentActive ? "Đang sử dụng" : "Chưa trang bị"}`, {
-                    fontFamily: "Signika", fontSize: "13px",
-                    color: isCurrentActive ? "#2a8b2a" : "#8b5e1a", fontStyle: "italic",
-                }).setDepth(5));
-            }
+            push(this.add.text(leftCX - LEFT_W / 2 + 20, divY2 + 18,
+                `✦  Trạng thái: ${isCurrentActive ? "Đang sử dụng" : "Chưa trang bị"}`, {
+                fontFamily: "Signika", fontSize: "13px",
+                color: isCurrentActive ? "#2a8b2a" : "#8b5e1a", fontStyle: "italic",
+            }).setDepth(5));
 
-            const btnY = panelY + PANEL_H / 2 - 46;
-            this._buildActionBtn(leftCX, btnY, 180, 42,
-                isCurrentActive ? "✓ Đang Trang Bị" : "🖼 Trang Bị",
-                isCurrentActive ? 0x3a8a3a : 0xd4a030,
-                isCurrentActive ? 0x1a5a1a : 0x8a5e10,
-                async () => {
-                    if (isCurrentActive) { this.showToast("Phông nền đã được trang bị rồi!"); return; }
-                    if (this.playerUserId && this.selectedBgId) {
-                        try {
-                            await fetch(`http://localhost:3000/users/${this.playerUserId}/backgrounds/active`, {
-                                method: "POST", headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ background_id: this.selectedBgId }),
-                            });
-                            if (this.playerData) {
-                                if (this.playerData.user) this.playerData.user.active_bg_id = this.selectedBgId;
-                                this.playerData.active_bg_id = this.selectedBgId;
-                                setPlayerData(this, this.playerData);
-                            }
-                            this.showToast("✅ Đã trang bị phông nền!");
-                            this.buildLeftPanel();
-                            this.renderRightPanel();
-                        } catch (e) {
-                            console.warn("Save background failed", e);
-                            this.showToast("❌ Lỗi khi trang bị!");
-                        }
-                    }
-                }
-            );
+            push(this.add.text(leftCX, divY2 + 50, "← Bấm vào phông nền để trang bị", {
+                fontFamily: "Signika", fontSize: "12px",
+                color: "#a07840", fontStyle: "italic", align: "center",
+                wordWrap: { width: LEFT_W - 40 },
+            }).setOrigin(0.5, 0).setDepth(5));
         } else {
             // Tab nhân vật hoặc trang phục
             const displayName = currentChar?.name || "Chưa chọn";
@@ -546,6 +529,11 @@ export default class BagScene extends Phaser.Scene {
 
                 this.activeTab = tab.id;
 
+                // Reset selectedSkinNum khi rời tab skin
+                if (tab.id !== "skin") {
+                    this.selectedSkinNum = null;
+                }
+
                 if (tab.id === "skin") {
                     this.ensureSelectedCharacter();
                     await this.loadSkinsForCharacter(this.selectedCharId);
@@ -587,15 +575,15 @@ export default class BagScene extends Phaser.Scene {
         // ── Tab Nhân Vật ─────────────────────────────────────────
         if (this.activeTab === "character") {
             items = this.myCharacters.map(c => {
-                const skinNum = c.active_skin_number || 1;
+                // Tab nhân vật luôn dùng skin 1 để hiển thị
                 const isActive = Number(c.is_active_character) === 1;
                 return {
                     id: c.character_id,
                     type: "character",
-                    imgKey: `bag_${c.name}_${skinNum}_idle_000`,
+                    imgKey: `bag_${c.name}_1_idle_000`,
                     label: c.name || `Nhân vật ${c.character_id}`,
                     isActive,
-                    skinNum,
+                    skinNum: 1,
                     charName: c.name
                 };
             });
@@ -607,23 +595,31 @@ export default class BagScene extends Phaser.Scene {
             const charName = currentChar?.name || "";
 
             if (this.mySkins.length > 0) {
-                // Hiển thị skin từ server (user_skins)
-                items = this.mySkins.map(s => {
+                // Luôn đảm bảo skin lv1 (default) có trong danh sách
+                const hasSkin1 = this.mySkins.some(s => Number(s.skin_number) === 1);
+                const skinList = hasSkin1 ? this.mySkins : [
+                    { skin_id: null, skin_number: 1, is_active: 0 },
+                    ...this.mySkins
+                ];
+
+                items = skinList.map(s => {
                     const skinNum = s.skin_number || 1;
                     const isActive = Number(s.is_active) === 1;
+                    const frameKey = `bag_${charName}_${skinNum}_idle_000`;
                     return {
-                        id: s.skin_id,
+                        id: s.skin_id || skinNum,
                         type: "skin",
-                        imgKey: `bag_${charName}_${skinNum}_idle_000`,
+                        imgKey: this.textures.exists(frameKey) ? frameKey : null,
                         label: this._getSkinLabel(skinNum),
                         isActive,
                         skinNum,
                         skinId: s.skin_id,
-                        charName
+                        charName,
+                        locked: !this.textures.exists(frameKey) && skinNum !== 1
                     };
                 });
             } else {
-                // Fallback: nếu chưa có data skin từ server, hiện 3 skin mặc định
+                // Fallback: hiện 3 skin, lv1 luôn unlock
                 for (let s = 1; s <= 3; s++) {
                     const frameKey = `bag_${charName}_${s}_idle_000`;
                     const hasTexture = this.textures.exists(frameKey);
@@ -636,7 +632,7 @@ export default class BagScene extends Phaser.Scene {
                         skinNum: s,
                         skinId: null,
                         charName,
-                        locked: !hasTexture
+                        locked: !hasTexture && s !== 1
                     });
                 }
             }
@@ -881,25 +877,37 @@ export default class BagScene extends Phaser.Scene {
             const charName = currentChar?.name || "";
             if (!charName) return;
 
-            let needsLoad = false;
+            const toLoad = [];
             for (const skin of this.mySkins) {
                 const skinNum = skin.skin_number || 1;
                 for (let i = 0; i < 18; i++) {
-                    const num = String(i).padStart(3, "0");
+                    const num      = String(i).padStart(3, "0");
                     const frameKey = `bag_${charName}_${skinNum}_idle_${num}`;
                     if (!this.textures.exists(frameKey)) {
-                        this.load.image(frameKey,
-                            `assets/characters/${charName}/${charName}_${skinNum}/PNG/PNG Sequences/Idle/0_${charName}_Idle_${num}.png`
-                        );
-                        needsLoad = true;
+                        toLoad.push({
+                            key:  frameKey,
+                            path: `assets/characters/${charName}/${charName}_${skinNum}/PNG/PNG Sequences/Idle/0_${charName}_Idle_${num}.png`
+                        });
                     }
                 }
             }
 
-            if (needsLoad) {
-                this.load.on('loaderror', () => {});
+            if (toLoad.length) {
                 await new Promise(resolve => {
-                    this.load.once("complete", resolve);
+                    const keys = new Set(toLoad.map(t => t.key));
+                    let done = 0;
+                    const tick = (key) => {
+                        if (!keys.has(key)) return;
+                        if (++done >= keys.size) {
+                            this.load.off("filecomplete", tick);
+                            this.load.off("loaderror",    errTick);
+                            resolve();
+                        }
+                    };
+                    const errTick = (file) => tick(file.key);
+                    this.load.on("filecomplete", tick);
+                    this.load.on("loaderror",    errTick);
+                    toLoad.forEach(({ key, path }) => this.load.image(key, path));
                     this.load.start();
                 });
                 this._createAllBagAnimations();
@@ -921,6 +929,26 @@ export default class BagScene extends Phaser.Scene {
 
         if (item.type === "background") {
             this.selectedBgId = item.id;
+            // Auto equip ngay khi chọn
+            if (this.playerUserId) {
+                const activeBgId = Number(this.playerData?.user?.active_bg_id || this.playerData?.active_bg_id);
+                if (Number(item.id) !== activeBgId) {
+                    try {
+                        await fetch(`http://localhost:3000/users/${this.playerUserId}/backgrounds/active`, {
+                            method: "POST", headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ background_id: item.id }),
+                        });
+                        if (this.playerData) {
+                            if (this.playerData.user) this.playerData.user.active_bg_id = item.id;
+                            this.playerData.active_bg_id = item.id;
+                            setPlayerData(this, this.playerData);
+                        }
+                        this.showToast("✅ Đã trang bị phông nền!");
+                    } catch (e) {
+                        console.warn("Save background failed", e);
+                    }
+                }
+            }
             this.buildLeftPanel();
             this.renderRightPanel();
             return;
@@ -930,12 +958,20 @@ export default class BagScene extends Phaser.Scene {
             this.selectedCharId = item.id;
 
             const currentChar = this.getCurrentCharacter();
-            this.selectedSkinNum = currentChar?.active_skin_number || 1;
+            if (this.activeTab === "skin") {
+                this.selectedSkinNum = currentChar?.active_skin_number || 1;
+            } else {
+                this.selectedSkinNum = null;
+            }
             this.selectedSkinId = currentChar?.active_skin_id || null;
 
-            // Load sprites cho nhân vật mới chọn (tất cả skin)
-            await this._loadCharacterSprites();
-            this._createAllBagAnimations();
+            // Chỉ load nếu frame skin 1 chưa có — tránh lag mỗi lần click
+            const charName1 = currentChar?.name || "";
+            const frame1 = `bag_${charName1}_1_idle_000`;
+            if (charName1 && !this.textures.exists(frame1)) {
+                await this._loadCharacterSprites();
+                this._createAllBagAnimations();
+            }
 
             if (this.activeTab === "skin") {
                 await this.loadSkinsForCharacter(item.id);

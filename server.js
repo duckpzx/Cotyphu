@@ -667,6 +667,8 @@ function buildPlayerList(sockets, host_user_id) {
     skin_id: s.skin_id || 1, is_host: s.user_id === host_user_id,
     is_ready: s.is_ready || false,
     slot_index: typeof s.slot_index === "number" ? s.slot_index : 0,
+    active_bg_id: s.active_bg_id || null,
+    active_bg_path: s.active_bg_path || null,
   }));
 }
 
@@ -844,17 +846,29 @@ io.on("connection", (socket) => {
 
       const user = await userService.getUserById(user_id);
       if (!user) return;
-      let characterName = "Unknown", skinId = 1;
+      let characterName = "Unknown", skinId = 1, activeBgId = null, activeBgPath = null;
       try {
         const chars = await characterService.getCharactersByUser(user_id);
         const ac    = chars.find(c => c.id === user.active_character_id) || chars[0];
         if (ac) { characterName = ac.name || ac.character_name || "Unknown"; skinId = ac.active_skin_number || 1; }
       } catch(e) { console.error("Error matching chars", e); }
 
+      // Lấy active background
+      try {
+        if (user.active_bg_id) {
+          const [bgRows] = await db.query(
+            "SELECT id, image_path FROM backgrounds WHERE id = ?",
+            [user.active_bg_id]
+          );
+          if (bgRows[0]) { activeBgId = bgRows[0].id; activeBgPath = bgRows[0].image_path; }
+        }
+      } catch(e) { console.error("Error fetching bg", e); }
+
       const isHost = room.host_user_id === user_id;
       const mySlot = findFreeSlot(before);
       socket.player_name = user.username || user.name || "Player";
       socket.character_name = characterName; socket.skin_id = skinId;
+      socket.active_bg_id = activeBgId; socket.active_bg_path = activeBgPath;
       socket.is_ready = false; socket.slot_index = mySlot; socket.current_room_id = room_id;
       socket.join(`room_${room_id}`);
       await roomRepo.updateCurrentPlayers(room_id, before.length + 1);
@@ -862,12 +876,14 @@ io.on("connection", (socket) => {
       const allPlayers = [
         ...buildPlayerList(before, room.host_user_id),
         { socket_id: socket.id, user_id, name: socket.player_name, character_name: characterName,
-          skin_id: skinId, is_host: isHost, is_ready: false, slot_index: mySlot }
+          skin_id: skinId, is_host: isHost, is_ready: false, slot_index: mySlot,
+          active_bg_id: activeBgId, active_bg_path: activeBgPath }
       ];
       socket.emit("room:players", { players: allPlayers, room });
       socket.to(`room_${room_id}`).emit("room:player_joined", {
         socket_id: socket.id, user_id, name: socket.player_name,
         character_name: characterName, skin_id: skinId, is_host: isHost, is_ready: false, slot_index: mySlot,
+        active_bg_id: activeBgId, active_bg_path: activeBgPath,
       });
     } catch (err) { console.error("room:join error:", err); }
   });

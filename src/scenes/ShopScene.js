@@ -644,10 +644,10 @@ export default class ShopScene extends Phaser.Scene {
                         const charScale = Math.min(
                             (PREVIEW_W - 10) / srcImg.width,
                             (PREVIEW_H - 10) / srcImg.height
-                        ) * 1.1;
+                        ) * 1.0;
 
                         const charH  = srcImg.height * charScale;
-                        const charCY = PREVIEW_Y + PREVIEW_H - charH / 2 - 4; // sát đáy
+                        const charCY = PREVIEW_Y + PREVIEW_H - charH / 2 - 2; // sát đáy, chân gần viền
 
                         // Bóng viền đen nhẹ (drop shadow giả)
                         const shadow = push(this.add.sprite(leftCX + 3, charCY + 5, frame0));
