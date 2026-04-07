@@ -190,11 +190,10 @@ export default class BagScene extends Phaser.Scene {
             if (!charName) continue;
 
             const skinsToLoad = new Set();
-            // Luôn load skin 1 (tab Nhân Vật luôn dùng skin 1 làm thumbnail)
-            skinsToLoad.add(1);
             skinsToLoad.add(char.active_skin_number || 1);
 
             if (Number(char.character_id) === Number(this.selectedCharId)) {
+                skinsToLoad.add(1);
                 skinsToLoad.add(2);
                 skinsToLoad.add(3);
             }
@@ -216,19 +215,11 @@ export default class BagScene extends Phaser.Scene {
         if (!toLoad.length) return;
 
         await new Promise(resolve => {
-            const keys = new Set(toLoad.map(t => t.key));
             let done = 0;
-            const tick = (key) => {
-                if (!keys.has(key)) return;
-                if (++done >= keys.size) {
-                    this.load.off("filecomplete", tick);
-                    this.load.off("loaderror",    errTick);
-                    resolve();
-                }
-            };
-            const errTick = (file) => tick(file.key);
+            const total = toLoad.length;
+            const tick = () => { if (++done >= total) resolve(); };
             this.load.on("filecomplete", tick);
-            this.load.on("loaderror",    errTick);
+            this.load.on("loaderror",    tick);
             toLoad.forEach(({ key, path }) => this.load.image(key, path));
             this.load.start();
         });
@@ -894,19 +885,11 @@ export default class BagScene extends Phaser.Scene {
 
             if (toLoad.length) {
                 await new Promise(resolve => {
-                    const keys = new Set(toLoad.map(t => t.key));
                     let done = 0;
-                    const tick = (key) => {
-                        if (!keys.has(key)) return;
-                        if (++done >= keys.size) {
-                            this.load.off("filecomplete", tick);
-                            this.load.off("loaderror",    errTick);
-                            resolve();
-                        }
-                    };
-                    const errTick = (file) => tick(file.key);
+                    const total = toLoad.length;
+                    const tick = () => { if (++done >= total) resolve(); };
                     this.load.on("filecomplete", tick);
-                    this.load.on("loaderror",    errTick);
+                    this.load.on("loaderror",    tick);
                     toLoad.forEach(({ key, path }) => this.load.image(key, path));
                     this.load.start();
                 });

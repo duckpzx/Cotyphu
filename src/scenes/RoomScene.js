@@ -88,7 +88,10 @@ export default class RoomScene extends Phaser.Scene {
     if (myBgId) {
       const bgKey  = `bg_${myBgId}`;
       const bgData = myBgs.find(b => Number(b.background_id || b.id) === Number(myBgId));
-      const bgPath = bgData?.image_path;
+      const rawBgPath = bgData?.image_path;
+      const bgPath = rawBgPath
+        ? (rawBgPath.startsWith("assets/") ? rawBgPath : `assets/ui/bg/${rawBgPath}`)
+        : null;
       if (bgPath && !this.textures.exists(bgKey)) {
         this.load.image(bgKey, bgPath);
       }
@@ -430,20 +433,29 @@ export default class RoomScene extends Phaser.Scene {
       if (p.active_bg_id && p.active_bg_path) {
         const bgKey = `bg_${p.active_bg_id}`;
         if (!this.textures.exists(bgKey)) {
-          toLoad.push({ key: bgKey, path: p.active_bg_path });
+          // Đảm bảo path đầy đủ (DB lưu chỉ tên file)
+          const bgPath = p.active_bg_path.startsWith("assets/")
+            ? p.active_bg_path
+            : `assets/ui/bg/${p.active_bg_path}`;
+          toLoad.push({ key: bgKey, path: bgPath });
         }
       }
     });
 
-    if (toLoad.length === 0) { onDone(); return; }
+    // Dedupe theo key trước khi load
+    const uniqueLoad = [];
+    const seenKeys = new Set();
+    toLoad.forEach(item => {
+      if (!seenKeys.has(item.key)) { seenKeys.add(item.key); uniqueLoad.push(item); }
+    });
 
-    const pendingKeys = new Set(toLoad.map(t => t.key));
-    let done = 0;
-    const total = pendingKeys.size;
+    if (uniqueLoad.length === 0) { onDone(); return; }
+
+    const pendingKeys = new Set(uniqueLoad.map(t => t.key));
     const onComplete = (key) => {
       if (!pendingKeys.has(key)) return;
       pendingKeys.delete(key);
-      if (++done >= total) {
+      if (pendingKeys.size === 0) {
         this.load.off("filecomplete", onComplete);
         this.load.off("loaderror",    onError);
         onDone();
@@ -454,7 +466,7 @@ export default class RoomScene extends Phaser.Scene {
     };
     this.load.on("filecomplete", onComplete);
     this.load.on("loaderror",    onError);
-    toLoad.forEach(({ key, path }) => this.load.image(key, path));
+    uniqueLoad.forEach(({ key, path }) => this.load.image(key, path));
     this.load.start();
   }
 
