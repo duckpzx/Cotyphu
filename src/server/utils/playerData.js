@@ -36,18 +36,9 @@ export function getActiveProfile(scene) {
 
   if (!character) return { characterName: "Unknown", skin_id: 1, character_id: null };
 
-  // active_skin_number là số thứ tự skin (1/2/3) dùng cho animation key
-  // active_skin_id là DB ID — KHÔNG dùng trực tiếp cho animation
-  const skinNumber = Number(character.active_skin_number) || 1;
-
   return {
     character_id: character.id,
     characterName: character.name || character.character_name || "Unknown",
-    skin_id: skinNumber
+    skin_id: character.active_skin_id || character.active_skin_number || 1
   };
-}
-
-export function getActiveBackgroundPath(scene) {
-  const pd = getPlayerData(scene);
-  return pd?.user?.active_bg_path || "assets/ui/nen_chung.png";
 }

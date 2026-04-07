@@ -1,4 +1,4 @@
-import { getActiveProfile, getActiveBackgroundPath } from "../server/utils/playerData.js";
+import { getActiveProfile } from "../server/utils/playerData.js";
 
 export default class RoomScene extends Phaser.Scene {
 
@@ -61,8 +61,6 @@ export default class RoomScene extends Phaser.Scene {
     this.load.image("icon_info",     "assets/ui/shared/info.png");
     this.load.image("icon_setting",  "assets/ui/shared/setting.png");
     this.load.image("versus2",       "assets/ui/shared/versus3.png");
-
-    // Dynamic loading background in _buildSlot
 
     // Pre-load idle frames của người chơi hiện tại từ localStorage
     const activeProfile = getActiveProfile(this);
@@ -691,37 +689,9 @@ export default class RoomScene extends Phaser.Scene {
     // ── Avatar area ───────────────────────────────────────────────────────
     const avatarH  = Math.floor(sh * 0.72);
     const avatarW  = sw - 16;
-    const avatarX  = -hw + 8;
-    const avatarY  = -hh + 22;
-
-    // Nền ảnh bên trong card nhân vật (từ background đã chọn)
-    // Placeholder default
-    const avatarBg = this.add.image(avatarX + avatarW / 2, avatarY + avatarH / 2, "bg_room");
-    let scale = Math.max(avatarW / avatarBg.width, avatarH / avatarBg.height);
-    avatarBg.setScale(scale).setAlpha(0.85);
-
-    // Mask bo góc cho ảnh nền
-    const maskShape = this.make.graphics({ add: false });
-    maskShape.fillStyle(0xffffff);
-    maskShape.fillRoundedRect(cx + avatarX, cy + avatarY, avatarW, avatarH, 10);
-    avatarBg.setMask(maskShape.createGeometryMask());
-
-    const bgPath = player.bg_path || "assets/ui/nen_chung.png";
-    const bgKey = "slot_bg_" + bgPath.replace(/[^a-zA-Z0-9]/g, "_");
-
-    if (this.textures.exists(bgKey)) {
-        avatarBg.setTexture(bgKey);
-        avatarBg.setScale(Math.max(avatarW / avatarBg.width, avatarH / avatarBg.height));
-    } else if (bgPath && bgPath !== "assets/ui/nen_chung.png") {
-        this.load.image(bgKey, bgPath);
-        this.load.once(`filecomplete-image-${bgKey}`, () => {
-            if (avatarBg && avatarBg.active) {
-                avatarBg.setTexture(bgKey);
-                avatarBg.setScale(Math.max(avatarW / avatarBg.width, avatarH / avatarBg.height));
-            }
-        });
-        this.load.start();
-    }
+    const avatarBg = this.add.graphics();
+    avatarBg.fillStyle(0x0a2a55, 0.7);
+    avatarBg.fillRoundedRect(-hw + 8, -hh + 22, avatarW, avatarH, 10);
 
     const avatarCY  = -hh + 22 + avatarH / 2;
     const avatarSize = Math.min(avatarW * 0.88, avatarH * 0.88);

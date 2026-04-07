@@ -188,22 +188,6 @@ export default class TarotScene extends Phaser.Scene {
     }
 
     // =========================================================================
-
-    showToast(message) {
-        const { width, height } = this.scale;
-        const toast = this.add.text(width / 2, height - 100, message, {
-            fontFamily: "Signika", fontSize: "20px", color: "#ffffff",
-            backgroundColor: "#000000aa", padding: { x: 20, y: 10 }
-        }).setOrigin(0.5).setDepth(300);
-        toast.setStroke("#000000", 2);
-
-        this.tweens.add({
-            targets: toast, y: height - 120, alpha: { from: 1, to: 0 },
-            duration: 2500, ease: "Sine.easeOut", onComplete: () => toast.destroy()
-        });
-    }
-
-    // =========================================================================
     // PANEL ĐẸP — thay thế createDashedPanel cũ
     // =========================================================================
     createStyledPanel(x, y, w, h, radius) {
@@ -714,11 +698,7 @@ async loadTarotAssetsFromServer() {
             effect_type: tarot.effect_type,
         };
 
-        // Bỏ qua giá trị icon từ DB nếu nó không phải là file path hợp lệ
-        const imgPath = (tarot.icon && tarot.icon.includes('/')) 
-            ? tarot.icon 
-            : `assets/resources/Tarot/thebai_${tarot.id}.png`;
-            
+        const imgPath = tarot.icon || `assets/resources/Tarot/thebai_${tarot.id}.png`;
         this.load.image(key, imgPath);
     });
 

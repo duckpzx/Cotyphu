@@ -664,7 +664,7 @@ function buildPlayerList(sockets, host_user_id) {
   return sockets.map(s => ({
     socket_id: s.id, user_id: s.user_id,
     name: s.player_name || "Player", character_name: s.character_name || "Unknown",
-    skin_id: s.skin_id || 1, bg_path: s.bg_path || "assets/ui/nen_chung.png", is_host: s.user_id === host_user_id,
+    skin_id: s.skin_id || 1, is_host: s.user_id === host_user_id,
     is_ready: s.is_ready || false,
     slot_index: typeof s.slot_index === "number" ? s.slot_index : 0,
   }));
@@ -793,7 +793,6 @@ io.on("connection", (socket) => {
         name: data?.name || user.name || "Player",
         characterName: data?.characterName || activeChar?.name || "Unknown",
         skin: data?.skin || activeChar?.active_skin_number || 1,
-        bg_path: user.active_bg_path || "assets/ui/nen_chung.png",
         index: 0,
         planet_color: assignedColor,
         active_tarot_ids: activeTarotIds
@@ -856,7 +855,6 @@ io.on("connection", (socket) => {
       const mySlot = findFreeSlot(before);
       socket.player_name = user.username || user.name || "Player";
       socket.character_name = characterName; socket.skin_id = skinId;
-      socket.bg_path = user.active_bg_path || "assets/ui/nen_chung.png";
       socket.is_ready = false; socket.slot_index = mySlot; socket.current_room_id = room_id;
       socket.join(`room_${room_id}`);
       await roomRepo.updateCurrentPlayers(room_id, before.length + 1);
@@ -864,12 +862,12 @@ io.on("connection", (socket) => {
       const allPlayers = [
         ...buildPlayerList(before, room.host_user_id),
         { socket_id: socket.id, user_id, name: socket.player_name, character_name: characterName,
-          skin_id: skinId, bg_path: socket.bg_path, is_host: isHost, is_ready: false, slot_index: mySlot }
+          skin_id: skinId, is_host: isHost, is_ready: false, slot_index: mySlot }
       ];
       socket.emit("room:players", { players: allPlayers, room });
       socket.to(`room_${room_id}`).emit("room:player_joined", {
         socket_id: socket.id, user_id, name: socket.player_name,
-        character_name: characterName, skin_id: skinId, bg_path: socket.bg_path, is_host: isHost, is_ready: false, slot_index: mySlot,
+        character_name: characterName, skin_id: skinId, is_host: isHost, is_ready: false, slot_index: mySlot,
       });
     } catch (err) { console.error("room:join error:", err); }
   });

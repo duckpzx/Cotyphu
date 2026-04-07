@@ -391,13 +391,7 @@ export default class BagScene extends Phaser.Scene {
                                 body: JSON.stringify({ background_id: this.selectedBgId }),
                             });
                             if (this.playerData) {
-                                const bgObj = this.myBackgrounds.find(b => Number(b.id) === Number(this.selectedBgId) || Number(b.background_id) === Number(this.selectedBgId));
-                                if (this.playerData.user) {
-                                    this.playerData.user.active_bg_id = this.selectedBgId;
-                                    if (bgObj && bgObj.image_path) {
-                                        this.playerData.user.active_bg_path = bgObj.image_path;
-                                    }
-                                }
+                                if (this.playerData.user) this.playerData.user.active_bg_id = this.selectedBgId;
                                 this.playerData.active_bg_id = this.selectedBgId;
                                 setPlayerData(this, this.playerData);
                             }
@@ -999,6 +993,7 @@ export default class BagScene extends Phaser.Scene {
                         }
                         setPlayerData(this, this.playerData);
                     }
+                    
                     this.showToast("✅ Đã đổi trang phục!");
                 } catch (e) {
                     console.warn("Save skin failed", e);

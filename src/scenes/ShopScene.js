@@ -1,5 +1,5 @@
 import EcoinManager from "../server/utils/ecoinManager.js";
-import { getPlayerData, setPlayerData, getActiveProfile } from "../server/utils/playerData.js";
+import { getPlayerData, setPlayerData } from "../server/utils/playerData.js";
 
 // src/scenes/ShopScene.js
 export default class ShopScene extends Phaser.Scene {
@@ -313,54 +313,6 @@ export default class ShopScene extends Phaser.Scene {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  LOAD IDLE BLINKING SPRITES (fallback to Idle)
-    // ═══════════════════════════════════════════════════════════════
-
-    async _loadIdleBlinkingSprites(charName, skinNum) {
-        const blinkFrame0 = `blink_${charName}_${skinNum}_000`;
-        if (this.textures.exists(blinkFrame0)) return; // Already loaded
-
-        let needsLoad = false;
-        const image = `${charName}_${skinNum}`;
-
-        // Try Idle Blinking first
-        for (let i = 0; i < 18; i++) {
-            const num = String(i).padStart(3, "0");
-            const key = `blink_${charName}_${skinNum}_${num}`;
-            if (!this.textures.exists(key)) {
-                this.load.image(key,
-                    `assets/characters/${charName}/${image}/PNG/PNG Sequences/Idle Blinking/0_${charName}_Idle Blinking_${num}.png`
-                );
-                needsLoad = true;
-            }
-        }
-
-        if (needsLoad) {
-            this.load.on('loaderror', () => {});
-            await new Promise(resolve => {
-                this.load.once("complete", resolve);
-                this.load.start();
-            });
-        }
-
-        // Create animation if frames loaded
-        if (this.textures.exists(blinkFrame0)) {
-            const animKey = `blink_${charName}_${skinNum}_idle`;
-            if (!this.anims.exists(animKey)) {
-                const frames = [];
-                for (let i = 0; i < 18; i++) {
-                    const num = String(i).padStart(3, "0");
-                    const key = `blink_${charName}_${skinNum}_${num}`;
-                    if (this.textures.exists(key)) frames.push({ key });
-                }
-                if (frames.length > 0) {
-                    this.anims.create({ key: animKey, frames, frameRate: 10, repeat: -1 });
-                }
-            }
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════
     //  HELPERS — ownership / status
     // ═══════════════════════════════════════════════════════════════
 
@@ -602,7 +554,7 @@ export default class ShopScene extends Phaser.Scene {
     //  LEFT PANEL — Preview + Actions
     // ═══════════════════════════════════════════════════════════════
 
-    async buildLeftPanel() {
+    buildLeftPanel() {
         const { leftCX, panelY, LEFT_W, PANEL_H } = this._layout;
         this._previewObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
         this._previewObjs = [];
@@ -663,44 +615,28 @@ export default class ShopScene extends Phaser.Scene {
                 sprite.setMask(maskShape.createGeometryMask());
 
                 // ── Đè nhân vật + Aura lên trên nền ──
-                const profile = getActiveProfile(this);
-                const charName = profile.characterName;
-                const skinNum = profile.skin_id;
+                const activeChar = this.playerData?.characters?.find(c => Number(c.is_active_character) === 1) || (this.allCharacters && this.allCharacters[0]);
+                if (activeChar) {
+                    const charName = activeChar.name;
+                    const skinNum = activeChar.active_skin_number || 1;
+                    const animKey = `shop_${charName}_${skinNum}_idle`;
+                    const frame0 = `shop_${charName}_${skinNum}_idle_000`;
 
-                if (charName && charName !== "Unknown") {
-                    // Tải Idle Blinking sprites nếu chưa có
-                    await this._loadIdleBlinkingSprites(charName, skinNum);
-
-                    const blinkKey = `blink_${charName}_${skinNum}_idle`;
-                    const blinkFrame0 = `blink_${charName}_${skinNum}_000`;
-                    const shopFrame0 = `shop_${charName}_${skinNum}_idle_000`;
-                    const shopAnimKey = `shop_${charName}_${skinNum}_idle`;
-
-                    // Uu tiên Idle Blinking, fallback về Idle
-                    const useFrame = this.textures.exists(blinkFrame0) ? blinkFrame0 : (this.textures.exists(shopFrame0) ? shopFrame0 : null);
-                    const useAnim = this.anims.exists(blinkKey) ? blinkKey : (this.anims.exists(shopAnimKey) ? shopAnimKey : null);
-
-                    if (useFrame) {
-                        const srcImg = this.textures.get(useFrame).getSourceImage();
-                        const charScale = Math.min((PREVIEW_W - 30) / srcImg.width, (PREVIEW_H - 30) / srcImg.height) * 0.85;
-                        
-                        // Vị trí sát viền dưới
-                        const charY = PREVIEW_Y + PREVIEW_H - (srcImg.height * charScale) / 2 - 10;
+                    if (this.textures.exists(frame0)) {
+                        const charScale = Math.min((PREVIEW_W - 20) / this.textures.get(frame0).getSourceImage().width, (PREVIEW_H - 20) / this.textures.get(frame0).getSourceImage().height) * 0.9;
                         
                         // Aura chớp sáng
-                        const aura = push(this.add.sprite(leftCX, charY, useFrame));
-                        aura.setScale(charScale * 1.15).setTint(0xffeeaa).setAlpha(0.5).setBlendMode(Phaser.BlendModes.ADD).setDepth(6);
-                        aura.setMask(maskShape.createGeometryMask());
+                        const aura = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2 + 10, frame0));
+                        aura.setScale(charScale * 1.15).setTint(0xffeeaa).setAlpha(0.6).setBlendMode(Phaser.BlendModes.ADD).setDepth(6);
                         
                         // Nhân vật
-                        const charSprite = push(this.add.sprite(leftCX, charY, useFrame));
+                        const charSprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2 + 10, frame0));
                         charSprite.setScale(charScale).setDepth(7);
-                        charSprite.setMask(maskShape.createGeometryMask());
 
-                        if (useAnim) { charSprite.play(useAnim); aura.play(useAnim); }
+                        if (this.anims.exists(animKey)) { charSprite.play(animKey); aura.play(animKey); }
 
-                        this.tweens.add({ targets: [charSprite, aura], y: charY - 5, duration: 1600, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
-                        this.tweens.add({ targets: aura, scaleX: charScale * 1.25, scaleY: charScale * 1.25, alpha: { from: 0.5, to: 0.08 }, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+                        this.tweens.add({ targets: [charSprite, aura], y: charSprite.y - 6, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+                        this.tweens.add({ targets: aura, scaleX: charScale * 1.25, scaleY: charScale * 1.25, alpha: { from: 0.6, to: 0.1 }, duration: 800, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
                     }
                 }
             } else {
@@ -1194,13 +1130,7 @@ export default class ShopScene extends Phaser.Scene {
     _isItemOwned(item) {
         if (!item) return false;
         if (item.type === "character") return this._isCharOwned(item.id);
-        if (item.type === "skin") {
-            // Check dynamically from ownedSkins array (not static item.isOwned)
-            if (item.skinId) {
-                return this.ownedSkins.some(s => Number(s.skin_id) === Number(item.skinId));
-            }
-            return !!item.isOwned;
-        }
+        if (item.type === "skin") return !!item.isOwned;
         if (item.type === "background") return this._isBgOwned(item.id);
         return false;
     }
@@ -1208,14 +1138,7 @@ export default class ShopScene extends Phaser.Scene {
     _isItemActive(item) {
         if (!item) return false;
         if (item.type === "character") return this._isCharActive(item.id);
-        if (item.type === "skin") {
-            // Check dynamically from playerData
-            if (item.charId && item.skinId) {
-                const char = this.playerData?.characters?.find(c => Number(c.id) === Number(item.charId));
-                if (char && Number(char.active_skin_id) === Number(item.skinId)) return true;
-            }
-            return !!item.isActive;
-        }
+        if (item.type === "skin") return !!item.isActive;
         if (item.type === "background") return this._isBgActive(item.id);
         return false;
     }
@@ -1359,51 +1282,6 @@ export default class ShopScene extends Phaser.Scene {
             } catch(e) {
                 console.warn("Equip error:", e);
                 this.showToast("❌ Lỗi trang bị!");
-            }
-        } else if (item.type === "background") {
-            try {
-                await fetch(`http://localhost:3000/users/${this.playerUserId}/backgrounds/active`, {
-                    method: "POST", headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ background_id: item.id }),
-                });
-                if (this.playerData?.user) {
-                    this.playerData.user.active_bg_id = item.id;
-                    if (item.image_path) this.playerData.user.active_bg_path = item.image_path;
-                    setPlayerData(this, this.playerData);
-                }
-                this.showToast("✅ Đã trang bị phông nền!");
-                this.buildLeftPanel();
-                this.renderRightPanel();
-            } catch(e) {
-                console.warn("Equip background error:", e);
-                this.showToast("❌ Lỗi trang bị phông nền!");
-            }
-        } else if (item.type === "skin") {
-            try {
-                // Determine `character_id` from the item since skins are specific to characters
-                const charId = item.character_id || (this.allCharacters && this.allCharacters.find(c => c.name === item.character_name)?.id);
-                if (!charId) {
-                    this.showToast("❌ Không tìm thấy nhân vật của skin này!");
-                    return;
-                }
-                await fetch(`http://localhost:3000/users/${this.playerUserId}/skins/active`, {
-                    method: "POST", headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ character_id: charId, skin_id: item.id }),
-                });
-                if (this.playerData?.user) {
-                     const char = this.playerData.characters?.find(c => Number(c.id) === Number(charId));
-                     if (char) {
-                         char.active_skin_id = item.id;
-                         char.active_skin_number = item.skin_number;
-                     }
-                     setPlayerData(this, this.playerData);
-                }
-                this.showToast("✅ Đã trang bị trang phục!");
-                this.buildLeftPanel();
-                this.renderRightPanel();
-            } catch(e) {
-                console.warn("Equip skin error:", e);
-                this.showToast("❌ Lỗi trang bị trang phục!");
             }
         }
     }

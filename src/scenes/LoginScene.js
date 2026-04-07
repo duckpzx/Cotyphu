@@ -155,9 +155,8 @@ export default class LoginScene extends Phaser.Scene {
             active: {
               characterId: data.active?.character_id,
               characterName: data.active?.characterName,
-              skin: data.active?.active_skin_number || 1,
-              active_skin_id: data.active?.active_skin_id,
-              active_skin_number: data.active?.active_skin_number || 1
+              skin: data.active?.active_skin_id,
+              active_skin_id: data.active?.active_skin_id
             }
           };
 
