@@ -295,7 +295,7 @@ export default class BagScene extends Phaser.Scene {
             color: "#4a2000", fontStyle: "bold",
         }).setOrigin(0.5).setDepth(6));
 
-        // ── Khung preview nhân vật ───────────────────────────────────
+        // ── Khung preview ────────────────────────────────────────────
         const PREVIEW_W = LEFT_W - 40;
         const PREVIEW_H = 220;
         const PREVIEW_X = leftCX - PREVIEW_W / 2;
@@ -304,60 +304,67 @@ export default class BagScene extends Phaser.Scene {
         const prevG = push(this.add.graphics().setDepth(4));
         prevG.fillStyle(0x1a3a6a, 1);
         prevG.fillRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, 14);
-        prevG.fillStyle(0x2a5090, 0.45);
-        prevG.fillRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H * 0.4, 14);
         prevG.lineStyle(3, 0xc8a060, 0.9);
         prevG.strokeRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, 14);
         prevG.lineStyle(1.5, 0xffffff, 0.15);
         prevG.strokeRoundedRect(PREVIEW_X + 3, PREVIEW_Y + 3, PREVIEW_W - 6, PREVIEW_H - 6, 12);
 
-        // ── Tùy chọn hiển thị Left Panel dựa trên Tab ────────────────
-        if (this.activeTab === "background") {
-            const currentBg = this.myBackgrounds.find(b => Number(b.background_id || b.id) === Number(this.selectedBgId));
-            const activeBgId = Number(this.playerData?.user?.active_bg_id || this.playerData?.active_bg_id);
-            const isCurrentActive = currentBg && Number(currentBg.background_id || currentBg.id) === activeBgId;
+        // ── Luôn hiển thị phông nền đang dùng (hoặc đang chọn) ──────
+        const activeBgId = Number(this.playerData?.user?.active_bg_id || this.playerData?.active_bg_id);
+        // Tab background: dùng selectedBgId; tab khác: dùng activeBgId
+        const previewBgId = (this.activeTab === "background" && this.selectedBgId)
+            ? this.selectedBgId
+            : (activeBgId || this.selectedBgId);
 
-            const bgKey = `bg_${this.selectedBgId}`;
-            if (this.selectedBgId && this.textures.exists(bgKey)) {
-                const sprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2, bgKey));
-                const wRatio = (PREVIEW_W - 20) / sprite.width;
-                const hRatio = (PREVIEW_H - 20) / sprite.height;
-                sprite.setScale(Math.max(wRatio, hRatio)).setDepth(5);
-                
-                const maskShape = push(this.make.graphics());
-                maskShape.fillRoundedRect(PREVIEW_X + 5, PREVIEW_Y + 5, PREVIEW_W - 10, PREVIEW_H - 10, 10);
-                sprite.setMask(maskShape.createGeometryMask());
+        const bgKey = `bg_${previewBgId}`;
+        if (previewBgId && this.textures.exists(bgKey)) {
+            const bgSprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2, bgKey));
+            const wRatio = (PREVIEW_W - 6) / bgSprite.width;
+            const hRatio = (PREVIEW_H - 6) / bgSprite.height;
+            bgSprite.setScale(Math.max(wRatio, hRatio)).setDepth(5);
 
-                // ── Đè nhân vật + Aura lên trên nền ──
-                const currentChar = this.getCurrentCharacter();
-                if (currentChar) {
-                    const charName = currentChar.name;
-                    const skinNum = currentChar.active_skin_number || 1;
-                    const animKey = `bag_${charName}_${skinNum}_idle`;
-                    const frame0 = `bag_${charName}_${skinNum}_idle_000`;
+            const maskShape = push(this.make.graphics());
+            maskShape.fillRoundedRect(PREVIEW_X + 3, PREVIEW_Y + 3, PREVIEW_W - 6, PREVIEW_H - 6, 12);
+            bgSprite.setMask(maskShape.createGeometryMask());
+        }
 
-                    if (this.textures.exists(frame0)) {
-                        const charScale = Math.min((PREVIEW_W - 20) / this.textures.get(frame0).getSourceImage().width, (PREVIEW_H - 20) / this.textures.get(frame0).getSourceImage().height) * 0.9;
-                        
-                        // Aura
-                        const aura = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2 + 10, frame0));
-                        aura.setScale(charScale * 1.15).setTint(0xffeeaa).setAlpha(0.6).setBlendMode(Phaser.BlendModes.ADD).setDepth(6);
-                        
-                        // Sprite
-                        const charSprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2 + 10, frame0));
-                        charSprite.setScale(charScale).setDepth(7);
+        // ── Luôn đè nhân vật lên trên nền ───────────────────────────
+        const currentChar = this.getCurrentCharacter();
+        if (currentChar) {
+            const charName = currentChar.name;
+            // Tab "skin": dùng skin đang preview; tab "character": luôn skin 1
+            const skinNum  = (this.activeTab === "skin")
+                ? (this.selectedSkinNum || currentChar.active_skin_number || 1)
+                : 1;
+            const animKey  = `bag_${charName}_${skinNum}_idle`;
+            const frame0   = `bag_${charName}_${skinNum}_idle_000`;
 
-                        if (this.anims.exists(animKey)) { charSprite.play(animKey); aura.play(animKey); }
+            if (this.textures.exists(frame0)) {
+                const src = this.textures.get(frame0).getSourceImage();
+                const charScale = Math.min(
+                    (PREVIEW_W - 20) / src.width,
+                    (PREVIEW_H - 20) / src.height
+                ) * 0.92;
+                const charCY = PREVIEW_Y + PREVIEW_H / 2 + 10;
 
-                        this.tweens.add({ targets: [charSprite, aura], y: charSprite.y - 6, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
-                        this.tweens.add({ targets: aura, scaleX: charScale * 1.25, scaleY: charScale * 1.25, alpha: { from: 0.6, to: 0.1 }, duration: 800, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
-                    }
-                }
-            } else {
-                push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H / 2, "🖼", {
-                    fontFamily: "Signika", fontSize: "56px",
-                }).setOrigin(0.5).setDepth(5));
+                const aura = push(this.add.sprite(leftCX, charCY, frame0));
+                aura.setScale(charScale * 1.15).setTint(0xffeeaa).setAlpha(0.55)
+                    .setBlendMode(Phaser.BlendModes.ADD).setDepth(6);
+
+                const charSprite = push(this.add.sprite(leftCX, charCY, frame0));
+                charSprite.setScale(charScale).setDepth(7);
+
+                if (this.anims.exists(animKey)) { charSprite.play(animKey); aura.play(animKey); }
+
+                this.tweens.add({ targets: [charSprite, aura], y: charCY - 6, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+                this.tweens.add({ targets: aura, scaleX: charScale * 1.25, scaleY: charScale * 1.25, alpha: { from: 0.55, to: 0.08 }, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
             }
+        }
+
+        // ── Nội dung bên dưới preview — tùy theo tab ─────────────────
+        if (this.activeTab === "background") {
+            const currentBg  = this.myBackgrounds.find(b => Number(b.background_id || b.id) === Number(this.selectedBgId));
+            const isCurrentActive = currentBg && Number(currentBg.background_id || currentBg.id) === activeBgId;
 
             const displayName = currentBg?.name || `Phông nền ${this.selectedBgId || ""}`;
             push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H + 16, displayName, {
@@ -371,7 +378,8 @@ export default class BagScene extends Phaser.Scene {
             dg.lineBetween(leftCX - LEFT_W / 2 + 20, divY2, leftCX + LEFT_W / 2 - 20, divY2);
 
             if (currentBg) {
-                push(this.add.text(leftCX - LEFT_W / 2 + 20, divY2 + 18, `✦  Trạng thái: ${isCurrentActive ? "Đang sử dụng" : "Chưa trang bị"}`, {
+                push(this.add.text(leftCX - LEFT_W / 2 + 20, divY2 + 18,
+                    `✦  Trạng thái: ${isCurrentActive ? "Đang sử dụng" : "Chưa trang bị"}`, {
                     fontFamily: "Signika", fontSize: "13px",
                     color: isCurrentActive ? "#2a8b2a" : "#8b5e1a", fontStyle: "italic",
                 }).setDepth(5));
@@ -406,24 +414,7 @@ export default class BagScene extends Phaser.Scene {
                 }
             );
         } else {
-            // Hiển thị nhân vật đang chọn
-            const currentChar = this.getCurrentCharacter();
-            const charName    = currentChar?.name || "";
-            const skinNum     = this.selectedSkinNum || currentChar?.active_skin_number || 1;
-            const animKey     = `bag_${charName}_${skinNum}_idle`;
-            const firstFrame  = `bag_${charName}_${skinNum}_idle_000`;
-
-            if (charName && this.textures.exists(firstFrame)) {
-                const sprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2, firstFrame));
-                const scale  = Math.min((PREVIEW_W - 20) / sprite.width, (PREVIEW_H - 20) / sprite.height);
-                sprite.setScale(scale).setDepth(5);
-
-                if (this.anims.exists(animKey)) sprite.play(animKey);
-                this.tweens.add({ targets: sprite, y: sprite.y - 6, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
-            } else {
-                push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H / 2, "👤", { fontFamily: "Signika", fontSize: "56px" }).setOrigin(0.5).setDepth(5));
-            }
-
+            // Tab nhân vật hoặc trang phục
             const displayName = currentChar?.name || "Chưa chọn";
             push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H + 16, displayName, {
                 fontFamily: "Signika", fontSize: "20px", color: "#5c3300", fontStyle: "bold",
@@ -440,27 +431,24 @@ export default class BagScene extends Phaser.Scene {
                 fontFamily: "Signika", fontSize: "13px", color: "#8b5e1a", fontStyle: "italic",
             }).setDepth(5));
 
-            const activeSkinNumber = Number(skinNum);
-            const skinLabelMap = { 1: "Sơ cấp", 2: "Trung cấp", 3: "Cao cấp" };
-            const skinName = skinLabelMap[activeSkinNumber] || `Skin ${activeSkinNumber}`;
-
-            push(this.add.text(leftCX - LEFT_W / 2 + 20, skinLabelY + 22, skinName, {
+            const activeSkinNum = this.selectedSkinNum || currentChar?.active_skin_number || 1;
+            const skinLabelMap  = { 1: "Sơ cấp", 2: "Trung cấp", 3: "Cao cấp" };
+            push(this.add.text(leftCX - LEFT_W / 2 + 20, skinLabelY + 22,
+                skinLabelMap[activeSkinNum] || `Skin ${activeSkinNum}`, {
                 fontFamily: "Signika", fontSize: "15px", color: "#4a2000", fontStyle: "bold",
             }).setDepth(5));
 
             if (currentChar) {
-                const infoY = skinLabelY + 52;
                 const isActive = Number(currentChar.is_active_character) === 1;
-
-                push(this.add.text(leftCX - LEFT_W / 2 + 20, infoY, `✦  Trạng thái: ${isActive ? "Đang sử dụng" : "Chưa trang bị"}`, {
-                    fontFamily: "Signika", fontSize: "13px", color: isActive ? "#2a8b2a" : "#8b5e1a", fontStyle: "italic",
+                push(this.add.text(leftCX - LEFT_W / 2 + 20, skinLabelY + 52,
+                    `✦  Trạng thái: ${isActive ? "Đang sử dụng" : "Chưa trang bị"}`, {
+                    fontFamily: "Signika", fontSize: "13px",
+                    color: isActive ? "#2a8b2a" : "#8b5e1a", fontStyle: "italic",
                 }).setDepth(5));
             }
 
             const btnY = panelY + PANEL_H / 2 - 46;
-            const currentCharObj = this.getCurrentCharacter();
-            const isCurrentActive = currentCharObj && Number(currentCharObj.is_active_character) === 1;
-
+            const isCurrentActive = currentChar && Number(currentChar.is_active_character) === 1;
             this._buildActionBtn(leftCX, btnY, 180, 42,
                 isCurrentActive ? "✓ Đang Trang Bị" : "⚔️ Trang Bị",
                 isCurrentActive ? 0x3a8a3a : 0xd4a030,
@@ -564,6 +552,7 @@ export default class BagScene extends Phaser.Scene {
                 }
 
                 this.buildTabs();
+                this.buildLeftPanel();
                 this.renderRightPanel();
             });
         });

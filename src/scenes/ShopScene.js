@@ -173,8 +173,17 @@ export default class ShopScene extends Phaser.Scene {
             // 4) Load skins sở hữu (từ login data)
             this.ownedSkins = this.playerData?.skins || [];
 
-            // 5) Load backgrounds sở hữu (từ login data)
-            this.ownedBgIds = this.playerData?.backgrounds?.map(b => Number(b.background_id)) || [];
+            // 5) Load backgrounds sở hữu — fetch từ server để đảm bảo đúng
+            try {
+                const bgRes = await fetch(`http://localhost:3000/users/${this.playerUserId}/backgrounds/bag`);
+                const bgJson = await bgRes.json();
+                const ownedBgs = bgJson.data || [];
+                this.ownedBgIds = ownedBgs.map(b => Number(b.background_id || b.id));
+            } catch(e) {
+                // fallback về playerData nếu API lỗi
+                const bgs = this.playerData?.backgrounds || [];
+                this.ownedBgIds = bgs.map(b => Number(b.background_id || b.id || 0)).filter(Boolean);
+            }
 
             // 6) Load ecoin thật từ server
             this.playerEcoin = await EcoinManager.fetchFromServer(this, this.playerUserId);
@@ -615,28 +624,60 @@ export default class ShopScene extends Phaser.Scene {
                 sprite.setMask(maskShape.createGeometryMask());
 
                 // ── Đè nhân vật + Aura lên trên nền ──
-                const activeChar = this.playerData?.characters?.find(c => Number(c.is_active_character) === 1) || (this.allCharacters && this.allCharacters[0]);
+                const activeCharId = Number(
+                    this.playerData?.user?.active_character_id ||
+                    this.playerData?.active_character_id
+                );
+                const activeChar = (this.ownedCharacters || []).find(c =>
+                    Number(c.character_id) === activeCharId
+                ) || (this.ownedCharacters || [])[0];
+
                 if (activeChar) {
                     const charName = activeChar.name;
-                    const skinNum = activeChar.active_skin_number || 1;
-                    const animKey = `shop_${charName}_${skinNum}_idle`;
-                    const frame0 = `shop_${charName}_${skinNum}_idle_000`;
+                    const skinNum  = activeChar.active_skin_number || 1;
+                    const animKey  = `shop_${charName}_${skinNum}_idle`;
+                    const frame0   = `shop_${charName}_${skinNum}_idle_000`;
 
                     if (this.textures.exists(frame0)) {
-                        const charScale = Math.min((PREVIEW_W - 20) / this.textures.get(frame0).getSourceImage().width, (PREVIEW_H - 20) / this.textures.get(frame0).getSourceImage().height) * 0.9;
-                        
+                        const srcImg   = this.textures.get(frame0).getSourceImage();
+                        // To hơn (1.1) và sát đáy
+                        const charScale = Math.min(
+                            (PREVIEW_W - 10) / srcImg.width,
+                            (PREVIEW_H - 10) / srcImg.height
+                        ) * 1.1;
+
+                        const charH  = srcImg.height * charScale;
+                        const charCY = PREVIEW_Y + PREVIEW_H - charH / 2 - 4; // sát đáy
+
+                        // Bóng viền đen nhẹ (drop shadow giả)
+                        const shadow = push(this.add.sprite(leftCX + 3, charCY + 5, frame0));
+                        shadow.setScale(charScale).setTint(0x000000).setAlpha(0.35).setDepth(6);
+                        if (this.anims.exists(animKey)) shadow.play(animKey);
+
                         // Aura chớp sáng
-                        const aura = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2 + 10, frame0));
-                        aura.setScale(charScale * 1.15).setTint(0xffeeaa).setAlpha(0.6).setBlendMode(Phaser.BlendModes.ADD).setDepth(6);
-                        
+                        const aura = push(this.add.sprite(leftCX, charCY, frame0));
+                        aura.setScale(charScale * 1.12).setTint(0xffeeaa).setAlpha(0.5)
+                            .setBlendMode(Phaser.BlendModes.ADD).setDepth(7);
+
                         // Nhân vật
-                        const charSprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2 + 10, frame0));
-                        charSprite.setScale(charScale).setDepth(7);
+                        const charSprite = push(this.add.sprite(leftCX, charCY, frame0));
+                        charSprite.setScale(charScale).setDepth(8);
 
-                        if (this.anims.exists(animKey)) { charSprite.play(animKey); aura.play(animKey); }
+                        if (this.anims.exists(animKey)) {
+                            charSprite.play(animKey);
+                            aura.play(animKey);
+                        }
 
-                        this.tweens.add({ targets: [charSprite, aura], y: charSprite.y - 6, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
-                        this.tweens.add({ targets: aura, scaleX: charScale * 1.25, scaleY: charScale * 1.25, alpha: { from: 0.6, to: 0.1 }, duration: 800, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+                        this.tweens.add({
+                            targets: [charSprite, aura, shadow],
+                            y: `-=5`, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
+                        });
+                        this.tweens.add({
+                            targets: aura,
+                            scaleX: charScale * 1.22, scaleY: charScale * 1.22,
+                            alpha: { from: 0.5, to: 0.08 },
+                            duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
+                        });
                     }
                 }
             } else {
