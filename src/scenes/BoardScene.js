@@ -1955,8 +1955,8 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
         room_id:       this.gameRoomId,
         name:          playerData?.user?.name || "Player",
         user_id:       playerData?.user?.id,
-        characterName: playerData?.active?.characterName || "Necromancer_of_the_Shadow",
-        skin:          playerData?.active?.skin || 1
+        characterName: this.characterName || "Dark_Oracle",
+        skin:          this.mySkin || 1
       });
       if (this.gameRoomId) {
         setTimeout(() => {

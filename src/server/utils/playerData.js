@@ -39,6 +39,6 @@ export function getActiveProfile(scene) {
   return {
     character_id: character.id,
     characterName: character.name || character.character_name || "Unknown",
-    skin_id: character.active_skin_id || character.active_skin_number || 1
+    skin_id: character.active_skin_number || 1
   };
 }

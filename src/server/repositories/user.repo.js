@@ -41,9 +41,11 @@ const userRepo = {
       SELECT 
         uc.character_id,
         c.name AS characterName,
-        uc.active_skin_id
+        uc.active_skin_id,
+        COALESCE(cs.skin_number, 1) AS active_skin_number
       FROM user_characters uc
       JOIN characters c ON c.id = uc.character_id
+      LEFT JOIN character_skins cs ON cs.id = uc.active_skin_id
       WHERE uc.user_id = ? 
         AND uc.character_id = ?
     `, [user.id, user.active_character_id]);
@@ -52,9 +54,11 @@ const userRepo = {
       SELECT 
         uc.character_id AS id,
         c.name,
-        uc.active_skin_id
+        uc.active_skin_id,
+        COALESCE(cs.skin_number, 1) AS active_skin_number
       FROM user_characters uc
       JOIN characters c ON c.id = uc.character_id
+      LEFT JOIN character_skins cs ON cs.id = uc.active_skin_id
       WHERE uc.user_id = ?
     `, [user.id]);
 

@@ -793,8 +793,8 @@ io.on("connection", (socket) => {
         id: socket.id,
         user_id,
         name: data?.name || user.name || "Player",
-        characterName: data?.characterName || activeChar?.name || "Unknown",
-        skin: data?.skin || activeChar?.active_skin_number || 1,
+        characterName: (data?.characterName || activeChar?.name || "Dark_Oracle").replace(/ /g, "_"),
+        skin: Number(data?.skin) || activeChar?.active_skin_number || 1,
         index: 0,
         planet_color: assignedColor,
         active_tarot_ids: activeTarotIds
