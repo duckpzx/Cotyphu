@@ -1390,19 +1390,8 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
       if (idx === 18) {
       gs.phase = "QUIZ";
 
-      // Timeout fallback nếu DB quá chậm
-      const fetchTimeout = setTimeout(() => {
-        if (gs.phase === "QUIZ" && !gs.currentQuiz) {
-          gs.phase = "IDLE";
-          socket.emit("game:error", { message: "Hệ thống câu hỏi không phản hồi, bỏ qua lượt này" });
-          setTimeout(() => endTurn(room_id), 500);
-        }
-      }, 5000);
-
       questionsService.getRandomQuestion()
         .then((result) => {
-          clearTimeout(fetchTimeout);
-
           if (!result.success || !result.question) {
             socket.emit("game:error", {
               message: result.message || "Không lấy được câu hỏi từ hệ thống"
@@ -1412,9 +1401,6 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
             return;
           }
 
-          // Nếu phase đã bị reset bởi fetchTimeout thì bỏ qua
-          if (gs.phase !== "QUIZ") return;
-
           const question = result.question;
 
           const safeQuestion = {
@@ -1423,31 +1409,17 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
             A: question.A,
             B: question.B,
             C: question.C,
-            D: question.D,
-            correct: question.correct  // server giữ để kiểm tra, client không thấy
-          };
-
-          // Set currentQuiz TRƯỚC khi emit để tránh race condition
-          gs.currentQuiz = { user_id: cur.user_id, question: safeQuestion };
-
-          const clientQuestion = {
-            id: safeQuestion.id,
-            question: safeQuestion.question,
-            A: safeQuestion.A,
-            B: safeQuestion.B,
-            C: safeQuestion.C,
-            D: safeQuestion.D
+            D: question.D
           };
 
           socket.emit("game:quiz_prompt", {
             cell_index: 18,
-            question: clientQuestion
+            question: safeQuestion
           });
 
           if (gs._quizTimer) clearTimeout(gs._quizTimer);
 
           gs._quizTimer = setTimeout(() => {
-            if (gs.phase !== "QUIZ") return;
             cur.must_answer_next = true;
 
             io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:quiz_result", {
@@ -1458,12 +1430,10 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
 
             gs.currentQuiz = null;
             gs._quizTimer = null;
-            gs.phase = "IDLE";
             endTurn(room_id);
-          }, 30000);
+          }, 15000);
         })
         .catch((err) => {
-          clearTimeout(fetchTimeout);
           console.error("Lỗi lấy câu hỏi từ DB:", err);
           socket.emit("game:error", {
             message: "Lỗi server khi lấy câu hỏi"
