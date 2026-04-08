@@ -520,8 +520,7 @@ _closeTarotModal() { this.tarotModal?.close(); }
       }
 
       this.socket.on("game:monster_target", (data) => {
-        // Hỗ trợ cả mảng target_details (mới) lẫn cell_indexes (cũ)
-        const details = data.target_details || (data.cell_indexes || []).map(i => ({ cell_index: i, had_planet: !!this.cellStates?.[i] }));
+        const details = data.target_details || (data.cell_indexes || []).map(i => ({ cell_index: i, had_planet: false }));
         if (!details || details.length === 0) return;
 
         const sourceCell = this.boardPath[28];
@@ -532,52 +531,20 @@ _closeTarotModal() { this.tarotModal?.close(); }
           this.bloody.play("Hunter_Greeting_2");
         }
 
-        // Bắn mũi tên lần lượt tới từng ô, cách nhau 600ms
+        // Bắn mũi tên lần lượt tới từng ô, cách nhau 600ms — chỉ hiệu ứng visual
         details.forEach((detail, i) => {
           const targetCell = this.boardPath[detail.cell_index];
           if (!targetCell || !sourceCell) return;
+          const isLast = (i === details.length - 1);
 
           this.time.delayedCall(800 + i * 600, () => {
             this._highlightTargetCell(targetCell);
             this.time.delayedCall(400, () => {
-              this._fireArrowFromAbove(sourceCell, targetCell, true);
-            });
-
-            // Cập nhật client state đồng bộ với server
-            this.time.delayedCall(900, () => {
-              if (detail.had_planet) {
-                this.clearCell(targetCell);
-                if (this.cellStates) delete this.cellStates[detail.cell_index];
-                this._showToast(`☄ Ô ${detail.cell_index} bị phá hủy!`, "#ff4444");
-              } else {
-                this._showToast(`💨 Ô ${detail.cell_index} bị nhắm nhưng trống`, "#aaaaaa");
-              }
+              this._fireArrowFromAbove(sourceCell, targetCell, isLast);
             });
           });
         });
-
-        // Dừng hiệu ứng sau khi tất cả xong
-        this.time.delayedCall(800 + details.length * 600 + 1000, () => {
-          this._stopDarkMapEffect();
-          this._setHunter28Mode(false);
-          this._refreshPlayerPanelsFromGameState();
-        });
-      });
-
-      this.socket.on("game:cell_destroyed", (data) => {
-        const cell = this.boardPath[data.cell_index];
-        if (!cell) return;
-
-        if (data.had_planet) {
-          this.clearCell(cell);
-          if (this.cellStates) delete this.cellStates[data.cell_index];
-          this._showToast(`☄ Ô ${data.cell_index} bị phá hủy!`, "#ff4444");
-        } else {
-          this._showToast(`💨 Ô ${data.cell_index} bị nhắm nhưng không có tinh cầu`, "#aaaaaa");
-        }
-
-        this._stopDarkMapEffect();
-        this._setHunter28Mode(false);
+        // State thực sự được cập nhật khi nhận game:cell_destroyed
       });
 
       // ================== EXTRA ROLL ==================
@@ -737,9 +704,19 @@ _closeTarotModal() { this.tarotModal?.close(); }
 
   this.socket.on("game:cell_destroyed", (data) => {
     const cell = this.boardPath[data.cell_index];
-    if (cell) this.clearCell(cell);
-    this._showToast(`☄ Ô ${data.cell_index} bị phá hủy!`, "#ff4444");
+    if (!cell) return;
+
+    if (data.had_planet) {
+      this.clearCell(cell);
+      if (this.cellStates) delete this.cellStates[data.cell_index];
+      this._showToast(`☄ Ô ${data.cell_index} bị phá hủy!`, "#ff4444");
+    } else {
+      this._showToast(`💨 Ô ${data.cell_index} bị nhắm nhưng không có tinh cầu`, "#aaaaaa");
+    }
+
     this._stopDarkMapEffect();
+    this._setHunter28Mode(false);
+    this._refreshPlayerPanelsFromGameState();
   });
 
   this.socket.on("game:cell_sold", (data) => {
@@ -2768,10 +2745,7 @@ this.input.keyboard.on("keydown-Y", () => {
     this.socket.emit("move", { index:this.currentIndex });
     this.hideTargetArrow();
     this.highlightCurrentCell();
-
-    if (this.currentIndex === 28) {
-      this._triggerCell28FireDestruction();
-    }
+    // Hiệu ứng ô 28 được xử lý qua game:monster_target từ server (đồng bộ tất cả client)
   }
 
   _triggerCell28FireDestruction() {
@@ -2861,17 +2835,14 @@ this.input.keyboard.on("keydown-Y", () => {
           onComplete: () => {
               arrow.destroy();
 
-              // C. Tinh cầu bị phá vỡ (Break)
-              this._createFireImpact(endX, endY); // Hiệu ứng nổ lửa
-              this.clearCell(targetCell);       // Xóa tinh cầu khỏi map
-              if (this.cellStates) delete this.cellStates[targetCell.index];
+              // Hiệu ứng nổ lửa tại điểm chạm
+              this._createFireImpact(endX, endY);
+              // KHÔNG tự xóa cellStates ở đây — game:cell_destroyed sẽ đồng bộ cho tất cả
 
-              // D. Mang map quay lại bình thường (Back to normal)
               if (isLast) {
                   this.time.delayedCall(800, () => {
                       this._stopDarkMapEffect();
                       this._setHunter28Mode(false);
-                      this._updatePlayerStatsInUI(); // Cập nhật lại tài sản vì bị mất tinh cầu
                   });
               }
           }

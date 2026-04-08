@@ -1568,16 +1568,24 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
         if (gs.cellStates[cellIndex]) delete gs.cellStates[cellIndex];
       });
 
-      // Gửi xuống client: danh sách ô + trạng thái để chạy hiệu ứng đồng bộ
+      // Gửi xuống client: danh sách ô + trạng thái để chạy hiệu ứng đồng bộ cho tất cả
       io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:monster_target", {
         cell_indexes: targetIndexes,
         target_details: targetDetails
       });
 
-      // Chờ client chạy hiệu ứng xong rồi kết thúc lượt
+      // Sau khi hiệu ứng client chạy xong, emit cell_destroyed cho từng ô
+      // để tất cả client (kể cả người không ở ô 28) đồng bộ state
+      const effectDuration = 800 + targetDetails.length * 600 + 500;
       setTimeout(() => {
+        targetDetails.forEach(detail => {
+          io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:cell_destroyed", {
+            cell_index: detail.cell_index,
+            had_planet: detail.had_planet
+          });
+        });
         setTimeout(() => endTurn(room_id), 700);
-      }, 1500);
+      }, effectDuration);
 
       return;
     }
