@@ -459,11 +459,23 @@ _closeTarotModal() { this.tarotModal?.close(); }
       }
       
       const myUid = this._myUserId();
+
+      // Play Hurt animation cho người trả tiền
+      if (data.payer_user_id === myUid) {
+        this._playHurtThenIdle(this.player, this.characterName, this.mySkin);
+      } else {
+        // Tìm sprite của người chơi khác
+        const otherSprite = Object.values(this.otherPlayers).find(op => op.user_id === data.payer_user_id);
+        if (otherSprite) {
+          const gp = this.gamePlayers?.find(p => p.user_id === data.payer_user_id);
+          if (gp) this._playHurtThenIdle(otherSprite, gp.characterName || gp.character_name, gp.skin || gp.skin_id || 1);
+        }
+      }
+
       // Hiển thị cell glow khi có người trả tiền để làm highlight
       const cell = this.boardPath[data.cell_index];
       if (cell && data.owner_user_id === myUid) {
         const hex = this._planetColorToHex(data.planet_color);
-        // Flash glow để chỉ rõ ô nào được trả tiền
         this.paintCellGlow(cell, hex, 0.8);
         this.time.delayedCall(500, () => this.paintCellGlow(cell, hex, 0.5));
       }
@@ -476,7 +488,6 @@ _closeTarotModal() { this.tarotModal?.close(); }
         this._showToast(`${data.payer_name} trả thuê ô ${data.cell_index}`, "#aaaaaa");
       
       this._refreshPlayerPanelsFromGameState();
-      // Cập nhật T.mặt khi có thay đổi tiền
       this._updatePlayerStatsInUI();
     });
 
@@ -790,11 +801,27 @@ _closeTarotModal() { this.tarotModal?.close(); }
   });
 
   this.socket.on("game:player_teleported", (data) => {
-    if (data.user_id === this._myUserId()) {
+    const myUid = this._myUserId();
+    if (data.user_id === myUid) {
       this._showToast("🚨 Bạn bị trả về ô xuất phát do trả lời sai 2 lần liên tiếp", "#ff5555");
       this.resetPlayer();
     } else {
       this._showToast(`🌀 ${data.name} bị trả về START`, "#ff9999");
+      // Teleport sprite của người chơi khác về ô 0
+      const other = Object.values(this.otherPlayers).find(op => op.user_id === data.user_id);
+      if (other) {
+        const startCell = this.boardPath[0];
+        const sx = startCell.x * this.scale.width;
+        const sy = startCell.y * this.scale.height;
+        other.x = sx;
+        other.y = sy;
+        other.index = 0;
+        if (other.shadow)   { other.shadow.x = sx;   other.shadow.y = sy + 5; }
+        if (other.nameText) { other.nameText.x = sx;  other.nameText.y = sy - 140 * this.minRatio; }
+        const gp = this.gamePlayers?.find(p => p.user_id === data.user_id);
+        const idleKey = `${gp?.characterName || gp?.character_name || "Dark_Oracle"}_${gp?.skin || gp?.skin_id || 1}_idle`;
+        if (this.anims.exists(idleKey)) other.play(idleKey);
+      }
     }
   });
 
@@ -1344,6 +1371,17 @@ this.socket.on("game:tarot_denied", (data) => {
     return n.toLocaleString("vi-VN");
   }
 
+  // Play Hurt animation rồi quay về idle
+  _playHurtThenIdle(sprite, character, skin) {
+    const HurtKey = `${character}_${skin}_hurt`;
+    const idleKey  = `${character}_${skin}_idle`;
+    if (!this.anims.exists(HurtKey)) { return; }
+    sprite.play(HurtKey);
+    sprite.once("animationcomplete", () => {
+      if (this.anims.exists(idleKey)) sprite.play(idleKey);
+    });
+  }
+
   _refreshPlayerPanelsFromGameState() {
     if (!this.playerPanels || !this.gamePlayers) return;
 
@@ -1507,6 +1545,11 @@ this.socket.on("game:tarot_denied", (data) => {
           this.load.image(`${character}_${skin}_run_throw_${i}`,
             `./assets/characters/${character}/${image}/PNG/PNG Sequences/Run Throwing/0_${character}_Run Throwing_${num}.png`);
         }
+        for (let i = 0; i < 15; i++) {
+          const num = String(i).padStart(3, "0");
+          this.load.image(`${character}_${skin}_hurt_${num}`,
+            `./assets/characters/${character}/${image}/PNG/PNG Sequences/Hurt/0_${character}_hurt_${num}.png`);
+        }
       }
     });
 
@@ -1578,6 +1621,11 @@ this.socket.on("game:tarot_denied", (data) => {
         for (let i = 0; i < 12; i++)
           runFrames.push({ key: `${character}_${skin}_run_throw_${i}` });
         this.anims.create({ key:`${character}_${skin}_run_throw`, frames:runFrames, frameRate:18, repeat:-1 });
+
+        const HurtFrames = [];
+        for (let i = 0; i < 15; i++)
+          HurtFrames.push({ key: `${character}_${skin}_hurt_${String(i).padStart(3,"0")}` });
+        this.anims.create({ key:`${character}_${skin}_hurt`, frames:HurtFrames, frameRate:12, repeat:0 });
       }
     });
 
@@ -2641,10 +2689,13 @@ this.input.keyboard.on("keydown-Y", () => {
     if (this.isMoving) { this.tweens.killAll(); this.isMoving=false; this.canRoll=true; }
     this.currentIndex=0;
     const startCell=this.boardPath[0];
-    this.player.x=startCell.x*this.scale.width;
-    this.player.y=startCell.y*this.scale.height;
-    this.shadow.x=this.player.x;
-    this.shadow.y=this.player.y+5;
+    const sx = startCell.x * this.scale.width;
+    const sy = startCell.y * this.scale.height;
+    this.player.x = sx;
+    this.player.y = sy;
+    this.shadow.x = sx;
+    this.shadow.y = sy + 5;
+    if (this.playerNameText) { this.playerNameText.x = sx; this.playerNameText.y = sy - 140 * this.minRatio; }
     this.player.play(`${this.characterName||"Dark_Oracle"}_${this.mySkin}_idle`);
     this.onPlayerStop();
   }
