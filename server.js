@@ -553,7 +553,7 @@ async function initGameState(room_id, sockets, bet_ecoin = 5000) {
         name: s.player_name || "Player",
         turn_order: i + 1,
         planet_color: colorPool[i % colorPool.length],
-        cash: bet_ecoin * 100,
+        cash: bet_ecoin * 20,
         index: 0,
 
         characterName: s.character_name || "Unknown",
@@ -574,7 +574,7 @@ async function initGameState(room_id, sockets, bet_ecoin = 5000) {
     phase: "IDLE",
     turn_number: 1,
     bet_ecoin,
-    build_cost: bet_ecoin * 20,
+    build_cost: bet_ecoin * 5,
     cellStates: {},
     _buildTimer: null,
   };
@@ -648,6 +648,74 @@ function endTurn(room_id) {
     must_answer: !!next.must_answer_next,
     server_now_ms: now
   });
+
+  // Nếu người chơi phải trả lời câu hỏi từ lượt trước, gửi quiz ngay
+  if (next.must_answer_next) {
+    next.must_answer_next = false; // reset trước để không lặp
+    gs.phase = "QUIZ";
+
+    const nextSocket = io.sockets.sockets.get(next.socket_id);
+    if (!nextSocket) {
+      gs.phase = "IDLE";
+      setTimeout(() => endTurn(room_id), 500);
+    } else {
+      questionsService.getRandomQuestion()
+        .then((result) => {
+          if (!result.success || !result.question) {
+            gs.phase = "IDLE";
+            setTimeout(() => endTurn(room_id), 500);
+            return;
+          }
+          const question = result.question;
+          const safeQuestion = {
+            id: question.id,
+            question: question.question,
+            A: question.A, B: question.B, C: question.C, D: question.D
+          };
+          gs.currentQuiz = {
+            user_id: next.user_id,
+            question: { ...safeQuestion, correct: question.correct }
+          };
+          nextSocket.emit("game:quiz_prompt", {
+            cell_index: 18,
+            question: safeQuestion
+          });
+          if (gs._quizTimer) clearTimeout(gs._quizTimer);
+          gs._quizTimer = setTimeout(() => {
+            if (gs.phase !== "QUIZ") return;
+            next.wrong_quiz_count = (next.wrong_quiz_count || 0) + 1;
+            const lockedOut = next.wrong_quiz_count >= 2;
+            io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:quiz_result", {
+              user_id: next.user_id,
+              correct: false,
+              answer: null,
+              timed_out: true,
+              locked_out: lockedOut
+            });
+            if (lockedOut) {
+              next.index = 0;
+              next.wrong_quiz_count = 0;
+              io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:player_teleported", {
+                user_id: next.user_id, name: next.name, dest_index: 0, reason: "Hết giờ 2 lần liên tiếp"
+              });
+              io.to(`room_${room_id}`).to(`game_${room_id}`).emit("playerMoved", {
+                id: next.socket_id, index: 0, characterName: next.name, skin: next.skin || 1
+              });
+            } else {
+              next.must_answer_next = true;
+            }
+            gs.currentQuiz = null;
+            gs._quizTimer = null;
+            gs.phase = "IDLE";
+            setTimeout(() => endTurn(room_id), 800);
+          }, 15000);
+        })
+        .catch(() => {
+          gs.phase = "IDLE";
+          setTimeout(() => endTurn(room_id), 500);
+        });
+    }
+  }
 
   emitTarotState(room_id);
 }
@@ -1143,7 +1211,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     cur.index = idx;
 
     if (didPassStart) {
-      const bonus = Math.floor(gs.bet_ecoin * 0.15);
+      const bonus = Math.floor(gs.bet_ecoin * 4);
       cur.cash = (cur.cash || 0) + bonus;
 
       io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:start_bonus", {
@@ -1222,7 +1290,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
 
         // Bonus money
         if (picked.type === "bonus_money") {
-          const bonus = Math.floor(gs.bet_ecoin * 0.25);
+          const bonus = Math.floor(gs.bet_ecoin * 2);
           cur.cash = (cur.cash || 0) + bonus;
           io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:skill_event", {
             type: "bonus_money",
@@ -1279,43 +1347,33 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
           return;
         }
 
-        // Go to teacher (cell 18)
+        // Go to teacher (cell 18) — đi bộ từng bước
         if (picked.type === "go_to_teacher") {
           const targetIndex = 18;
-          cur.index = targetIndex;
+          const steps = (targetIndex - cur.index + TOTAL_CELLS) % TOTAL_CELLS || TOTAL_CELLS;
           io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:skill_event", {
-            type: "teleport_safe_cell", // dùng chung hiển thị
+            type: "walk_to_cell",
             user_id: cur.user_id,
             name: cur.name,
+            steps,
             dest_index: targetIndex
           });
-          io.to(`room_${room_id}`).to(`game_${room_id}`).emit("playerMoved", {
-            id: cur.socket_id,
-            index: targetIndex,
-            characterName: cur.name,
-            skin: cur.skin || 1
-          });
-          setTimeout(() => endTurn(room_id), 1200);
+          // không end turn, chờ client gửi move_done sau khi đi xong
           return;
         }
 
-        // Go to monster (cell 28)
+        // Go to monster (cell 28) — đi bộ từng bước
         if (picked.type === "go_to_monster") {
           const targetIndex = 28;
-          cur.index = targetIndex;
+          const steps = (targetIndex - cur.index + TOTAL_CELLS) % TOTAL_CELLS || TOTAL_CELLS;
           io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:skill_event", {
-            type: "teleport_safe_cell", // dùng chung hiển thị
+            type: "walk_to_cell",
             user_id: cur.user_id,
             name: cur.name,
+            steps,
             dest_index: targetIndex
           });
-          io.to(`room_${room_id}`).to(`game_${room_id}`).emit("playerMoved", {
-            id: cur.socket_id,
-            index: targetIndex,
-            characterName: cur.name,
-            skin: cur.skin || 1
-          });
-          setTimeout(() => endTurn(room_id), 1200);
+          // không end turn, chờ client gửi move_done sau khi đi xong
           return;
         }
 
@@ -1355,7 +1413,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
             // Kiểm tra đi qua START
             const didPassStart = oldIdx <= 2 && newIdx > oldIdx;
             if (didPassStart) {
-              const bonus = Math.floor(gs.bet_ecoin * 0.15);
+              const bonus = Math.floor(gs.bet_ecoin * 4);
               targetEnemy.cash = (targetEnemy.cash || 0) + bonus;
               io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:start_bonus", {
                 user_id: targetEnemy.user_id,
@@ -1412,6 +1470,12 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
             D: question.D
           };
 
+          // Lưu câu hỏi vào game state để quiz_answer có thể kiểm tra
+          gs.currentQuiz = {
+            user_id: cur.user_id,
+            question: { ...safeQuestion, correct: question.correct }
+          };
+
           socket.emit("game:quiz_prompt", {
             cell_index: 18,
             question: safeQuestion
@@ -1420,17 +1484,41 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
           if (gs._quizTimer) clearTimeout(gs._quizTimer);
 
           gs._quizTimer = setTimeout(() => {
-            cur.must_answer_next = true;
+            if (gs.phase !== "QUIZ") return; // đã được xử lý rồi
+            cur.wrong_quiz_count = (cur.wrong_quiz_count || 0) + 1;
+            const lockedOut = cur.wrong_quiz_count >= 2;
 
             io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:quiz_result", {
               user_id: cur.user_id,
               correct: false,
-              answer: null
+              answer: null,
+              timed_out: true,
+              locked_out: lockedOut
             });
+
+            if (lockedOut) {
+              cur.index = 0;
+              cur.wrong_quiz_count = 0;
+              io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:player_teleported", {
+                user_id: cur.user_id,
+                name: cur.name,
+                dest_index: 0,
+                reason: "Hết giờ 2 lần liên tiếp"
+              });
+              io.to(`room_${room_id}`).to(`game_${room_id}`).emit("playerMoved", {
+                id: cur.socket_id,
+                index: 0,
+                characterName: cur.name,
+                skin: cur.skin || 1
+              });
+            } else {
+              cur.must_answer_next = true;
+            }
 
             gs.currentQuiz = null;
             gs._quizTimer = null;
-            endTurn(room_id);
+            gs.phase = "IDLE";
+            setTimeout(() => endTurn(room_id), 800);
           }, 15000);
         })
         .catch((err) => {
@@ -1459,38 +1547,35 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
         return;
       }
 
-      // Random 2 hoặc 3 ô
+      // Random 1 hoặc 2 ô (bao gồm cả ô trống lẫn có tinh cầu)
       const destroyCount = Math.min(
         candidateIndexes.length,
-        Math.floor(Math.random() * 2) + 2 // 2 hoặc 3
+        Math.floor(Math.random() * 2) + 1 // 1 hoặc 2
       );
 
       // Trộn rồi lấy ra destroyCount ô đầu tiên
       const shuffled = [...candidateIndexes].sort(() => Math.random() - 0.5);
       const targetIndexes = shuffled.slice(0, destroyCount);
 
-      console.log("Monster random targets:", targetIndexes);
+      // Đánh dấu trạng thái từng ô (có tinh cầu hay không) để gửi client
+      const targetDetails = targetIndexes.map(cellIndex => ({
+        cell_index: cellIndex,
+        had_planet: !!gs.cellStates[cellIndex]
+      }));
 
-      // Gửi xuống client để highlight + bắn tên
-      io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:monster_target", {
-        cell_indexes: targetIndexes
+      // Phá hủy ngay trên server
+      targetIndexes.forEach(cellIndex => {
+        if (gs.cellStates[cellIndex]) delete gs.cellStates[cellIndex];
       });
 
-      // Chờ client chạy hiệu ứng xong rồi mới phá thật
+      // Gửi xuống client: danh sách ô + trạng thái để chạy hiệu ứng đồng bộ
+      io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:monster_target", {
+        cell_indexes: targetIndexes,
+        target_details: targetDetails
+      });
+
+      // Chờ client chạy hiệu ứng xong rồi kết thúc lượt
       setTimeout(() => {
-        targetIndexes.forEach((cellIndex) => {
-          const hadPlanet = !!gs.cellStates[cellIndex];
-
-          if (hadPlanet) {
-            delete gs.cellStates[cellIndex];
-          }
-
-          io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:cell_destroyed", {
-            cell_index: cellIndex,
-            had_planet: hadPlanet
-          });
-        });
-
         setTimeout(() => endTurn(room_id), 700);
       }, 1500);
 
@@ -1526,7 +1611,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     }
 
     // Ô người khác => trả tiền thuê
-    const rent  = Math.floor(cell.build_cost * 0.8);
+    const rent  = Math.floor(gs.bet_ecoin * 2);
     const payer = gs.players.find(p => p.user_id === socket.user_id);
     const owner = gs.players.find(p => p.user_id === cell.owner_user_id);
 

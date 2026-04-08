@@ -282,7 +282,7 @@ _closeTarotModal() { this.tarotModal?.close(); }
       }
 
       if (this.mustAnswerNext && this.isMyTurn) {
-        this.infoText.setText("❗ Bạn phải trả lời câu hỏi, không được tung xúc xắc").setColor("#ff8844");
+        this.infoText.setText("⏳ Đang tải câu hỏi...").setColor("#ff8844");
         this.powerDice?.hide();
         if (this.diceSprite) this.diceSprite.setVisible(false);
         if (this.diceShadow) this.diceShadow.setVisible(false);
@@ -520,13 +520,11 @@ _closeTarotModal() { this.tarotModal?.close(); }
       }
 
       this.socket.on("game:monster_target", (data) => {
-        const targetIndex = data.cell_index;
-        if (targetIndex === undefined || targetIndex === null) return;
+        // Hỗ trợ cả mảng target_details (mới) lẫn cell_indexes (cũ)
+        const details = data.target_details || (data.cell_indexes || []).map(i => ({ cell_index: i, had_planet: !!this.cellStates?.[i] }));
+        if (!details || details.length === 0) return;
 
-        const targetCell = this.boardPath[targetIndex];
         const sourceCell = this.boardPath[28];
-        if (!targetCell || !sourceCell) return;
-
         this._startDarkMapEffect();
 
         if (this.bloody) {
@@ -534,12 +532,35 @@ _closeTarotModal() { this.tarotModal?.close(); }
           this.bloody.play("Hunter_Greeting_2");
         }
 
-        this.time.delayedCall(800, () => {
-          this._highlightTargetCell(targetCell);
+        // Bắn mũi tên lần lượt tới từng ô, cách nhau 600ms
+        details.forEach((detail, i) => {
+          const targetCell = this.boardPath[detail.cell_index];
+          if (!targetCell || !sourceCell) return;
 
-          this.time.delayedCall(1200, () => {
-            this._fireArrowFromAbove(sourceCell, targetCell, true);
+          this.time.delayedCall(800 + i * 600, () => {
+            this._highlightTargetCell(targetCell);
+            this.time.delayedCall(400, () => {
+              this._fireArrowFromAbove(sourceCell, targetCell, true);
+            });
+
+            // Cập nhật client state đồng bộ với server
+            this.time.delayedCall(900, () => {
+              if (detail.had_planet) {
+                this.clearCell(targetCell);
+                if (this.cellStates) delete this.cellStates[detail.cell_index];
+                this._showToast(`☄ Ô ${detail.cell_index} bị phá hủy!`, "#ff4444");
+              } else {
+                this._showToast(`💨 Ô ${detail.cell_index} bị nhắm nhưng trống`, "#aaaaaa");
+              }
+            });
           });
+        });
+
+        // Dừng hiệu ứng sau khi tất cả xong
+        this.time.delayedCall(800 + details.length * 600 + 1000, () => {
+          this._stopDarkMapEffect();
+          this._setHunter28Mode(false);
+          this._refreshPlayerPanelsFromGameState();
         });
       });
 
@@ -628,7 +649,25 @@ _closeTarotModal() { this.tarotModal?.close(); }
         return;
       }
 
-      // ================== TELEPORT SAFE CELL / GO TO TEACHER / GO TO MONSTER ==================
+      // ================== WALK TO CELL (go_to_teacher / go_to_monster) ==================
+      if (data.type === "walk_to_cell") {
+        this._showSkillPanel({
+          title: data.dest_index === 18 ? "ĐI TỚI THẦY GIÁO" : "ĐI TỚI QUÁI VẬT",
+          text: `${data.name} di chuyển tới ô ${data.dest_index}!`,
+          icon: data.dest_index === 18 ? "orb_blue" : "orb_red"
+        });
+        if (isMe && data.steps > 0) {
+          this._movePlayerSteps(data.steps, () => {
+            this.socket.emit("game:move_done", {
+              room_id: this.gameRoomId,
+              cell_index: this.currentIndex
+            });
+          });
+        }
+        return;
+      }
+
+      // ================== TELEPORT SAFE CELL ==================
       if (data.type === "teleport_safe_cell") {
         this._showSkillPanel({
           title: "DỊCH CHUYỂN",
@@ -772,20 +811,44 @@ _closeTarotModal() { this.tarotModal?.close(); }
 
   this.socket.on("game:quiz_result", (data) => {
     if (data.correct) {
-      this._showToast("✅ Trả lời đúng!", "#66ff99");
+      this._showToast(`✅ Trả lời đúng! +${this._formatMoney(data.reward)}`, "#66ff99");
+      if (data.user_id === this._myUserId() && this.gamePlayers) {
+        const me = this.gamePlayers.find(p => p.user_id === this._myUserId());
+        if (me && data.reward) {
+          me.cash = (me.cash || 0) + data.reward;
+          this._refreshPlayerPanelsFromGameState();
+          this._updatePlayerStatsInUI();
+        }
+      }
     } else {
-      this._showToast("❌ Trả lời sai!", "#ff6666");
+      if (data.locked_out) {
+        this._showToast("❌ Sai 2 lần — bị trả về ô xuất phát!", "#ff4444");
+      } else {
+        this._showToast("❌ Trả lời sai — lượt sau phải trả lời tiếp!", "#ff6666");
+      }
       if (data.user_id === this._myUserId()) {
-        this.mustAnswerNext = true;
+        if (!data.locked_out) {
+          this.mustAnswerNext = true;
+        }
         this.canRoll = false;
       }
     }
   });
 
   this.socket.on("game:start_bonus", (data) => {
+    // Cập nhật cash trong gamePlayers trước khi refresh UI
+    if (this.gamePlayers) {
+      const player = this.gamePlayers.find(p => p.user_id === data.user_id);
+      if (player) {
+        player.cash = (player.cash || 0) + data.bonus;
+      }
+    }
     this._showToast(`💰 ${data.name} nhận ${this._formatMoney(data.bonus)} khi qua/về START`, "#00ccff");
     if (data.user_id === this._myUserId()) {
+      this._refreshPlayerPanelsFromGameState();
       this._updatePlayerStatsInUI();
+    } else {
+      this._refreshPlayerPanelsFromGameState();
     }
   });
 
