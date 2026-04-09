@@ -450,33 +450,46 @@ _closeTarotModal() { this.tarotModal?.close(); }
     });
     
     this.socket.on("game:rent_paid", (data) => {
-      // Cập nhật cash của payer & owner
+      // Cập nhật cash
       if (this.gamePlayers) {
         const payer = this.gamePlayers.find(p => p.user_id === data.payer_user_id);
         const owner = this.gamePlayers.find(p => p.user_id === data.owner_user_id);
         if (payer) payer.cash = (payer.cash || 0) - data.rent;
         if (owner) owner.cash = (owner.cash || 0) + data.rent;
       }
-      
+
       const myUid = this._myUserId();
-      // Hiển thị cell glow khi có người trả tiền để làm highlight
+
+      // Hiệu ứng "bị đau" cho người trả tiền
+      if (data.payer_user_id === myUid) {
+        // Flash đỏ + shake nhân vật của mình
+        this._playHurtEffect(this.player);
+      } else {
+        // Flash đỏ nhân vật người khác
+        const payerSocket = Object.keys(this.otherPlayers).find(sid => {
+          const op = this.otherPlayers[sid];
+          return op?._userId === data.payer_user_id || op?.userId === data.payer_user_id;
+        });
+        if (payerSocket && this.otherPlayers[payerSocket]) {
+          this._playHurtEffect(this.otherPlayers[payerSocket]);
+        }
+      }
+
       const cell = this.boardPath[data.cell_index];
       if (cell && data.owner_user_id === myUid) {
         const hex = this._planetColorToHex(data.planet_color);
-        // Flash glow để chỉ rõ ô nào được trả tiền
         this.paintCellGlow(cell, hex, 0.8);
         this.time.delayedCall(500, () => this.paintCellGlow(cell, hex, 0.5));
       }
-      
+
       if (data.payer_user_id === myUid)
         this._showToast(`💸 Trả ${this._formatMoney(data.rent)} cho ${data.owner_name}`, "#ff8800");
       else if (data.owner_user_id === myUid)
         this._showToast(`💰 Nhận ${this._formatMoney(data.rent)} từ ${data.payer_name}`, "#ffdd00");
       else
         this._showToast(`${data.payer_name} trả thuê ô ${data.cell_index}`, "#aaaaaa");
-      
+
       this._refreshPlayerPanelsFromGameState();
-      // Cập nhật T.mặt khi có thay đổi tiền
       this._updatePlayerStatsInUI();
     });
 
@@ -485,11 +498,9 @@ _closeTarotModal() { this.tarotModal?.close(); }
       const isMe = data.payer_user_id === myUid;
 
       if (isMe) {
-        // Trigger bankruptcy resolution for current player
-        this._startBankruptcyResolution(data.owner_user_id);
+        this._startBankruptcyResolution(data);
       } else {
-        // Show message for other players
-        this._showToast(`${data.payer_name} không đủ tiền trả thuê ô ${data.cell_index}!`, "#ff8800");
+        this._showToast(`💸 ${data.payer_name} không đủ tiền trả thuê ô ${data.cell_index}!`, "#ff8800");
       }
     });
 
@@ -745,31 +756,25 @@ _closeTarotModal() { this.tarotModal?.close(); }
   });
 
   this.socket.on("game:bankruptcy", (data) => {
+    const myUid = this._myUserId();
     const bankruptPlayer = this.gamePlayers?.find(p => p.user_id === data.user_id);
-    if (bankruptPlayer) {
-      this._showTurnBanner(`💀 ${bankruptPlayer.name} đã phá sản!`, "#ff4444");
+    if (!bankruptPlayer) return;
 
-      // Remove bankrupt player from game
-      this.gamePlayers = this.gamePlayers.filter(p => p.user_id !== data.user_id);
-
-      // If it was current player's turn, end turn
-      if (this.currentTurnSocketId === bankruptPlayer.socket_id) {
-        this._updateTurnInfo();
-      }
+    if (data.user_id === myUid) {
+      this._showBankruptcyLoseScreen(bankruptPlayer.name);
+    } else {
+      this._showOtherPlayerBankrupt(bankruptPlayer.name);
     }
+
+    this.gamePlayers = this.gamePlayers.filter(p => p.user_id !== data.user_id);
+    this._refreshPlayerPanelsFromGameState();
   });
 
   this.socket.on("game:game_over", (data) => {
     const myUid = this._myUserId();
-    if (data.winner_user_id === myUid) {
-      this._showTurnBanner(`🎉 Bạn đã thắng! Chúc mừng ${data.winner_name}!`, "#ffdd00");
-    } else {
-      this._showTurnBanner(`🏆 ${data.winner_name} đã thắng cuộc!`, "#ffdd00");
-    }
-
-    // Return to room list after delay
-    this.time.delayedCall(4000, () => {
-      this.scene.start("RoomListScene");
+    const isWinner = data.winner_user_id === myUid;
+    this.time.delayedCall(isWinner ? 0 : 1200, () => {
+      this._showGameOverScreen(isWinner, data.winner_name);
     });
   });
 
@@ -1547,6 +1552,11 @@ this.socket.on("game:tarot_denied", (data) => {
           this.load.image(`${character}_${skin}_run_throw_${i}`,
             `./assets/characters/${character}/${image}/PNG/PNG Sequences/Run Throwing/0_${character}_Run Throwing_${num}.png`);
         }
+        for (let i = 0; i < 12; i++) {
+          const num = String(i).padStart(3, "0");
+          this.load.image(`${character}_${skin}_hurt_${num}`,
+            `./assets/characters/${character}/${image}/PNG/PNG Sequences/Hurt/0_${character}_Hurt_${num}.png`);
+        }
       }
     });
 
@@ -1618,6 +1628,11 @@ this.socket.on("game:tarot_denied", (data) => {
         for (let i = 0; i < 12; i++)
           runFrames.push({ key: `${character}_${skin}_run_throw_${i}` });
         this.anims.create({ key:`${character}_${skin}_run_throw`, frames:runFrames, frameRate:18, repeat:-1 });
+
+        const hurtFrames = [];
+        for (let i = 0; i < 12; i++)
+          hurtFrames.push({ key: `${character}_${skin}_hurt_${String(i).padStart(3,"0")}` });
+        this.anims.create({ key:`${character}_${skin}_hurt`, frames:hurtFrames, frameRate:18, repeat:0 });
       }
     });
 
@@ -2961,156 +2976,214 @@ this.input.keyboard.on("keydown-Y", () => {
   // =====================
   // BANKRUPTCY SYSTEM
   // =====================
-  _startBankruptcyResolution(ownerUserId) {
-    // Dark map effect
+  _startBankruptcyResolution(rentData) {
+    this._bankruptcyRentData = rentData; // lưu lại để dùng khi bán
     this._startDarkMapEffect();
-
-    // Highlight all cells owned by the owner
-    this._highlightOwnerCells(ownerUserId);
-
-    // Show bankruptcy panel
-    this._showBankruptcyPanel(ownerUserId);
-
-    // Disable normal game input
     this.canRoll = false;
     this.isMyTurn = false;
+    this._showDebtPanel();
   }
 
-  _highlightOwnerCells(ownerUserId) {
-    if (!this.cellStates) return;
-
-    Object.entries(this.cellStates).forEach(([cellIndex, cellData]) => {
-      if (cellData.owner_user_id === ownerUserId) {
-        const cell = this.boardPath[Number(cellIndex)];
-        if (cell) {
-          const hex = this._planetColorToHex(cellData.planet_color);
-          this.paintCellGlowAnimated(cell, hex);
-        }
-      }
-    });
+  // Tính tổng tài sản có thể bán (60% build_cost mỗi ô)
+  _calcTotalSellable() {
+    if (!this.cellStates) return 0;
+    const myUid = this._myUserId();
+    return Object.values(this.cellStates)
+      .filter(c => c.owner_user_id === myUid)
+      .reduce((sum, c) => sum + Math.floor((c.build_cost || 0) * 0.6), 0);
   }
 
-  _showBankruptcyPanel(ownerUserId) {
+  _showDebtPanel() {
+    this._clearBankruptcyUI();
+    if (!this._bankruptcyObjs) this._bankruptcyObjs = [];
+    this._selectedSellCells = {}; // reset mỗi lần mở panel
     const { width, height } = this.scale;
     const S = this.minRatio;
     const D = 170;
-
-    if (this._bankruptcyObjs) {
-      this._bankruptcyObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
-    }
-    this._bankruptcyObjs = [];
     const push = (o) => { this._bankruptcyObjs.push(o); return o; };
 
-    // Dark overlay
-    push(this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.7).setDepth(D));
+    const rentData = this._bankruptcyRentData;
+    const requiredRent = rentData.required_rent;
+    const myUid = this._myUserId();
+    const me = this.gamePlayers?.find(p => p.user_id === myUid);
+    const myCash = me?.cash || 0;
+    const totalSellable = this._calcTotalSellable();
+    const canSurvive = (myCash + totalSellable) >= requiredRent;
 
-    // Panel background
-    const panel = push(this.createStyledPanel(width / 2, height / 2, 600 * S, 400 * S, 20 * S));
-    panel.setDepth(D + 1);
+    // Overlay
+    push(this.add.rectangle(width/2, height/2, width, height, 0x000000, 0.72).setDepth(D));
 
-    // Title
-    push(this.add.text(width / 2, height / 2 - 160 * S, "PHÁ SẢN!", {
-      fontFamily: "Signika",
-      fontSize: Math.floor(32 * S) + "px",
-      color: "#ff4444",
-      fontStyle: "bold"
-    }).setOrigin(0.5).setDepth(D + 2));
+    // Panel
+    const PW = 580 * S, PH = canSurvive ? 480 * S : 360 * S;
+    const panel = push(this.createStyledPanel(width/2, height/2, PW, PH, 22*S));
+    panel.setDepth(D+1);
 
-    // Description
-    push(this.add.text(width / 2, height / 2 - 120 * S, "Bạn đã hết tiền mặt!\nChọn tinh cầu để bán và trả nợ", {
-      fontFamily: "Signika",
-      fontSize: Math.floor(20 * S) + "px",
-      color: "#ffffff",
-      align: "center",
-      wordWrap: { width: 500 * S }
-    }).setOrigin(0.5).setDepth(D + 2));
+    // Tiêu đề
+    push(this.add.text(width/2, height/2 - PH/2 + 38*S,
+      canSurvive ? "⚠️ KHÔNG ĐỦ TIỀN MẶT" : "💀 PHÁ SẢN",
+      { fontFamily:"Signika", fontSize:Math.floor(28*S)+"px",
+        color: canSurvive ? "#ffcc00" : "#ff4444", fontStyle:"bold" }
+    ).setOrigin(0.5).setDepth(D+2));
 
-    // Get required rent from current cell
-    const cellState = this.cellStates[this.currentIndex];
-    const requiredRent = Math.floor(cellState.build_cost * 0.8);
-    const myCash = this.gamePlayers?.find(p => p.user_id === this._myUserId())?.cash || 0;
+    // Thông tin nợ
+    push(this.add.text(width/2, height/2 - PH/2 + 90*S,
+      `Tiền thuê cần trả: ${this._formatMoney(requiredRent)}\nTiền mặt hiện tại: ${this._formatMoney(myCash)}`,
+      { fontFamily:"Signika", fontSize:Math.floor(17*S)+"px",
+        color:"#ffe566", align:"center" }
+    ).setOrigin(0.5).setDepth(D+2));
 
-    push(this.add.text(width / 2, height / 2 - 60 * S,
-      `Cần trả: ${this._formatMoney(requiredRent)} Ecoin\nTiền mặt hiện tại: ${this._formatMoney(myCash)} Ecoin`, {
-      fontFamily: "Signika",
-      fontSize: Math.floor(18 * S) + "px",
-      color: "#ffee55",
-      align: "center"
-    }).setOrigin(0.5).setDepth(D + 2));
+    if (!canSurvive) {
+      // Không thể sống sót dù bán hết
+      push(this.add.text(width/2, height/2,
+        `Tổng tài sản có thể bán: ${this._formatMoney(totalSellable)}\nVẫn không đủ trả nợ → Phá sản!`,
+        { fontFamily:"Signika", fontSize:Math.floor(17*S)+"px",
+          color:"#ff8888", align:"center" }
+      ).setOrigin(0.5).setDepth(D+2));
 
-    // Instruction
-    push(this.add.text(width / 2, height / 2 - 10 * S, "Click vào tinh cầu màu vàng để bán", {
-      fontFamily: "Signika",
-      fontSize: Math.floor(16 * S) + "px",
-      color: "#cccccc",
-      align: "center"
-    }).setOrigin(0.5).setDepth(D + 2));
-
-    // Make owner's cells clickable
-    this._makeOwnerCellsClickable(ownerUserId, requiredRent);
-  }
-
-  _makeOwnerCellsClickable(ownerUserId, requiredRent) {
-    if (!this.cellStates) return;
-
-    Object.entries(this.cellStates).forEach(([cellIndex, cellData]) => {
-      if (cellData.owner_user_id === ownerUserId) {
-        const cell = this.boardPath[Number(cellIndex)];
-        if (cell && cell.overlay) {
-          // Make cell interactive
-          const zone = this.add.zone(cell.x * this.scale.width, cell.y * this.scale.height,
-            50 * this.minRatio, 50 * this.minRatio)
-            .setInteractive({ cursor: "pointer" })
-            .setDepth(200);
-
-          zone.on("pointerdown", () => {
-            this._handleCellSellClick(Number(cellIndex), cellData, requiredRent);
-          });
-
-          // Store zone for cleanup
-          if (!this._bankruptcyObjs) this._bankruptcyObjs = [];
-          this._bankruptcyObjs.push(zone);
-        }
-      }
-    });
-  }
-
-  _handleCellSellClick(cellIndex, cellData, requiredRent) {
-    const sellPrice = Math.floor(cellData.build_cost * 0.6); // 60% of build cost
-    const myCash = this.gamePlayers?.find(p => p.user_id === this._myUserId())?.cash || 0;
-    const totalMoney = myCash + sellPrice;
-
-    if (totalMoney >= requiredRent) {
-      // Can afford - sell the cell and pay rent
-      this._sellCellAndPayRent(cellIndex, cellData, sellPrice, requiredRent);
-    } else {
-      // Cannot afford - bankruptcy
-      this._triggerBankruptcy();
+      // Nút xác nhận phá sản
+      this._makePanelBtn(push, width/2, height/2 + PH/2 - 55*S, 200*S, 48*S, D,
+        0xcc2222, 0x881111, "💀 Xác nhận thua", () => {
+          this._clearBankruptcyUI();
+          this._stopDarkMapEffect();
+          this._triggerBankruptcy();
+        });
+      return;
     }
+
+    // Hướng dẫn
+    push(this.add.text(width/2, height/2 - PH/2 + 148*S,
+      "Chọn tinh cầu của bạn để bán (60% giá trị)\nCó thể chọn nhiều ô cùng lúc",
+      { fontFamily:"Signika", fontSize:Math.floor(15*S)+"px",
+        color:"#cccccc", align:"center" }
+    ).setOrigin(0.5).setDepth(D+2));
+
+    // Danh sách tinh cầu của mình
+    const myCells = Object.entries(this.cellStates || {})
+      .filter(([, c]) => c.owner_user_id === myUid);
+
+    const COLS = 4, ITEM_W = 110*S, ITEM_H = 72*S, GAP = 12*S;
+    const gridW = COLS * ITEM_W + (COLS-1) * GAP;
+    const startX = width/2 - gridW/2 + ITEM_W/2;
+    const startY = height/2 - PH/2 + 200*S;
+
+    myCells.forEach(([cellIndex, cellData], idx) => {
+      const col = idx % COLS, row = Math.floor(idx / COLS);
+      const cx = startX + col * (ITEM_W + GAP);
+      const cy = startY + row * (ITEM_H + GAP);
+      const sellPrice = Math.floor(cellData.build_cost * 0.6);
+      const hex = this._planetColorToHex(cellData.planet_color);
+      const orbKey = this._hexToOrbKey(hex);
+      const isSelected = !!this._selectedSellCells[cellIndex];
+
+      // Card nền
+      const cardG = push(this.add.graphics().setDepth(D+2));
+      const drawCard = (selected) => {
+        cardG.clear();
+        cardG.fillStyle(selected ? 0x1a5c1a : 0x0d2a4a, 1);
+        cardG.fillRoundedRect(cx - ITEM_W/2, cy - ITEM_H/2, ITEM_W, ITEM_H, 10*S);
+        cardG.lineStyle(2*S, selected ? 0x44ff44 : hex, 0.9);
+        cardG.strokeRoundedRect(cx - ITEM_W/2, cy - ITEM_H/2, ITEM_W, ITEM_H, 10*S);
+      };
+      drawCard(isSelected);
+
+      // Orb icon
+      const orbImg = push(this.add.image(cx - ITEM_W/2 + 22*S, cy, orbKey)
+        .setDisplaySize(32*S, 32*S).setDepth(D+3));
+
+      // Ô số + giá
+      push(this.add.text(cx + 4*S, cy - 14*S, `Ô ${cellIndex}`,
+        { fontFamily:"Signika", fontSize:Math.floor(13*S)+"px", color:"#ffffff" }
+      ).setOrigin(0.5).setDepth(D+3));
+      push(this.add.text(cx + 4*S, cy + 8*S, `+${this._formatMoney(sellPrice)}`,
+        { fontFamily:"Signika", fontSize:Math.floor(13*S)+"px", color:"#ffdd44", fontStyle:"bold" }
+      ).setOrigin(0.5).setDepth(D+3));
+
+      // Zone click
+      const zone = push(this.add.zone(cx, cy, ITEM_W, ITEM_H)
+        .setInteractive({ useHandCursor: true }).setDepth(D+4));
+      zone.on("pointerdown", () => {
+        if (this._selectedSellCells[cellIndex]) {
+          delete this._selectedSellCells[cellIndex];
+          drawCard(false);
+        } else {
+          this._selectedSellCells[cellIndex] = { cellData, sellPrice };
+          drawCard(true);
+        }
+        this._updateDebtSummary(requiredRent, myCash, D, width, height, S, PH);
+      });
+    });
+
+    // Summary + nút xác nhận
+    this._debtSummaryDepth = D;
+    this._updateDebtSummary(requiredRent, myCash, D, width, height, S, PH);
   }
 
-  _sellCellAndPayRent(cellIndex, cellData, sellPrice, requiredRent) {
-    // Clear bankruptcy UI
-    this._clearBankruptcyUI();
+  _updateDebtSummary(requiredRent, myCash, D, width, height, S, PH) {
+    // Xóa summary cũ
+    if (this._debtSummaryObjs) {
+      this._debtSummaryObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
+    }
+    this._debtSummaryObjs = [];
+    const push = (o) => { this._debtSummaryObjs.push(o); return o; };
 
-    // Emit sell and pay rent to server
-    if (this.gameRoomId && this.socket) {
-      this.socket.emit("game:cell_sold", {
-        room_id: this.gameRoomId,
-        cell_index: cellIndex,
-        seller_user_id: this._myUserId(),
-        buyer_user_id: cellData.owner_user_id,
-        sell_price: sellPrice,
-        rent_paid: requiredRent
-      });
+    const totalSell = Object.values(this._selectedSellCells || {})
+      .reduce((s, v) => s + v.sellPrice, 0);
+    const totalAfter = myCash + totalSell;
+    const canPay = totalAfter >= requiredRent;
+    const color = canPay ? "#44ff88" : "#ff8888";
+
+    push(this.add.text(width/2, height/2 + PH/2 - 110*S,
+      `Bán được: +${this._formatMoney(totalSell)}  →  Tổng: ${this._formatMoney(totalAfter)} / ${this._formatMoney(requiredRent)}`,
+      { fontFamily:"Signika", fontSize:Math.floor(15*S)+"px", color, align:"center" }
+    ).setOrigin(0.5).setDepth(D+3));
+
+    // Nút xác nhận
+    this._makePanelBtn(push, width/2, height/2 + PH/2 - 55*S, 240*S, 48*S, D,
+      canPay ? 0x22aa44 : 0x555555, canPay ? 0x116622 : 0x333333,
+      canPay ? "✅ Xác nhận bán & trả nợ" : "Chọn thêm tinh cầu...",
+      canPay ? () => {
+        const cellsToSell = Object.entries(this._selectedSellCells || {});
+        if (cellsToSell.length === 0) return;
+        this._clearBankruptcyUI();
+        this._stopDarkMapEffect();
+        // Bán từng ô đã chọn
+        cellsToSell.forEach(([cellIndex, { cellData, sellPrice }]) => {
+          this.socket.emit("game:cell_sold", {
+            room_id: this.gameRoomId,
+            cell_index: Number(cellIndex),
+            seller_user_id: this._myUserId(),
+            buyer_user_id: this._bankruptcyRentData.owner_user_id,
+            sell_price: sellPrice,
+            rent_paid: this._bankruptcyRentData.required_rent
+          });
+        });
+        this._selectedSellCells = {};
+      } : null
+    );
+  }
+
+  _makePanelBtn(push, cx, cy, bw, bh, D, colorTop, colorBot, label, onClick) {
+    const S = this.minRatio;
+    const bg = push(this.add.graphics().setDepth(D+3));
+    bg.fillStyle(colorTop, 1);
+    bg.fillRoundedRect(cx - bw/2, cy - bh/2, bw, bh, 12*S);
+    bg.lineStyle(2*S, 0xffffff, 0.18);
+    bg.strokeRoundedRect(cx - bw/2, cy - bh/2, bw, bh, 12*S);
+
+    const txt = push(this.add.text(cx, cy, label,
+      { fontFamily:"Signika", fontSize:Math.floor(16*S)+"px", color:"#ffffff", fontStyle:"bold" }
+    ).setOrigin(0.5).setDepth(D+4));
+
+    if (onClick) {
+      const zone = push(this.add.zone(cx, cy, bw, bh)
+        .setInteractive({ useHandCursor: true }).setDepth(D+5));
+      zone.on("pointerover", () => { bg.setAlpha(0.8); });
+      zone.on("pointerout",  () => { bg.setAlpha(1); });
+      zone.on("pointerdown", onClick);
     }
   }
 
   _triggerBankruptcy() {
-    // Clear bankruptcy UI
-    this._clearBankruptcyUI();
-
-    // Emit bankruptcy to server
     if (this.gameRoomId && this.socket) {
       this.socket.emit("game:bankruptcy", {
         room_id: this.gameRoomId,
@@ -3122,8 +3195,183 @@ this.input.keyboard.on("keydown-Y", () => {
   _clearBankruptcyUI() {
     if (this._bankruptcyObjs) {
       this._bankruptcyObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
-      this._bankruptcyObjs = [];
     }
+    this._bankruptcyObjs = [];
+    if (this._debtSummaryObjs) {
+      this._debtSummaryObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
+    }
+    this._debtSummaryObjs = [];
+  }
+
+  // Người chơi khác phá sản — toast nhỏ
+  _showOtherPlayerBankrupt(name) {
+    this._showToast(`💀 ${name} đã phá sản!`, "#ff4444", 3500);
+  }
+
+  // Màn hình thua của chính mình
+  _showBankruptcyLoseScreen(name) {
+    const { width, height } = this.scale;
+    const S = this.minRatio;
+    const D = 300;
+    const objs = [];
+    const push = o => { objs.push(o); return o; };
+
+    // Overlay đỏ tối dần
+    const overlay = push(this.add.rectangle(width/2, height/2, width, height, 0x220000, 0).setDepth(D));
+    this.tweens.add({ targets: overlay, fillAlpha: 0.88, duration: 800 });
+
+    // Skull icon
+    push(this.add.text(width/2, height/2 - 120*S, "💀",
+      { fontSize: Math.floor(72*S)+"px" }
+    ).setOrigin(0.5).setDepth(D+1).setAlpha(0));
+    this.tweens.add({ targets: objs[objs.length-1], alpha: 1, y: height/2 - 130*S, duration: 600, delay: 400 });
+
+    // Text PHÁ SẢN
+    const loseText = push(this.add.text(width/2, height/2 - 20*S, "BẠN ĐÃ PHÁ SẢN",
+      { fontFamily:"Signika", fontSize:Math.floor(42*S)+"px",
+        color:"#ff3333", fontStyle:"bold",
+        stroke:"#000000", strokeThickness: Math.floor(5*S) }
+    ).setOrigin(0.5).setDepth(D+1).setAlpha(0).setScale(0.4));
+    this.tweens.add({ targets: loseText, alpha: 1, scaleX: 1, scaleY: 1, duration: 500, delay: 700, ease:"Back.easeOut" });
+
+    push(this.add.text(width/2, height/2 + 50*S, "Không đủ tài sản để trả nợ",
+      { fontFamily:"Signika", fontSize:Math.floor(20*S)+"px", color:"#ffaaaa" }
+    ).setOrigin(0.5).setDepth(D+1).setAlpha(0));
+    this.tweens.add({ targets: objs[objs.length-1], alpha: 1, duration: 400, delay: 1000 });
+
+    // Particles đỏ rơi
+    for (let i = 0; i < 18; i++) {
+      const px = Phaser.Math.Between(0, width);
+      const py = Phaser.Math.Between(-50, height/2);
+      const dot = push(this.add.circle(px, py, Phaser.Math.Between(3,8)*S, 0xff2222, 0.7).setDepth(D+1));
+      this.tweens.add({
+        targets: dot, y: py + Phaser.Math.Between(200, 500),
+        alpha: 0, duration: Phaser.Math.Between(1200, 2400),
+        delay: Phaser.Math.Between(0, 800), ease:"Cubic.easeIn"
+      });
+    }
+
+    this.time.delayedCall(4500, () => {
+      objs.forEach(o => { try { o?.destroy(); } catch(e){} });
+      this.scene.start("RoomListScene");
+    });
+  }
+
+  // Màn hình kết thúc game (thắng/thua)
+  _showGameOverScreen(isWinner, winnerName) {
+    const { width, height } = this.scale;
+    const S = this.minRatio;
+    const D = 300;
+    const objs = [];
+    const push = o => { objs.push(o); return o; };
+
+    const bgColor = isWinner ? 0x001a00 : 0x1a0000;
+    const overlay = push(this.add.rectangle(width/2, height/2, width, height, bgColor, 0).setDepth(D));
+    this.tweens.add({ targets: overlay, fillAlpha: 0.85, duration: 700 });
+
+    if (isWinner) {
+      // Hiệu ứng thắng — vàng rực
+      push(this.add.text(width/2, height/2 - 130*S, "🏆",
+        { fontSize: Math.floor(80*S)+"px" }
+      ).setOrigin(0.5).setDepth(D+1).setAlpha(0));
+      this.tweens.add({ targets: objs[objs.length-1], alpha: 1, duration: 500, delay: 300 });
+
+      const winText = push(this.add.text(width/2, height/2 - 30*S, "CHIẾN THẮNG!",
+        { fontFamily:"Signika", fontSize:Math.floor(48*S)+"px",
+          color:"#ffd700", fontStyle:"bold",
+          stroke:"#000000", strokeThickness: Math.floor(5*S),
+          shadow:{ offsetX:0, offsetY:3, color:"#ff8800", blur:12, fill:true } }
+      ).setOrigin(0.5).setDepth(D+1).setAlpha(0).setScale(0.3));
+      this.tweens.add({ targets: winText, alpha:1, scaleX:1, scaleY:1, duration:600, delay:500, ease:"Back.easeOut" });
+
+      push(this.add.text(width/2, height/2 + 50*S, `🎉 ${winnerName} đã thắng cuộc!`,
+        { fontFamily:"Signika", fontSize:Math.floor(22*S)+"px", color:"#ffffff" }
+      ).setOrigin(0.5).setDepth(D+1).setAlpha(0));
+      this.tweens.add({ targets: objs[objs.length-1], alpha:1, duration:400, delay:900 });
+
+      // Confetti vàng
+      for (let i = 0; i < 30; i++) {
+        const colors = [0xffd700, 0xffffff, 0xff8800, 0x00ff88];
+        const dot = push(this.add.circle(
+          Phaser.Math.Between(0, width),
+          Phaser.Math.Between(-80, 0),
+          Phaser.Math.Between(4, 10)*S,
+          colors[i % colors.length], 0.9
+        ).setDepth(D+2));
+        this.tweens.add({
+          targets: dot,
+          y: dot.y + Phaser.Math.Between(height, height + 200),
+          x: dot.x + Phaser.Math.Between(-80, 80),
+          angle: Phaser.Math.Between(-360, 360),
+          alpha: 0,
+          duration: Phaser.Math.Between(1500, 3000),
+          delay: Phaser.Math.Between(0, 1000),
+          ease: "Cubic.easeIn"
+        });
+      }
+    } else {
+      // Thua
+      push(this.add.text(width/2, height/2 - 120*S, "😔",
+        { fontSize: Math.floor(64*S)+"px" }
+      ).setOrigin(0.5).setDepth(D+1).setAlpha(0));
+      this.tweens.add({ targets: objs[objs.length-1], alpha:1, duration:500, delay:300 });
+
+      const loseText = push(this.add.text(width/2, height/2 - 20*S, "THUA CUỘC",
+        { fontFamily:"Signika", fontSize:Math.floor(40*S)+"px",
+          color:"#ff5555", fontStyle:"bold",
+          stroke:"#000000", strokeThickness: Math.floor(4*S) }
+      ).setOrigin(0.5).setDepth(D+1).setAlpha(0).setScale(0.4));
+      this.tweens.add({ targets: loseText, alpha:1, scaleX:1, scaleY:1, duration:500, delay:500, ease:"Back.easeOut" });
+
+      push(this.add.text(width/2, height/2 + 45*S, `🏆 ${winnerName} đã thắng cuộc`,
+        { fontFamily:"Signika", fontSize:Math.floor(20*S)+"px", color:"#aaaaaa" }
+      ).setOrigin(0.5).setDepth(D+1).setAlpha(0));
+      this.tweens.add({ targets: objs[objs.length-1], alpha:1, duration:400, delay:800 });
+    }
+
+    this.time.delayedCall(5000, () => {
+      objs.forEach(o => { try { o?.destroy(); } catch(e){} });
+      this.scene.start("RoomListScene");
+    });
+  }
+
+  // Hiệu ứng bị đau — animation Hurt + flash đỏ nhẹ + shake
+  _playHurtEffect(sprite) {
+    if (!sprite) return;
+    const origX = sprite.x;
+    const charName = this.characterName || "Dark_Oracle";
+    const skin = this.mySkin || 1;
+    const hurtKey = `${charName}_${skin}_hurt`;
+    const idleKey = `${charName}_${skin}_idle`;
+
+    // Phát animation Hurt nếu tồn tại
+    if (this.anims.exists(hurtKey)) {
+      sprite.play(hurtKey);
+      sprite.once("animationcomplete", () => {
+        if (this.anims.exists(idleKey)) sprite.play(idleKey);
+      });
+    }
+
+    // Tint đỏ mờ (alpha thấp hơn lần trước)
+    let count = 0;
+    const flash = () => {
+      if (count >= 6) { sprite.clearTint(); return; }
+      sprite.setTint(count % 2 === 0 ? 0xff6666 : 0xffffff);
+      count++;
+      this.time.delayedCall(90, flash);
+    };
+    flash();
+
+    // Shake nhẹ
+    this.tweens.add({
+      targets: sprite,
+      x: origX + 6,
+      duration: 55,
+      yoyo: true,
+      repeat: 3,
+      ease: "Sine.easeInOut",
+      onComplete: () => { sprite.x = origX; }
+    });
   }
 
   saveGameState() {

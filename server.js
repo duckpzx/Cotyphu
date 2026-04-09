@@ -1321,24 +1321,24 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
           return;
         }
 
-        // Teleport safe cell
+        // Teleport safe cell — dùng TOTAL_CELLS thay vì gs.boardPath
         if (picked.type === "teleport_safe_cell") {
-          // Tìm ô an toàn (không phải skill, không có chủ)
-          const safeCells = gs.boardPath.filter(cell => 
-            !SKILL_CELLS.includes(cell.index) && !gs.cellStates[cell.index]
-          );
+          const safeCells = [];
+          for (let i = 0; i < TOTAL_CELLS; i++) {
+            if (!SKILL_CELLS.includes(i) && !gs.cellStates[i]) safeCells.push(i);
+          }
           if (safeCells.length > 0) {
-            const targetCell = safeCells[Math.floor(Math.random() * safeCells.length)];
-            cur.index = targetCell.index;
+            const destIndex = safeCells[Math.floor(Math.random() * safeCells.length)];
+            cur.index = destIndex;
             io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:skill_event", {
               type: "teleport_safe_cell",
               user_id: cur.user_id,
               name: cur.name,
-              dest_index: targetCell.index
+              dest_index: destIndex
             });
             io.to(`room_${room_id}`).to(`game_${room_id}`).emit("playerMoved", {
               id: cur.socket_id,
-              index: targetCell.index,
+              index: destIndex,
               characterName: cur.name,
               skin: cur.skin || 1
             });
@@ -1407,7 +1407,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
           if (enemies.length > 0) {
             const targetEnemy = enemies[Math.floor(Math.random() * enemies.length)];
             const oldIdx = targetEnemy.index;
-            const newIdx = (oldIdx - 2 + BOARD_PATH.length) % BOARD_PATH.length;
+            const newIdx = (oldIdx - 2 + TOTAL_CELLS) % TOTAL_CELLS;
             targetEnemy.index = newIdx;
 
             // Kiểm tra đi qua START
@@ -1788,6 +1788,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
   });
 
   // ── GAME CELL SOLD (BANKRUPTCY RESOLUTION) ──────────────────────
+  // Client có thể gửi nhiều lần (bán nhiều ô). Tiền thuê chỉ trả 1 lần ở lần đầu tiên.
   socket.on("game:cell_sold", ({ room_id, cell_index, seller_user_id, buyer_user_id, sell_price, rent_paid }) => {
     const gs = gameStates[room_id];
     if (!gs) return;
@@ -1795,23 +1796,38 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     // Remove cell from cellStates
     delete gs.cellStates[cell_index];
 
-    // Update player cash
     const seller = gs.players.find(p => p.user_id === seller_user_id);
-    const buyer = gs.players.find(p => p.user_id === buyer_user_id);
-    if (seller) seller.cash = (seller.cash || 0) + sell_price - rent_paid;
-    if (buyer) buyer.cash = (buyer.cash || 0) + rent_paid;
+    const buyer  = gs.players.find(p => p.user_id === buyer_user_id);
 
-    // Broadcast to all players
+    // Tiền thuê chỉ trả 1 lần — dùng flag trên gs để track
+    const rentKey = `_rentPaid_${seller_user_id}_${buyer_user_id}`;
+    const alreadyPaidRent = !!gs[rentKey];
+
+    if (seller) seller.cash = (seller.cash || 0) + sell_price - (alreadyPaidRent ? 0 : rent_paid);
+    if (buyer)  buyer.cash  = (buyer.cash  || 0) + (alreadyPaidRent ? 0 : rent_paid);
+
+    if (!alreadyPaidRent) gs[rentKey] = true;
+
+    // Broadcast
     io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:cell_sold", {
       cell_index,
       seller_user_id,
       buyer_user_id,
       sell_price,
-      rent_paid
+      rent_paid: alreadyPaidRent ? 0 : rent_paid
     });
 
-    // Continue the turn
-    setTimeout(() => endTurn(room_id), 1000);
+    // Xóa flag sau 3s (đủ thời gian cho tất cả ô được bán trong 1 lượt)
+    if (!alreadyPaidRent) {
+      setTimeout(() => { delete gs[rentKey]; }, 3000);
+    }
+
+    // Kết thúc lượt sau khi xử lý xong
+    if (gs._sellEndTimer) clearTimeout(gs._sellEndTimer);
+    gs._sellEndTimer = setTimeout(() => {
+      gs._sellEndTimer = null;
+      endTurn(room_id);
+    }, 1200);
   });
 
   // ── GAME BANKRUPTCY ─────────────────────────────────────────────
