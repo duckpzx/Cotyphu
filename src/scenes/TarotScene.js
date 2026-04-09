@@ -476,7 +476,7 @@ buildSlot(cx, cy, w, h, idx) {
 
             // Dải màu trái
             box.fillStyle(data.color, 1);
-            box.fillRoundedRect(boxX, yy, 5, boxH, 4);
+            box.fillRoundedRect(boxX, yy + 5, 3, boxH - 14, 3);
 
             // Viền màu nhạt
             box.lineStyle(1.5, data.color, 0.5);

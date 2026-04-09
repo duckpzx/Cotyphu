@@ -596,7 +596,7 @@ export default class RoomScene extends Phaser.Scene {
     this._bottomPanelGroup = [];
 
     const { width, height } = this.scale;
-    const panelH = 108;
+    const panelH = 120;
     const panelY = height - panelH - 8;
     const panelW = width - 16;
     const panelX = 8;
@@ -625,7 +625,7 @@ export default class RoomScene extends Phaser.Scene {
       }
 
       this._buildActionBtn(
-        panelX + 160, midY, 220, 54,
+        panelX + 420, midY, 220, 54,
         canStart ? 0xff7700 : 0x555566,
         canStart ? 0xffaa00 : 0x777788,
         btnLabel,
@@ -641,7 +641,7 @@ export default class RoomScene extends Phaser.Scene {
       // Nút Sẵn Sàng / Hủy
       const isReady = myPlayer?.is_ready || false;
       this._buildActionBtn(
-        panelX + 160, midY, 200, 54,
+        panelX + 420, midY, 200, 54,
         isReady ? 0x22cc55 : 0x1155cc,
         isReady ? 0x55ff88 : 0x3388ff,
         isReady ? "Hủy Sẵn Sàng" : "Sẵn Sàng",
@@ -1023,68 +1023,101 @@ export default class RoomScene extends Phaser.Scene {
   // BOTTOM PANEL
   // ══════════════════════════════════════════════════════════════════════
   _buildBottomPanel(width, height) {
-    const panelH = 108;
+    const panelH = 120;
     const panelY = height - panelH - 8;
     const panelW = width - 16;
     const panelX = 8;
+    const R = 18;
 
+    // ── Nền panel xanh gradient ────────────────────────────────────
     const g = this.add.graphics();
-    g.fillStyle(0x000000, 0.32);
-    g.fillRoundedRect(panelX + 4, panelY + 4, panelW, panelH, 16);
-    g.fillGradientStyle(0x1a4a8a, 0x1a4a8a, 0x0d2a55, 0x0d2a55, 1);
-    g.fillRoundedRect(panelX, panelY, panelW, panelH, 16);
-    g.lineStyle(2.5, 0x4db6ff, 0.7);
-    g.strokeRoundedRect(panelX, panelY, panelW, panelH, 16);
-    g.fillStyle(0xffffff, 0.08);
-    g.fillRoundedRect(panelX + 6, panelY + 4, panelW - 12, 16, 8);
+    // Shadow
+    g.fillStyle(0x000000, 0.35);
+    g.fillRoundedRect(panelX + 4, panelY + 5, panelW, panelH, R);
+    // Gradient xanh đậm → xanh trung
+    g.fillGradientStyle(0x1a6aaa, 0x1a6aaa, 0x0d3a6e, 0x0d3a6e, 1);
+    g.fillRoundedRect(panelX, panelY, panelW, panelH, R);
+    // Shine trên
+    g.fillStyle(0xffffff, 0.10);
+    g.fillRoundedRect(panelX + 6, panelY + 5, panelW - 12, 18, R - 4);
+    // Viền xanh sáng
+    g.lineStyle(2.5, 0x55ccff, 0.75);
+    g.strokeRoundedRect(panelX, panelY, panelW, panelH, R);
+    // Viền nét đứt bên trong
+    g.lineStyle(1.2, 0x88ddff, 0.35);
+    g.strokeRoundedRect(panelX + 8, panelY + 8, panelW - 16, panelH - 16, R - 5);
+
+    // ── Ngôi sao góc dưới trái ─────────────────────────────────────
+    this.add.text(panelX + 18, panelY + panelH - 18, "★", {
+      fontFamily: "Signika", fontSize: "18px", color: "#ffffff",
+      stroke: "#0044aa", strokeThickness: 3
+    }).setOrigin(0.5);
 
     const midY = panelY + panelH / 2;
 
-    // Map thumbnail
-    const mapW = 132, mapH = 82;
-    const mapX = panelX + panelW - mapW - 14;
+    // ── Map thumbnail — BÊN TRÁI ───────────────────────────────────
+    const mapW = 140, mapH = 90;
+    const mapX = panelX + 16;
     const mapY = panelY + (panelH - mapH) / 2;
-    const mapBg = this.add.graphics();
-    mapBg.fillStyle(0x0a1a33, 1);
-    mapBg.fillRoundedRect(mapX, mapY, mapW, mapH, 10);
-    mapBg.lineStyle(2, 0x4db6ff, 0.6);
-    mapBg.strokeRoundedRect(mapX, mapY, mapW, mapH, 10);
-    const mapImg = this.add.image(mapX + mapW / 2, mapY + mapH / 2, "map1");
-    if (mapImg.width > 0) mapImg.setScale(Math.min(mapW / mapImg.width, mapH / mapImg.height));
-    const mapLabelBg = this.add.graphics();
-    mapLabelBg.fillStyle(0x000000, 0.55);
-    mapLabelBg.fillRoundedRect(mapX, mapY + mapH - 24, mapW, 24, { bl: 8, br: 8 });
-    this.add.text(mapX + mapW / 2, mapY + mapH - 12, "Bản đồ", {
-      fontFamily: "Signika", fontSize: "12px", color: "#99ccff", fontStyle: "bold"
-    }).setOrigin(0.5);
 
-    // Bet
-    const betX  = mapX - 80;
-    const rd    = this.roomData;
+    const mapBg = this.add.graphics();
+    // Viền trắng dày như ảnh
+    mapBg.fillStyle(0xffffff, 1);
+    mapBg.fillRoundedRect(mapX - 3, mapY - 3, mapW + 6, mapH + 6, 10);
+    mapBg.fillStyle(0x0a1a33, 1);
+    mapBg.fillRoundedRect(mapX, mapY, mapW, mapH, 8);
+
+    const mapImg = this.add.image(mapX + mapW / 2, mapY + mapH / 2, "map1");
+    if (mapImg.width > 0) {
+      mapImg.setScale(Math.min(mapW / mapImg.width, mapH / mapImg.height));
+    }
+    mapImg.setDepth(1);
+
+    // ── Mức cược — BÊN PHẢI map ────────────────────────────────────
+    const betAreaX = mapX + mapW + 24;
+
+    // Label "Mức cược"
+    this.add.text(betAreaX, midY - 22, "Mức cược", {
+      fontFamily: "Signika", fontSize: "22px",
+      color: "#ffffff", fontStyle: "bold",
+      stroke: "#003388", strokeThickness: 3,
+      shadow: { offsetX: 1, offsetY: 2, color: "#001155", blur: 4, fill: true }
+    }).setOrigin(0, 0.5);
+
+    // Coin icon + số tiền
+    const rd     = this.roomData;
     const betAmt = Number(rd.bet ?? rd.bet_ecoin ?? 0);
     const betStr = betAmt >= 1000000
       ? (betAmt / 1000000).toFixed(betAmt % 1000000 === 0 ? 0 : 1) + "M"
-      : betAmt >= 1000
-      ? (betAmt / 1000) + "K"
+      : betAmt >= 1000 ? (betAmt / 1000) + "K"
       : betAmt + "";
-    this.add.image(betX - 20, midY + 8, "coin").setDisplaySize(30, 30);
-    this.add.text(betX + 6, midY + 8, betStr, {
-      fontFamily: "Signika",
-      fontSize:   "24px",
-      color:      "#ffd700",
-      fontStyle:  "bold",
-      stroke:     "#553300",
-      strokeThickness: 3
+
+    // Coin circle
+    const coinG = this.add.graphics();
+    coinG.fillStyle(0x000000, 0.2);
+    coinG.fillCircle(betAreaX + 18, midY + 16, 20);
+    coinG.fillGradientStyle(0xffcc00, 0xffcc00, 0xff8800, 0xff8800, 1);
+    coinG.fillCircle(betAreaX + 17, midY + 15, 20);
+    coinG.fillStyle(0xffffff, 0.25);
+    coinG.fillEllipse(betAreaX + 12, midY + 8, 14, 8);
+    coinG.lineStyle(2, 0xffee88, 0.8);
+    coinG.strokeCircle(betAreaX + 17, midY + 15, 20);
+
+    this.add.text(betAreaX + 17, midY + 15, "$", {
+      fontFamily: "Signika", fontSize: "18px",
+      color: "#ffffff", fontStyle: "bold",
+      stroke: "#884400", strokeThickness: 2
+    }).setOrigin(0.5);
+
+    // Số tiền cược
+    this.add.text(betAreaX + 44, midY + 15, betStr, {
+      fontFamily: "Signika", fontSize: "28px",
+      color: "#ffffff", fontStyle: "bold",
+      stroke: "#003388", strokeThickness: 4,
+      shadow: { offsetX: 1, offsetY: 2, color: "#001155", blur: 4, fill: true }
     }).setOrigin(0, 0.5);
 
-    this._buildCircleIconBtn(width - 118, midY, "icon_reload", () => {
-      if (this.socket) this.socket.emit("room:join", { room_id: this.roomData.id });
-    });
-    this._buildCircleIconBtn(width - 58, midY, "icon_question", () => {
-      this._showAlert("Phòng #" + this.roomData.id + "\nChế độ: " + this._matchMode);
-    });
-
-    // Nút động (sẵn sàng / bắt đầu) → sẽ được rebuild sau khi socket kết nối
+    // Nút động (sẵn sàng / bắt đầu) → rebuild sau khi socket kết nối
     this._bottomPanelMidY = midY;
     this._bottomPanelX    = panelX;
   }

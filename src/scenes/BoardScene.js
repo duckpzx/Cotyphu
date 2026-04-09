@@ -261,6 +261,7 @@ _closeTarotModal() { this.tarotModal?.close(); }
 
       this._applyTurnState();
       this._updateTurnInfo();
+      this._updateTurnCounter(data.turn_number || 1);
       this._renderAllCells(this.cellStates);
       this._updatePlayerStatsInUI();
 
@@ -290,6 +291,7 @@ _closeTarotModal() { this.tarotModal?.close(); }
 
       this._applyTurnState();
       this._updateTurnInfo();
+      this._updateTurnCounter(data.turn_number || 0);
       this._showTurnBanner(
         this.isMyTurn ? "🎲 Lượt của bạn! Nhấn SPACE" : `⏸ Lượt của ${data.name}...`,
         this.isMyTurn ? "#ffdd00" : "#aaaaaa"
@@ -2703,21 +2705,52 @@ this.input.keyboard.on("keydown-Y", () => {
   // =====================
   createUI(minRatio) {
     const { width, height } = this.scale;
-    this.infoText = this.add.text(width/2, 40, "Nhấn SPACE để đổ xúc xắc | R để reset", {
-      fontSize: Math.floor(20*minRatio)+"px", color:"#facc15",
-      backgroundColor:"#000000cc", padding:{x:20,y:10}
+    const S = minRatio;
+
+    // ── Turn counter — top center ──────────────────────────────────
+    // Shadow text (xanh đậm, lệch xuống) để tạo hiệu ứng gradient
+    this._turnCounterShadow = this.add.text(width/2 + 2, 32*S + 3, "— LƯỢT", {
+      fontFamily: "Signika",
+      fontSize: Math.floor(44*S) + "px",
+      color: "#0044aa",
+      fontStyle: "bold",
+    }).setOrigin(0.5).setDepth(62).setAlpha(0.7);
+
+    // Main text — trắng với stroke xanh đậm
+    this._turnCounterText = this.add.text(width/2, 32*S, "— LƯỢT", {
+      fontFamily: "Signika",
+      fontSize: Math.floor(44*S) + "px",
+      color: "#e8f4ff",
+      fontStyle: "bold",
+      stroke: "#001339ff",
+      strokeThickness: Math.floor(8*S),
+      shadow: { offsetX: 0, offsetY: 1, color: "#001339ff", blur: 8, fill: true }
+    }).setOrigin(0.5).setDepth(63);
+
+    // ── infoText — bottom center, to hơn ──────────────────────────
+    this.infoText = this.add.text(width/2, height - 36*S, "⏳", {
+      fontFamily: "Signika",
+      fontSize: Math.floor(26*S) + "px",
+      color: "#facc15",
+      fontStyle: "bold",
+      stroke: "#000000",
+      strokeThickness: Math.floor(5*S),
+      backgroundColor: "#000000bb",
+      padding: { x: 20*S, y: 9*S }
     }).setOrigin(0.5).setDepth(60);
 
-    this.cellInfoText = this.add.text(width/2, height-50, "Ô hiện tại: 0 (START)", {
-      fontSize: Math.floor(18*minRatio)+"px", color:"#ffffff",
-      backgroundColor:"#000000cc", padding:{x:20,y:10}
-    }).setOrigin(0.5).setDepth(60);
+    // ── cellInfoText — ẩn ─────────────────────────────────────────
+    this.cellInfoText = this.add.text(0, 0, "", {
+      fontSize: "1px", color: "#00000000"
+    }).setOrigin(0.5).setDepth(-1).setAlpha(0);
+  }
 
-    // this.debugText = this.add.text(10, 10, "", {
-    //   fontSize:"14px", color:"#ffffff", backgroundColor:"#000000cc", padding:{x:10,y:5}
-    // }).setOrigin(0,0).setDepth(60);
-
-    // this.createPlayerPanels(minRatio);
+  // Cập nhật turn counter từ turn_number
+  _updateTurnCounter(turnNumber) {
+    if (!this._turnCounterText) return;
+    const txt = `${turnNumber} LƯỢT`;
+    this._turnCounterText.setText(txt);
+    this._turnCounterShadow?.setText(txt);
   }
 
   // =====================
@@ -3571,16 +3604,16 @@ this.input.keyboard.on("keydown-Y", () => {
   // =====================
   _updateTurnInfo() {
     if (!this.infoText) return;
-    if (this.gamePlayers.length===0) {
-      this.infoText.setText("Nhấn SPACE để đổ xúc xắc | R để reset").setColor("#facc15");
+    if (!this.gamePlayers || this.gamePlayers.length === 0) {
+      this.infoText.setText("Nhấn SPACE để tung").setColor("#facc15");
       return;
     }
     if (this.isMyTurn) {
-      this.infoText.setText("🎲 Lượt của bạn! Nhấn và GIỮ SPACE để tung").setColor("#ffdd00");
+      this.infoText.setText("🎲 Lượt của bạn! Nhấn SPACE").setColor("#ffdd00");
     } else {
-      const cur=this.gamePlayers.find(p=>p.socket_id===this.currentTurnSocketId);
-      const name=cur?.name||"...";
-      this.infoText.setText(`⏸ Lượt của ${name} — chờ...`).setColor("#aaaaaa");
+      const cur = this.gamePlayers.find(p => p.socket_id === this.currentTurnSocketId);
+      const name = cur?.name || "...";
+      this.infoText.setText(`⏸ Lượt của ${name}...`).setColor("#aaaaaa");
     }
   }
 
