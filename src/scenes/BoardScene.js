@@ -704,6 +704,40 @@ _closeTarotModal() { this.tarotModal?.close(); }
       }
     });
 
+  this.socket.on("game:tax_boost", (data) => {
+    if (!data.boosts || data.boosts.length === 0) return;
+    if (!this._taxBadges) this._taxBadges = {};
+
+    data.boosts.forEach(b => {
+      // Cập nhật cellStates
+      if (this.cellStates?.[b.cell_index]) {
+        this.cellStates[b.cell_index].rent_multiplier = b.multiplier;
+      }
+      // Hiệu ứng lần lượt
+      const targetCell = this.boardPath[b.cell_index];
+      if (!targetCell) return;
+      const i = data.boosts.indexOf(b);
+      this.time.delayedCall(i * 700, () => {
+        this._waterBallDrop(targetCell, b.multiplier);
+      });
+    });
+  });
+
+  this.socket.on("game:tax_reset", (data) => {
+    if (!data.cell_indexes) return;
+    data.cell_indexes.forEach(ci => {
+      if (this.cellStates?.[ci]) this.cellStates[ci].rent_multiplier = 1;
+      // Xóa badge
+      if (this._taxBadges?.[ci]) {
+        this._taxBadges[ci].forEach(o => { try { o?.destroy(); } catch(e){} });
+        delete this._taxBadges[ci];
+      }
+    });
+    if (data.cell_indexes.length > 0) {
+      this._showToast(`🔄 Thuế ${data.cell_indexes.length} ô đã reset về bình thường`, "#88ccff", 2500);
+    }
+  });
+
   this.socket.on("game:monster_target", (data) => {
     const details = data.target_details || (data.cell_indexes || []).map(i => ({ cell_index: i, had_planet: true }));
     if (!details || details.length === 0) return;
@@ -1622,6 +1656,13 @@ this.socket.on("game:tarot_denied", (data) => {
         `./assets/characters/craftpix-net-381552-free-water-and-fire-magic-sprite-vector-pack/Fire Arrow/PNG/Fire Arrow_Frame_${frame}.png`);
     }
 
+    // Water Ball frames for tax boost effect
+    for (let i = 1; i <= 12; i++) {
+      const frame = String(i).padStart(2, "0");
+      this.load.image(`water_ball_${frame}`,
+        `./assets/characters/craftpix-net-381552-free-water-and-fire-magic-sprite-vector-pack/Water Ball/PNG/Water Ball_Frame_${frame}.png`);
+    }
+
     this.load.image("card_slot_small", "./assets/ui/tarot/card.png");
     for (let i = 1; i <= 8; i++) {
       this.load.image(`tarot_${i}`, `./assets/resources/Tarot/resize/thebai_${i}.png`);
@@ -1670,6 +1711,11 @@ this.socket.on("game:tarot_denied", (data) => {
       fireArrowFrames.push({ key: `fire_arrow_${frame}` });
     }
     this.anims.create({ key: "fire_arrow", frames: fireArrowFrames, frameRate:24, repeat: -1 });
+
+    // Water Ball animation for tax boost
+    const waterBallFrames = [];
+    for (let i = 1; i <= 12; i++) waterBallFrames.push({ key: `water_ball_${String(i).padStart(2,"0")}` });
+    this.anims.create({ key: "water_ball", frames: waterBallFrames, frameRate: 20, repeat: -1 });
 
     // Hunter greeting animation for cell 28 event
     const greetingFrames = [];
@@ -2921,6 +2967,80 @@ this.input.keyboard.on("keydown-Y", () => {
               }
           }
       });
+  }
+
+  // ── Water Ball Drop — hiệu ứng tăng thuế ──────────────────────
+  _waterBallDrop(targetCell, multiplier) {
+    const { width, height } = this.scale;
+    const S = this.minRatio;
+    const endX = targetCell.x * width;
+    const endY = targetCell.y * height;
+    const mult = Number(multiplier) || 1.2; // đảm bảo là number
+
+    // Water ball rơi từ trên cao — scale nhỏ cố định
+    const ball = this.add.sprite(endX, endY - 400 * S, "water_ball_01")
+      .setDepth(3100)
+      .setScale(0.08)   // nhỏ hơn nữa
+      .play("water_ball");
+
+    this.tweens.add({
+      targets: ball,
+      y: endY,
+      duration: 700,
+      ease: "Cubic.easeIn",
+      onComplete: () => {
+        ball.destroy();
+
+        // Ripple impact nhỏ
+        for (let i = 0; i < 2; i++) {
+          const ring = this.add.circle(endX, endY, (18 + i * 14) * S, 0x44ccff, 0.45 - i * 0.1)
+            .setDepth(3140).setBlendMode(Phaser.BlendModes.ADD);
+          this.tweens.add({
+            targets: ring, scaleX: 2.2, scaleY: 2.2, alpha: 0,
+            duration: 500 + i * 120, ease: "Quad.easeOut",
+            onComplete: () => ring.destroy()
+          });
+        }
+
+        this._placeTaxBadge(targetCell, mult);
+      }
+    });
+  }
+
+  // Badge ×1.x duy trì trên ô cho đến khi reset
+  _placeTaxBadge(targetCell, multiplier) {
+    const { width, height } = this.scale;
+    const S = this.minRatio;
+    const D = 160;
+    const x = targetCell.x * width;
+    const y = targetCell.y * height - 38 * S;
+    const ci = targetCell.index;
+    const mult = Number(multiplier) || 1.2;
+
+    if (!this._taxBadges) this._taxBadges = {};
+    if (this._taxBadges[ci]) {
+      this._taxBadges[ci].forEach(o => { try { o?.destroy(); } catch(e){} });
+    }
+
+    const label = `×${mult.toFixed(1)}`;
+
+    // Chỉ text, không nền — màu cam đồng như ảnh tham khảo
+    const txt = this.add.text(x, y, label, {
+      fontFamily: "Signika",
+      fontSize: Math.floor(26 * S) + "px",
+      color: "#ed864fff",
+      fontStyle: "bold",
+      stroke: "#6c3414ff",
+      strokeThickness: Math.floor(4 * S)
+    }).setOrigin(0.5).setDepth(D + 1);
+
+    // Pulse nhẹ
+    this.tweens.add({
+      targets: txt, alpha: { from: 1, to: 0.75 },
+      duration: 1000, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
+    });
+
+    this._taxBadges[ci] = [txt];
   }
 
   _setHunter28Mode(enable) {

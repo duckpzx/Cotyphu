@@ -594,6 +594,78 @@ function resetTurnTarotFlags(player) {
   });
 }
 
+// ── TAX BOOST — tăng thuế ngẫu nhiên sau mỗi vòng ──────────────
+const TAX_BOOST_DURATION = 5; // số lượt tung xúc sắc tồn tại
+
+// Giảm đếm ngược boost mỗi lượt, reset ô hết hạn và trigger boost mới nếu cần
+function tickTaxBoost(room_id) {
+  const gs = gameStates[room_id];
+  if (!gs) return;
+
+  const expiredCells = [];
+  Object.entries(gs.cellStates).forEach(([idx, cell]) => {
+    if (cell._boost_turns_left > 0) {
+      cell._boost_turns_left -= 1;
+      if (cell._boost_turns_left <= 0) {
+        cell.rent_multiplier = 1;
+        delete cell._boost_turns_left;
+        expiredCells.push(Number(idx));
+      }
+    }
+  });
+
+  if (expiredCells.length > 0) {
+    io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:tax_reset", {
+      cell_indexes: expiredCells
+    });
+    // Trigger boost mới ngay sau khi reset
+    setTimeout(() => triggerTaxBoost(room_id), 400);
+  }
+}
+
+function triggerTaxBoost(room_id) {
+  const gs = gameStates[room_id];
+  if (!gs) return;
+
+  // Chỉ random ô chưa đang boost
+  const ownedCells = Object.entries(gs.cellStates)
+    .filter(([, c]) => !c._boost_turns_left || c._boost_turns_left <= 0);
+  if (ownedCells.length === 0) return;
+
+  // Ưu tiên ô cùng chủ gần nhau (±3)
+  const ownerGroups = {};
+  ownedCells.forEach(([idx, cell]) => {
+    const uid = cell.owner_user_id;
+    if (!ownerGroups[uid]) ownerGroups[uid] = [];
+    ownerGroups[uid].push(Number(idx));
+  });
+
+  const candidates = [];
+  Object.values(ownerGroups).forEach(indexes => {
+    indexes.forEach(idx => {
+      const hasNeighbor = indexes.some(o => o !== idx && Math.abs(o - idx) <= 3);
+      candidates.push({ idx, priority: hasNeighbor ? 2 : 1 });
+    });
+  });
+  candidates.sort((a, b) => b.priority - a.priority || Math.random() - 0.5);
+
+  const boostCount = Math.min(candidates.length, Math.floor(Math.random() * 2) + 1); // 1-2 ô
+  const multipliers = [1.2, 1.3, 1.4, 1.5, 1.6, 1.8];
+  const boostDetails = candidates.slice(0, boostCount).map(({ idx }) => {
+    const mult = multipliers[Math.floor(Math.random() * multipliers.length)];
+    const cell = gs.cellStates[idx];
+    cell.rent_multiplier = mult;
+    cell._boost_turns_left = TAX_BOOST_DURATION;
+    return { cell_index: idx, multiplier: mult };
+  });
+
+  if (boostDetails.length > 0) {
+    io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:tax_boost", {
+      boosts: boostDetails
+    });
+  }
+}
+
 function endTurn(room_id) {
   const gs = gameStates[room_id];
   if (!gs) return;
@@ -648,6 +720,15 @@ function endTurn(room_id) {
     must_answer: !!next.must_answer_next,
     server_now_ms: now
   });
+
+  // Tick boost mỗi lượt (giảm đếm ngược, reset hết hạn, trigger mới nếu cần)
+  tickTaxBoost(room_id);
+
+  // Trigger boost lần đầu sau lượt thứ players*2 (đủ thời gian có tinh cầu)
+  const firstBoostTurn = gs.players.length * 2;
+  if (gs.turn_number === firstBoostTurn) {
+    setTimeout(() => triggerTaxBoost(room_id), 600);
+  }
 
   // Nếu người chơi phải trả lời câu hỏi từ lượt trước, gửi quiz ngay
   if (next.must_answer_next) {
@@ -1612,7 +1693,9 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     }
 
     // Ô người khác => trả tiền thuê
-    const rent  = Math.floor(gs.bet_ecoin * 2);
+    const baseRent = Math.floor(gs.bet_ecoin * 3);
+    const rentMultiplier = cell.rent_multiplier || 1;
+    const rent = Math.floor(baseRent * rentMultiplier);
     const payer = gs.players.find(p => p.user_id === socket.user_id);
     const owner = gs.players.find(p => p.user_id === cell.owner_user_id);
 
