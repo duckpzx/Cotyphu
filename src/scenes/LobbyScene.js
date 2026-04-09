@@ -122,7 +122,14 @@ export default class LobbyScene extends Phaser.Scene {
       txt.setShadow(0, 0, "#00000055", 12, true, true);
 
       txt.on("pointerup", () => {
-        console.log("Click menu:", item.key);
+        if (item.key === "shop") {
+          this.cameras.main.fadeOut(200);
+          this.cameras.main.once("camerafadeoutcomplete", () => {
+            this.scene.start("ShopScene");
+          });
+        } else {
+          console.log("Click menu:", item.key);
+        }
       });
 
       this.islandTexts.push({ text: txt, config: item });
