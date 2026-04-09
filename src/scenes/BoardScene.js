@@ -530,34 +530,6 @@ _closeTarotModal() { this.tarotModal?.close(); }
         return;
       }
 
-      this.socket.on("game:monster_target", (data) => {
-        const details = data.target_details || (data.cell_indexes || []).map(i => ({ cell_index: i, had_planet: false }));
-        if (!details || details.length === 0) return;
-
-        const sourceCell = this.boardPath[28];
-        this._startDarkMapEffect();
-
-        if (this.bloody) {
-          this._setHunter28Mode(true);
-          this.bloody.play("Hunter_Greeting_2");
-        }
-
-        // Bắn mũi tên lần lượt tới từng ô, cách nhau 600ms — chỉ hiệu ứng visual
-        details.forEach((detail, i) => {
-          const targetCell = this.boardPath[detail.cell_index];
-          if (!targetCell || !sourceCell) return;
-          const isLast = (i === details.length - 1);
-
-          this.time.delayedCall(800 + i * 600, () => {
-            this._highlightTargetCell(targetCell);
-            this.time.delayedCall(400, () => {
-              this._fireArrowFromAbove(sourceCell, targetCell, isLast);
-            });
-          });
-        });
-        // State thực sự được cập nhật khi nhận game:cell_destroyed
-      });
-
       // ================== EXTRA ROLL ==================
       if (data.type === "extra_roll") {
         this._showSkillPanel({
@@ -635,13 +607,32 @@ _closeTarotModal() { this.tarotModal?.close(); }
           icon: data.dest_index === 18 ? "orb_blue" : "orb_red"
         });
         if (isMe && data.steps > 0) {
+          // Nhân vật của mình đi bộ từng bước
           this._movePlayerSteps(data.steps, () => {
             this.socket.emit("game:move_done", {
               room_id: this.gameRoomId,
               cell_index: this.currentIndex
             });
           });
+        } else if (!isMe && data.steps > 0) {
+          // Nhân vật người khác — animate qua otherPlayers
+          const otherEntry = Object.entries(this.otherPlayers || {})
+            .find(([, op]) => op?._userId === data.user_id || op?.userId === data.user_id);
+          if (otherEntry) {
+            const [, otherSprite] = otherEntry;
+            this._moveOtherPlayerSteps(otherSprite, data.steps, data.dest_index, data.name);
+          }
         }
+        return;
+      }
+
+      // ================== MONSTER NO TARGET ==================
+      if (data.type === "monster_no_target") {
+        this._showSkillPanel({
+          title: "QUÁI VẬT",
+          text: `${data.name} vào ô 28 nhưng chưa có tinh cầu nào để phá!`,
+          icon: "orb_red"
+        });
         return;
       }
 
@@ -713,6 +704,33 @@ _closeTarotModal() { this.tarotModal?.close(); }
       }
     });
 
+  this.socket.on("game:monster_target", (data) => {
+    const details = data.target_details || (data.cell_indexes || []).map(i => ({ cell_index: i, had_planet: true }));
+    if (!details || details.length === 0) return;
+
+    const sourceCell = this.boardPath[28];
+    this._startDarkMapEffect();
+
+    if (this.bloody) {
+      this._setHunter28Mode(true);
+      this.bloody.play("Hunter_Greeting_2");
+    }
+
+    details.forEach((detail, i) => {
+      const targetCell = this.boardPath[detail.cell_index];
+      if (!targetCell || !sourceCell) return;
+      const isLast = (i === details.length - 1);
+
+      this.time.delayedCall(800 + i * 600, () => {
+        this._highlightTargetCell(targetCell);
+        this.time.delayedCall(400, () => {
+          this._fireArrowFromAbove(sourceCell, targetCell, isLast);
+        });
+      });
+    });
+    // State được cập nhật khi nhận game:cell_destroyed
+  });
+
   this.socket.on("game:cell_destroyed", (data) => {
     const cell = this.boardPath[data.cell_index];
     if (!cell) return;
@@ -722,7 +740,11 @@ _closeTarotModal() { this.tarotModal?.close(); }
       if (this.cellStates) delete this.cellStates[data.cell_index];
       this._showToast(`☄ Ô ${data.cell_index} bị phá hủy!`, "#ff4444");
     } else {
-      this._showToast(`💨 Ô ${data.cell_index} bị nhắm nhưng không có tinh cầu`, "#aaaaaa");
+      // Ô trống — vẫn tạo impact nhỏ tại vị trí ô
+      const { width, height } = this.scale;
+      const cx = cell.x * width, cy = cell.y * height;
+      this._createFireImpact(cx, cy);
+      this._showToast(`💨 Ô ${data.cell_index} trúng đạn nhưng trống`, "#aaaaaa");
     }
 
     this._stopDarkMapEffect();
@@ -731,27 +753,32 @@ _closeTarotModal() { this.tarotModal?.close(); }
   });
 
   this.socket.on("game:cell_sold", (data) => {
-    // Clear the cell visually
-    const cell = this.boardPath[data.cell_index];
-    if (cell) this.clearCell(cell);
-    if (this.cellStates) delete this.cellStates[data.cell_index];
+    // Xóa visual từng ô bị bán (broadcast từ server)
+    (data.cell_indexes || [data.cell_index]).forEach(ci => {
+      if (ci === undefined || ci === null) return;
+      const cell = this.boardPath[ci];
+      if (cell) this.clearCell(cell);
+      if (this.cellStates) delete this.cellStates[ci];
+    });
 
-    // Update UI
+    // Cập nhật cash trong gamePlayers
+    if (this.gamePlayers) {
+      const seller = this.gamePlayers.find(p => p.user_id === data.seller_user_id);
+      const buyer  = this.gamePlayers.find(p => p.user_id === data.buyer_user_id);
+      if (seller && data.seller_cash_after !== undefined) seller.cash = data.seller_cash_after;
+      if (buyer  && data.buyer_cash_after  !== undefined) buyer.cash  = data.buyer_cash_after;
+    }
+
     this._refreshPlayerPanelsFromGameState();
     this._updatePlayerStatsInUI();
-    this._stopDarkMapEffect();
-
-    // Continue turn
-    this.canRoll = true;
-    this.isMyTurn = true;
-    this._applyTurnState();
-    this._updateTurnInfo();
 
     const myUid = this._myUserId();
     if (data.seller_user_id === myUid) {
-      this._showToast(`💰 Bán ô ${data.cell_index} (+${this._formatMoney(data.sell_price)}) và trả nợ thành công!`, "#00ff88");
+      this._showToast(`💰 Bán tinh cầu & trả nợ thành công! Còn lại: ${this._formatMoney(data.seller_cash_after)}`, "#00ff88");
+    } else if (data.buyer_user_id === myUid) {
+      this._showToast(`💵 Nhận ${this._formatMoney(data.rent_paid)} tiền thuê từ ${data.seller_name}`, "#ffdd00");
     } else {
-      this._showToast(`🏠 Ô ${data.cell_index} đã được bán`, "#ffffff");
+      this._showToast(`🏠 ${data.seller_name} bán tinh cầu trả nợ`, "#aaaaaa");
     }
   });
 
@@ -2743,6 +2770,38 @@ this.input.keyboard.on("keydown-Y", () => {
     moveOneStep();
   }
 
+  // Animate nhân vật người khác đi từng bước (dùng cho walk_to_cell skill)
+  _moveOtherPlayerSteps(sprite, steps, destIndex, charName) {
+    if (!sprite || steps <= 0) return;
+    const { width, height } = this.scale;
+    const totalCells = this.boardPath.length;
+
+    // Tìm index hiện tại của sprite dựa trên vị trí gần nhất
+    let currentIdx = destIndex - steps;
+    if (currentIdx < 0) currentIdx += totalCells;
+
+    let stepsLeft = steps;
+    const moveOne = () => {
+      if (stepsLeft <= 0) {
+        const runKey = `${charName||"Dark_Oracle"}_1_idle`;
+        if (this.anims.exists(runKey)) sprite.play(runKey);
+        return;
+      }
+      currentIdx = (currentIdx + 1) % totalCells;
+      const cell = this.boardPath[currentIdx];
+      const tx = cell.x * width, ty = cell.y * height;
+      if (tx < sprite.x) sprite.setFlipX(true);
+      else if (tx > sprite.x) sprite.setFlipX(false);
+      const runKey = `${charName||"Dark_Oracle"}_1_run_throw`;
+      if (this.anims.exists(runKey)) sprite.play(runKey);
+      this.tweens.add({
+        targets: sprite, x: tx, y: ty, duration: 350, ease: "Sine.easeInOut",
+        onComplete: () => { stepsLeft--; moveOne(); }
+      });
+    };
+    moveOne();
+  }
+
   // =====================
   // HIGHLIGHT + STOP
   // =====================
@@ -3146,16 +3205,25 @@ this.input.keyboard.on("keydown-Y", () => {
         if (cellsToSell.length === 0) return;
         this._clearBankruptcyUI();
         this._stopDarkMapEffect();
-        // Bán từng ô đã chọn
-        cellsToSell.forEach(([cellIndex, { cellData, sellPrice }]) => {
-          this.socket.emit("game:cell_sold", {
-            room_id: this.gameRoomId,
+
+        const myUid = this._myUserId();
+        const me = this.gamePlayers?.find(p => p.user_id === myUid);
+        const myCash = me?.cash || 0;
+        const totalSellPrice = cellsToSell.reduce((s, [, v]) => s + v.sellPrice, 0);
+        const requiredRentVal = this._bankruptcyRentData.required_rent;
+
+        // Gửi 1 event duy nhất với toàn bộ ô cần bán
+        this.socket.emit("game:sell_and_pay_rent", {
+          room_id: this.gameRoomId,
+          seller_user_id: myUid,
+          buyer_user_id: this._bankruptcyRentData.owner_user_id,
+          cells_to_sell: cellsToSell.map(([cellIndex, { sellPrice }]) => ({
             cell_index: Number(cellIndex),
-            seller_user_id: this._myUserId(),
-            buyer_user_id: this._bankruptcyRentData.owner_user_id,
-            sell_price: sellPrice,
-            rent_paid: this._bankruptcyRentData.required_rent
-          });
+            sell_price: sellPrice
+          })),
+          total_sell_price: totalSellPrice,
+          required_rent: requiredRentVal,
+          cash_before: myCash
         });
         this._selectedSellCells = {};
       } : null

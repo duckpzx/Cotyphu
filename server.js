@@ -1535,11 +1535,10 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
 
     // Ô 28: quái vật phá 2-3 tinh cầu ngẫu nhiên
     if (idx === 28) {
+      // Random 1-2 ô bất kỳ (kể cả ô trống), bỏ qua ô skill
       const candidateIndexes = [];
-      for (let i = 0; i <= 36; i++) {
-        if (!SKILL_CELLS.includes(i)) {
-          candidateIndexes.push(i);
-        }
+      for (let i = 0; i < TOTAL_CELLS; i++) {
+        if (!SKILL_CELLS.includes(i)) candidateIndexes.push(i);
       }
 
       if (candidateIndexes.length === 0) {
@@ -1547,35 +1546,29 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
         return;
       }
 
-      // Random 1 hoặc 2 ô (bao gồm cả ô trống lẫn có tinh cầu)
       const destroyCount = Math.min(
         candidateIndexes.length,
         Math.floor(Math.random() * 2) + 1 // 1 hoặc 2
       );
 
-      // Trộn rồi lấy ra destroyCount ô đầu tiên
       const shuffled = [...candidateIndexes].sort(() => Math.random() - 0.5);
       const targetIndexes = shuffled.slice(0, destroyCount);
 
-      // Đánh dấu trạng thái từng ô (có tinh cầu hay không) để gửi client
       const targetDetails = targetIndexes.map(cellIndex => ({
         cell_index: cellIndex,
         had_planet: !!gs.cellStates[cellIndex]
       }));
 
-      // Phá hủy ngay trên server
+      // Phá hủy tinh cầu nếu có
       targetIndexes.forEach(cellIndex => {
         if (gs.cellStates[cellIndex]) delete gs.cellStates[cellIndex];
       });
 
-      // Gửi xuống client: danh sách ô + trạng thái để chạy hiệu ứng đồng bộ cho tất cả
       io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:monster_target", {
         cell_indexes: targetIndexes,
         target_details: targetDetails
       });
 
-      // Sau khi hiệu ứng client chạy xong, emit cell_destroyed cho từng ô
-      // để tất cả client (kể cả người không ở ô 28) đồng bộ state
       const effectDuration = 800 + targetDetails.length * 600 + 500;
       setTimeout(() => {
         targetDetails.forEach(detail => {
@@ -1785,6 +1778,72 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     gs.phase = "IDLE";
     gs.currentQuiz = null;
     setTimeout(() => endTurn(room_id), 800);
+  });
+
+  // ── GAME SELL AND PAY RENT (atomic, không cho âm tiền) ──────────
+  socket.on("game:sell_and_pay_rent", ({ room_id, seller_user_id, buyer_user_id, cells_to_sell, total_sell_price, required_rent, cash_before }) => {
+    const gs = gameStates[room_id];
+    if (!gs) return;
+
+    const seller = gs.players.find(p => p.user_id === seller_user_id);
+    const buyer  = gs.players.find(p => p.user_id === buyer_user_id);
+    if (!seller) return;
+
+    // Validate: tổng tiền sau khi bán phải đủ trả
+    const sellerCash = seller.cash || 0;
+    const totalAvailable = sellerCash + total_sell_price;
+    if (totalAvailable < required_rent) {
+      // Không đủ dù bán hết — phá sản
+      gs.players = gs.players.filter(p => p.user_id !== seller_user_id);
+      Object.keys(gs.cellStates).forEach(ci => {
+        if (gs.cellStates[ci].owner_user_id === seller_user_id) delete gs.cellStates[ci];
+      });
+      io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:bankruptcy", { user_id: seller_user_id });
+      if (gs.players.length <= 1) {
+        const winner = gs.players[0];
+        if (winner) io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:game_over", {
+          winner_user_id: winner.user_id, winner_name: winner.name
+        });
+        delete gameStates[room_id];
+      } else {
+        setTimeout(() => endTurn(room_id), 2000);
+      }
+      return;
+    }
+
+    // Xóa các ô đã bán
+    const soldIndexes = [];
+    cells_to_sell.forEach(({ cell_index }) => {
+      delete gs.cellStates[cell_index];
+      soldIndexes.push(cell_index);
+    });
+
+    // Tính tiền sau giao dịch — không âm
+    const sellerCashAfter = Math.max(0, sellerCash + total_sell_price - required_rent);
+    const buyerCashAfter  = (buyer?.cash || 0) + required_rent;
+
+    seller.cash = sellerCashAfter;
+    if (buyer) buyer.cash = buyerCashAfter;
+
+    // Broadcast cho tất cả
+    io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:cell_sold", {
+      cell_indexes: soldIndexes,
+      cell_index: soldIndexes[0], // backward compat
+      seller_user_id,
+      seller_name: seller.name,
+      buyer_user_id,
+      buyer_name: buyer?.name || "?",
+      total_sell_price,
+      rent_paid: required_rent,
+      seller_cash_after: sellerCashAfter,
+      buyer_cash_after: buyerCashAfter
+    });
+
+    if (gs._sellEndTimer) clearTimeout(gs._sellEndTimer);
+    gs._sellEndTimer = setTimeout(() => {
+      gs._sellEndTimer = null;
+      endTurn(room_id);
+    }, 1200);
   });
 
   // ── GAME CELL SOLD (BANKRUPTCY RESOLUTION) ──────────────────────
