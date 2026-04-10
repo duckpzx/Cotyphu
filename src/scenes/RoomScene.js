@@ -625,7 +625,7 @@ export default class RoomScene extends Phaser.Scene {
       }
 
       this._buildActionBtn(
-        panelX + 420, midY, 220, 54,
+        this._bottomPanelCol1CX ?? panelX + 160, midY, 220, 54,
         canStart ? 0xff7700 : 0x555566,
         canStart ? 0xffaa00 : 0x777788,
         btnLabel,
@@ -641,7 +641,7 @@ export default class RoomScene extends Phaser.Scene {
       // Nút Sẵn Sàng / Hủy
       const isReady = myPlayer?.is_ready || false;
       this._buildActionBtn(
-        panelX + 420, midY, 200, 54,
+        this._bottomPanelCol1CX ?? panelX + 160, midY, 200, 54,
         isReady ? 0x22cc55 : 0x1155cc,
         isReady ? 0x55ff88 : 0x3388ff,
         isReady ? "Hủy Sẵn Sàng" : "Sẵn Sàng",
@@ -969,7 +969,14 @@ export default class RoomScene extends Phaser.Scene {
       });
     });
 
-    const titleStr = `PHÒNG ${rd.password || rd.is_private ? "NỘI BỘ" : "TỰ DO"} #${rd.id}`;
+    const RANK_LABEL = {
+      pho_thong: "Phổ thông", tan_thu: "Tân thủ",
+      cao_thu: "Cao thủ", bac_thay: "Bậc thầy", huyen_thoai: "Huyền thoại",
+    };
+    const rankKey   = rd.rank_required ?? rd.rank ?? "pho_thong";
+    const rankLabel = RANK_LABEL[rankKey] ?? rankKey;
+    const roomType  = rd.is_private ? "NỘI BỘ" : "TỰ DO";
+    const titleStr  = `PHÒNG ${roomType} #${rd.id}  ·  ${rankLabel}`;
     this.add.text(105, 55, titleStr, {
       fontFamily: "Signika",
       fontSize:   "30px",
@@ -1055,36 +1062,42 @@ export default class RoomScene extends Phaser.Scene {
 
     const midY = panelY + panelH / 2;
 
-    // ── Map thumbnail — BÊN TRÁI ───────────────────────────────────
-    const mapW = 140, mapH = 90;
-    const mapX = panelX + 16;
-    const mapY = panelY + (panelH - mapH) / 2;
+    // ── Tính toán layout từ phải sang trái ───────────────────────
+    const rightEdge = panelX + panelW - 18;
+    const gap       = 32;                      // khoảng cách rộng hơn
 
-    const mapBg = this.add.graphics();
-    // Viền trắng dày như ảnh
-    mapBg.fillStyle(0xffffff, 1);
-    mapBg.fillRoundedRect(mapX - 3, mapY - 3, mapW + 6, mapH + 6, 10);
-    mapBg.fillStyle(0x0a1a33, 1);
-    mapBg.fillRoundedRect(mapX, mapY, mapW, mapH, 8);
+    // Khối ❓ — icon 62x62
+    const qSize = 62;
+    const qCX   = rightEdge - qSize / 2;
 
-    const mapImg = this.add.image(mapX + mapW / 2, mapY + mapH / 2, "map1");
-    if (mapImg.width > 0) {
-      mapImg.setScale(Math.min(mapW / mapImg.width, mapH / mapImg.height));
-    }
-    mapImg.setDepth(1);
+    // Khối INFO — rộng 120px, tâm infoCX
+    const infoW  = 120;
+    const infoCX = qCX - qSize / 2 - gap - infoW / 2;
+    const infoX  = infoCX - infoW / 2;
 
-    // ── Mức cược — BÊN PHẢI map ────────────────────────────────────
-    const betAreaX = mapX + mapW + 24;
+    // Khối ECOIN — rộng 120px, tâm ecoinCX
+    const ecoinW  = 120;
+    const ecoinCX = infoX - gap - ecoinW / 2;
+    const ecoinX  = ecoinCX - ecoinW / 2;
 
-    // Label "Mức cược"
-    this.add.text(betAreaX, midY - 22, "Mức cược", {
-      fontFamily: "Signika", fontSize: "22px",
-      color: "#ffffff", fontStyle: "bold",
-      stroke: "#003388", strokeThickness: 3,
-      shadow: { offsetX: 1, offsetY: 2, color: "#001155", blur: 4, fill: true }
-    }).setOrigin(0, 0.5);
+    // Khối MAP — 100×100, không viền
+    const mapH  = 100;
+    const mapW  = 100;
+    const mapCX = ecoinX - gap - mapW / 2;
+    const mapX  = mapCX - mapW / 2;
+    const mapY  = panelY + (panelH - mapH) / 2;
 
-    // Coin icon + số tiền
+    // Lưu vị trí nút để _rebuildBottomPanel dùng
+    this._bottomPanelMidY   = midY;
+    this._bottomPanelX      = panelX;
+    this._bottomPanelCol1CX = panelX + 160;
+
+    // ── MAP (không viền, ảnh giữ tỉ lệ gốc) ─────────────────────
+    const mapImg = this.add.image(mapCX, mapY + mapH / 2, "map1").setDepth(1);
+    const scaleToFit = Math.min(mapW / mapImg.width, mapH / mapImg.height);
+    mapImg.setScale(scaleToFit);
+
+    // ── ECOIN block ───────────────────────────────────────────────
     const rd     = this.roomData;
     const betAmt = Number(rd.bet ?? rd.bet_ecoin ?? 0);
     const betStr = betAmt >= 1000000
@@ -1092,34 +1105,81 @@ export default class RoomScene extends Phaser.Scene {
       : betAmt >= 1000 ? (betAmt / 1000) + "K"
       : betAmt + "";
 
-    // Coin circle
-    const coinG = this.add.graphics();
-    coinG.fillStyle(0x000000, 0.2);
-    coinG.fillCircle(betAreaX + 18, midY + 16, 20);
-    coinG.fillGradientStyle(0xffcc00, 0xffcc00, 0xff8800, 0xff8800, 1);
-    coinG.fillCircle(betAreaX + 17, midY + 15, 20);
-    coinG.fillStyle(0xffffff, 0.25);
-    coinG.fillEllipse(betAreaX + 12, midY + 8, 14, 8);
-    coinG.lineStyle(2, 0xffee88, 0.8);
-    coinG.strokeCircle(betAreaX + 17, midY + 15, 20);
+    const dg = this.add.graphics();
+    dg.lineStyle(1, 0x55aadd, 0.35);
+    dg.lineBetween(ecoinX - gap / 2, panelY + 16, ecoinX - gap / 2, panelY + panelH - 16);
 
-    this.add.text(betAreaX + 17, midY + 15, "$", {
-      fontFamily: "Signika", fontSize: "18px",
-      color: "#ffffff", fontStyle: "bold",
-      stroke: "#884400", strokeThickness: 2
-    }).setOrigin(0.5);
+    // "Mức cược" căn giữa ecoinCX
+    this.add.text(ecoinCX, midY - 22, "Mức cược", {
+      fontFamily: "Signika", fontSize: "13px",
+      color: "#88ccff", stroke: "#001a44", strokeThickness: 2,
+    }).setOrigin(0.5, 0.5);
 
-    // Số tiền cược
-    this.add.text(betAreaX + 44, midY + 15, betStr, {
-      fontFamily: "Signika", fontSize: "28px",
-      color: "#ffffff", fontStyle: "bold",
-      stroke: "#003388", strokeThickness: 4,
-      shadow: { offsetX: 1, offsetY: 2, color: "#001155", blur: 4, fill: true }
+    // Coin + số tiền căn giữa ecoinCX
+    this.add.image(ecoinCX - 22, midY + 14, "coin")
+      .setDisplaySize(28, 28).setOrigin(0.5);
+
+    this.add.text(ecoinCX - 4, midY + 14, betStr, {
+      fontFamily: "Signika", fontSize: "30px",
+      color: "#ffe066", fontStyle: "bold",
+      stroke: "#7a3300", strokeThickness: 5,
+      shadow: { offsetX: 1, offsetY: 2, color: "#3a1a00", blur: 5, fill: true },
     }).setOrigin(0, 0.5);
 
-    // Nút động (sẵn sàng / bắt đầu) → rebuild sau khi socket kết nối
-    this._bottomPanelMidY = midY;
-    this._bottomPanelX    = panelX;
+    // ── INFO block ────────────────────────────────────────────────
+    const RANK_LABEL = {
+      pho_thong:   "Phổ thông",
+      tan_thu:     "Tân thủ",
+      cao_thu:     "Cao thủ",
+      bac_thay:    "Bậc thầy",
+      huyen_thoai: "Huyền thoại",
+    };
+    const rankKey   = rd.rank_required ?? rd.rank ?? "pho_thong";
+    const rankLabel = RANK_LABEL[rankKey] ?? rankKey;
+    const roomType  = rd.is_private ? "Nội bộ" : "Tự do";
+
+    dg.lineBetween(infoX - gap / 2, panelY + 16, infoX - gap / 2, panelY + panelH - 16);
+
+    // Badge loại phòng — căn giữa infoCX
+    const badgeG     = this.add.graphics();
+    const badgeColor = rd.is_private ? 0x8833cc : 0x1177cc;
+    badgeG.fillStyle(badgeColor, 0.75);
+    badgeG.fillRoundedRect(infoX, midY - 40, infoW, 22, 6);
+    badgeG.lineStyle(1, 0xaaddff, 0.5);
+    badgeG.strokeRoundedRect(infoX, midY - 40, infoW, 22, 6);
+
+    this.add.text(infoCX, midY - 29, roomType, {
+      fontFamily: "Signika", fontSize: "13px",
+      color: "#ffffff", fontStyle: "bold",
+      stroke: "#001a44", strokeThickness: 2,
+    }).setOrigin(0.5, 0.5);
+
+    // Rank — căn giữa infoCX, dịch xuống thêm
+    this.add.text(infoCX, midY + 4, rankLabel, {
+      fontFamily: "Signika", fontSize: "18px",
+      color: "#ffffff", fontStyle: "bold",
+      stroke: "#003388", strokeThickness: 4,
+      shadow: { offsetX: 1, offsetY: 2, color: "#001155", blur: 4, fill: true },
+    }).setOrigin(0.5, 0.5);
+
+    // Số người — căn giữa infoCX
+    const maxP = this._isTeam ? 4 : 2;
+    this.add.text(infoCX, midY + 28, `${maxP} người chơi`, {
+      fontFamily: "Signika", fontSize: "12px",
+      color: "#88aacc", stroke: "#001a44", strokeThickness: 2,
+    }).setOrigin(0.5, 0.5);
+
+    // ── ❓ Icon ───────────────────────────────────────────────────
+    dg.lineBetween(qCX - qSize / 2 - gap / 2, panelY + 16, qCX - qSize / 2 - gap / 2, panelY + panelH - 16);
+
+    this.add.image(qCX, midY, "icon_question")
+      .setDisplaySize(qSize, qSize)
+      .setInteractive({ cursor: "pointer" })
+      .on("pointerdown", () => {
+        this._showAlert(
+          "Phòng Tự do: Ai cũng có thể vào.\nPhòng Nội bộ: Chỉ người được mời.\n\nHạng yêu cầu tối thiểu để tham gia phòng."
+        );
+      });
   }
 
   // ══════════════════════════════════════════════════════════════════════
