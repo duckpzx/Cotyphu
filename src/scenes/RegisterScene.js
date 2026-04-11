@@ -1,3 +1,4 @@
+import { SERVER_URL } from "../config.js";
 export default class RegisterScene extends Phaser.Scene {
 
   constructor() {
@@ -127,7 +128,7 @@ export default class RegisterScene extends Phaser.Scene {
     }
 
     // ===== GỬI SERVER =====
-    const res = await fetch("http://localhost:3000/register",{
+    const res = await fetch(`${SERVER_URL}/register`,{
 
         method:"POST",
 

@@ -1,4 +1,5 @@
 import { getPlayerData, setPlayerData } from "../server/utils/playerData.js";
+import { SERVER_URL } from "../config.js";
 
 export default class BagScene extends Phaser.Scene {
     constructor() {
@@ -119,7 +120,7 @@ export default class BagScene extends Phaser.Scene {
 
         // ── 1. Tải danh sách nhân vật sở hữu ─────────────────────
         try {
-            const charRes = await fetch(`http://localhost:3000/users/${this.playerUserId}/characters/bag`);
+            const charRes = await fetch(`${SERVER_URL}/users/${this.playerUserId}/characters/bag`);
             const charJson = await charRes.json();
             this.myCharacters = charJson.data || [];
             console.log("myCharacters từ server:", JSON.stringify(this.myCharacters, null, 2));
@@ -147,7 +148,7 @@ export default class BagScene extends Phaser.Scene {
         this._createAllBagAnimations();
         // ── 5. Tải backgrounds ────────────────────────────────────
         try {
-            const bgRes = await fetch(`http://localhost:3000/users/${this.playerUserId}/backgrounds/bag`);
+            const bgRes = await fetch(`${SERVER_URL}/users/${this.playerUserId}/backgrounds/bag`);
             const bgJson = await bgRes.json();
             this.myBackgrounds = bgJson.data || [];
         } catch (e) {
@@ -431,7 +432,7 @@ export default class BagScene extends Phaser.Scene {
                     if (isCurrentActive) { this.showToast("Nhân vật đã được trang bị rồi!"); return; }
                     if (this.playerUserId && this.selectedCharId) {
                         try {
-                            await fetch(`http://localhost:3000/users/${this.playerUserId}/characters/active`, {
+                            await fetch(`${SERVER_URL}/users/${this.playerUserId}/characters/active`, {
                                 method: "POST", headers: { "Content-Type": "application/json" },
                                 body: JSON.stringify({ character_id: this.selectedCharId }),
                             });
@@ -851,7 +852,7 @@ export default class BagScene extends Phaser.Scene {
         }
 
         try {
-            const res = await fetch(`http://localhost:3000/users/${this.playerUserId}/characters/${targetCharId}/skins`);
+            const res = await fetch(`${SERVER_URL}/users/${this.playerUserId}/characters/${targetCharId}/skins`);
 
             if (!res.ok) {
                 console.warn("Skin API lỗi:", res.status);
@@ -917,7 +918,7 @@ export default class BagScene extends Phaser.Scene {
                 const activeBgId = Number(this.playerData?.user?.active_bg_id || this.playerData?.active_bg_id);
                 if (Number(item.id) !== activeBgId) {
                     try {
-                        await fetch(`http://localhost:3000/users/${this.playerUserId}/backgrounds/active`, {
+                        await fetch(`${SERVER_URL}/users/${this.playerUserId}/backgrounds/active`, {
                             method: "POST", headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ background_id: item.id }),
                         });
@@ -987,7 +988,7 @@ export default class BagScene extends Phaser.Scene {
             // Gọi API cập nhật active skin trên server
             if (this.playerUserId && this.selectedCharId && item.skinId) {
                 try {
-                    await fetch(`http://localhost:3000/users/${this.playerUserId}/characters/${this.selectedCharId}/skin`, {
+                    await fetch(`${SERVER_URL}/users/${this.playerUserId}/characters/${this.selectedCharId}/skin`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ skin_id: item.skinId }),

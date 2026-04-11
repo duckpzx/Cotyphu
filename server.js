@@ -2129,7 +2129,10 @@ app.get("/rooms", async (req, res) => {
   catch { res.status(500).json({ success: false, message: "Server error" }); }
 });
 
-server.listen(3000, () => console.log("✅ Server ready at http://localhost:3000"));
+server.listen(3000, "0.0.0.0", () => {
+  console.log("✅ Server ready at http://0.0.0.0:3000 (tất cả interface)");
+  console.log("   Máy khác trong LAN truy cập qua IP của máy này:3000");
+});
 app.get("/tarots", async (req, res) => {
   try {
     const result = await tarotService.getAllTarots();

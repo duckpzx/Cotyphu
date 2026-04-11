@@ -1,3 +1,4 @@
+import { SERVER_URL } from "../config.js";
 export default class TarotScene extends Phaser.Scene {
     constructor() {
         super("TarotScene");
@@ -721,7 +722,7 @@ buildSlot(cx, cy, w, h, idx) {
     }
 
     async fetchTarots() {
-    const res = await fetch("http://localhost:3000/tarots");
+    const res = await fetch(`${SERVER_URL}/tarots`);
     const json = await res.json();
 
     if (!json.success) {
@@ -732,7 +733,7 @@ buildSlot(cx, cy, w, h, idx) {
 }
 
 async fetchActiveTarots(userId) {
-    const res = await fetch(`http://localhost:3000/users/${userId}/tarots/active`);
+    const res = await fetch(`${SERVER_URL}/users/${userId}/tarots/active`);
     const json = await res.json();
 
     if (!json.success) return [];
@@ -740,7 +741,7 @@ async fetchActiveTarots(userId) {
 }
 
 async saveActiveTarots(userId, tarotIds) {
-    const res = await fetch(`http://localhost:3000/users/${userId}/tarots/active`, {
+    const res = await fetch(`${SERVER_URL}/users/${userId}/tarots/active`, {
         method: "POST",
         headers: {
             "Content-Type": "application/json"

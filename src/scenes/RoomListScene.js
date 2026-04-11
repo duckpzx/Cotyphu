@@ -1,3 +1,4 @@
+import { SERVER_URL } from "../config.js";
 export default class RoomListScene extends Phaser.Scene {
 
   constructor() {
@@ -67,7 +68,7 @@ export default class RoomListScene extends Phaser.Scene {
 
   async loadRoomsFromApi(width, height, roomType = null) {
     try {
-      const url = roomType ? `http://localhost:3000/rooms?room_type=${roomType}` : "http://localhost:3000/rooms";
+      const url = roomType ? `${SERVER_URL}/rooms?room_type=${roomType}` : `${SERVER_URL}/rooms`;
       const res  = await fetch(url);
       const text = await res.text();
       let data;
@@ -144,7 +145,7 @@ export default class RoomListScene extends Phaser.Scene {
     };
 
     try {
-      const res  = await fetch("http://localhost:3000/rooms/create", {
+      const res  = await fetch(`${SERVER_URL}/rooms/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${playerData.token}` },
         body: JSON.stringify(payload),

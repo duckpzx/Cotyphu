@@ -2,6 +2,7 @@ import PowerDiceSystem   from "./components/PowerDiceSystem.js";
 import TarotModalSystem  from "./components/TarotModalSystem.js";
 import TarotButtonWidget from "./components/TarotButtonWidget.js";
 import CardSystem        from "./components/CardSystem.js";
+import { SERVER_URL }    from "../config.js";
 import { getActiveProfile, getPlayerData } from "../server/utils/playerData.js";
 
 export default class BoardScene extends Phaser.Scene {
@@ -2203,7 +2204,7 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
     this.currentIndex = this.currentIndex || 0;
 
     const token = playerData?.token;
-    this.socket = io("http://localhost:3000", {
+    this.socket = io(SERVER_URL, {
       transports:['websocket','polling'], reconnection:true, reconnectionAttempts:5, timeout:10000,
       auth:{ token }
     });

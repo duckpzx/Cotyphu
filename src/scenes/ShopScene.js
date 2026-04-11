@@ -1,5 +1,6 @@
 import EcoinManager from "../server/utils/ecoinManager.js";
 import { getPlayerData, setPlayerData } from "../server/utils/playerData.js";
+import { SERVER_URL } from "../config.js";
 
 // src/scenes/ShopScene.js
 export default class ShopScene extends Phaser.Scene {
@@ -133,7 +134,7 @@ export default class ShopScene extends Phaser.Scene {
     async _loadShopData() {
         // 1) Load tất cả nhân vật kèm giá từ shop API
         try {
-            const res = await fetch("http://localhost:3000/shop/characters");
+            const res = await fetch(`${SERVER_URL}/shop/characters`);
             const json = await res.json();
             this.allCharacters = json.characters || [];
         } catch(e) {
@@ -142,7 +143,7 @@ export default class ShopScene extends Phaser.Scene {
 
         // 2) Load tất cả skin trong game kèm giá
         try {
-            const res = await fetch("http://localhost:3000/shop/skins");
+            const res = await fetch(`${SERVER_URL}/shop/skins`);
             const json = await res.json();
             this.allShopSkins = json.skins || [];
         } catch(e) {
@@ -152,7 +153,7 @@ export default class ShopScene extends Phaser.Scene {
 
         // 3) Load tất cả backgrounds
         try {
-            const res = await fetch("http://localhost:3000/shop/backgrounds");
+            const res = await fetch(`${SERVER_URL}/shop/backgrounds`);
             const json = await res.json();
             this.allBackgrounds = json.backgrounds || [];
         } catch(e) {
@@ -163,7 +164,7 @@ export default class ShopScene extends Phaser.Scene {
         if (this.playerUserId) {
             // 3) Load nhân vật đã sở hữu
             try {
-                const res = await fetch(`http://localhost:3000/users/${this.playerUserId}/characters/bag`);
+                const res = await fetch(`${SERVER_URL}/users/${this.playerUserId}/characters/bag`);
                 const json = await res.json();
                 this.ownedCharacters = json.data || [];
             } catch(e) {
@@ -175,7 +176,7 @@ export default class ShopScene extends Phaser.Scene {
 
             // 5) Load backgrounds sở hữu — fetch từ server để đảm bảo đúng
             try {
-                const bgRes = await fetch(`http://localhost:3000/users/${this.playerUserId}/backgrounds/bag`);
+                const bgRes = await fetch(`${SERVER_URL}/users/${this.playerUserId}/backgrounds/bag`);
                 const bgJson = await bgRes.json();
                 const ownedBgs = bgJson.data || [];
                 this.ownedBgIds = ownedBgs.map(b => Number(b.background_id || b.id));
@@ -529,7 +530,7 @@ export default class ShopScene extends Phaser.Scene {
     async _addEcoin(amount) {
         if (!this.playerUserId) return;
         try {
-            const res = await fetch("http://localhost:3000/shop/add-ecoin", {
+            const res = await fetch(`${SERVER_URL}/shop/add-ecoin`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ user_id: this.playerUserId, amount }),
@@ -1189,7 +1190,7 @@ export default class ShopScene extends Phaser.Scene {
 
         if (item.type === "character") {
             try {
-                const res = await fetch("http://localhost:3000/shop/buy-character", {
+                const res = await fetch(`${SERVER_URL}/shop/buy-character`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -1237,7 +1238,7 @@ export default class ShopScene extends Phaser.Scene {
                 return;
             }
             try {
-                const res = await fetch("http://localhost:3000/shop/buy-skin", {
+                const res = await fetch(`${SERVER_URL}/shop/buy-skin`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -1270,7 +1271,7 @@ export default class ShopScene extends Phaser.Scene {
             }
         } else if (item.type === "background") {
             try {
-                const res = await fetch("http://localhost:3000/shop/buy-background", {
+                const res = await fetch(`${SERVER_URL}/shop/buy-background`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -1307,7 +1308,7 @@ export default class ShopScene extends Phaser.Scene {
 
         if (item.type === "character") {
             try {
-                await fetch(`http://localhost:3000/users/${this.playerUserId}/characters/active`, {
+                await fetch(`${SERVER_URL}/users/${this.playerUserId}/characters/active`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ character_id: item.id }),

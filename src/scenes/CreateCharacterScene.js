@@ -1,3 +1,4 @@
+import { SERVER_URL } from "../config.js";
 export default class CreateCharacterScene extends Phaser.Scene {
 
   constructor() {
@@ -175,7 +176,7 @@ export default class CreateCharacterScene extends Phaser.Scene {
   // ────────────────────────────────────────────────────────────────────────────
   async loadCharacters() {
     try {
-      const res = await fetch("http://localhost:3000/characters");
+      const res = await fetch(`${SERVER_URL}/characters`);
       const data = await res.json();
       this.characters = data.characters || [];
 
@@ -434,7 +435,7 @@ export default class CreateCharacterScene extends Phaser.Scene {
     try {
       const user = JSON.parse(localStorage.getItem("playerData"));
       const userId = user.user.id;
-      const res = await fetch("http://localhost:3000/create-character", {
+      const res = await fetch(`${SERVER_URL}/create-character`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: userId, character_id: this.selectedCharacter.id, name })

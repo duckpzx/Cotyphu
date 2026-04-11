@@ -1,4 +1,5 @@
 import { getActiveProfile } from "../server/utils/playerData.js";
+import { SERVER_URL } from "../config.js";
 
 export default class RoomScene extends Phaser.Scene {
 
@@ -144,7 +145,7 @@ export default class RoomScene extends Phaser.Scene {
       return;
     }
 
-    this.socket = io("http://localhost:3000", {
+    this.socket = io(SERVER_URL, {
       transports: ['websocket', 'polling'],
       auth: { token }
     });

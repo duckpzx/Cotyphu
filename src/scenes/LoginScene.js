@@ -1,3 +1,4 @@
+import { SERVER_URL } from "../config.js";
 export default class LoginScene extends Phaser.Scene {
 
   constructor() {
@@ -120,7 +121,7 @@ export default class LoginScene extends Phaser.Scene {
     if (btn) { btn.disabled = true; btn.textContent = "Đang đăng nhập..."; }
 
     try {
-      const res = await fetch("http://localhost:3000/login", {
+      const res = await fetch(`${SERVER_URL}/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password })
