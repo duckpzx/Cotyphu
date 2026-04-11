@@ -276,23 +276,43 @@ async function applyTarotEffect(gs, cur, tarotDef, payload = {}) {
     //     1vs1: lấy 20% tiền 1 người; team: lấy 20% tiền cả 2 đối thủ
     // ═══════════════════════════════════════════════════════════════════════
     case 'steal_cash_percent': {
-      const percent    = Number(tarotDef.effect_params?.percent ?? 20);
-      const enemyIds   = getEnemyIds();
+      const percent  = Number(tarotDef.effect_params?.percent ?? 20);
+      const enemyIds = getEnemyIds();
       if (!enemyIds.length) return false;
- 
-      cur.pending_steal = {
-        active:        true,
-        targetUserIds: enemyIds,
-        percent
-      };
- 
-      io.to(`game_${room_id}`).emit('game:skill_event', {
-        type:    'steal_cash_percent_pending',
-        user_id: cur.user_id,
-        name:    cur.name,
+
+      let totalStolen = 0;
+      const breakdown = [];
+
+      enemyIds.forEach(uid => {
+        const target = gs.players.find(p => Number(p.user_id) === Number(uid));
+        if (!target || (target.cash || 0) <= 0) return;
+        const amount = Math.floor(target.cash * percent / 100);
+        if (amount <= 0) return;
+        target.cash -= amount;
+        cur.cash    += amount;
+        totalStolen += amount;
+        breakdown.push({ from_user_id: uid, from_name: target.name, amount });
+      });
+
+      if (totalStolen <= 0) return false;
+
+      io.to(`game_${room_id}`).emit('game:steal_effect', {
+        user_id:   cur.user_id,
+        name:      cur.name,
+        total:     totalStolen,
+        breakdown,
         percent
       });
- 
+
+      io.to(`game_${room_id}`).emit('game:skill_event', {
+        type:    'steal_cash_percent_done',
+        user_id: cur.user_id,
+        name:    cur.name,
+        total:   totalStolen,
+        percent
+      });
+
+      emitGameStateSync(room_id);
       return true;
     }
  
@@ -1756,8 +1776,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
       return;
     }
 
-    // Nhận Trợ Giúp: lấy 20% tiền đối thủ ngay khi đổ xúc xắc xong
-    applyPendingSteal(gs, cur);
+    // Nhận Trợ Giúp đã được xử lý ngay khi dùng thẻ (không còn pending)
 
     // Check if payer can afford the rent
     if (payer && (payer.cash || 0) < actualRent) {

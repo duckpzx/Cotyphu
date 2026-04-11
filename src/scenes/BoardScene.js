@@ -744,11 +744,11 @@ _closeTarotModal() { this.tarotModal?.close(); }
         return;
       }
 
-      // ================== STEAL CASH PENDING (Nhận Trợ Giúp) ==================
-      if (data.type === "steal_cash_percent_pending") {
+      // ================== STEAL CASH (Nhận Trợ Giúp) ==================
+      if (data.type === "steal_cash_percent_pending" || data.type === "steal_cash_percent_done") {
         this._showSkillPanel({
           title: "NHẬN TRỢ GIÚP",
-          text: `${data.name} sẽ lấy ${data.percent}% tiền đối thủ!`,
+          text: `${data.name} lấy ${data.percent}% tiền đối thủ! (+${this._formatMoney(data.total)})`,
           icon: "orb_orange"
         });
         return;
