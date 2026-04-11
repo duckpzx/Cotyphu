@@ -122,8 +122,12 @@ function buildTarotRuntime(ids = []) {
 
 function buildTarotCooldownArray(runtime = {}, ids = [], now = Date.now()) {
   return ids.map((id) => {
-    const nextAt = Number(runtime?.[id]?.next_available_at || 0);
-    return Math.max(0, Math.ceil((nextAt - now) / 1000));
+    const rt     = runtime?.[id] || {};
+    const nextAt = Number(rt.next_available_at || 0);
+    return {
+      seconds_left: Math.max(0, Math.ceil((nextAt - now) / 1000)),
+      turns_left:   Math.max(0, Number(rt.cooldown_turns_left ?? 0))
+    };
   });
 }
 
@@ -254,15 +258,15 @@ async function applyTarotEffect(gs, cur, tarotDef, payload = {}) {
     //     Sau khi kết thúc lượt bình thường → được tung lại ngay lập tức
     // ═══════════════════════════════════════════════════════════════════════
     case 'extra_roll': {
-      // Đánh dấu: sau khi lượt kết thúc sẽ set lại IDLE cho chính người này
       cur.extra_roll_queued = true;
- 
+
       io.to(`game_${room_id}`).emit('game:skill_event', {
         type:    'extra_roll',
+        source:  'tarot',
         user_id: cur.user_id,
         name:    cur.name
       });
- 
+
       return true;
     }
  
@@ -421,42 +425,43 @@ async function applyTarotEffect(gs, cur, tarotDef, payload = {}) {
     case 'swap_planet': {
       const enemyCellIdx = Number(payload.target_cell_index);
       const myCellIdx    = Number(payload.my_cell_index);
- 
+
       if (isNaN(enemyCellIdx) || isNaN(myCellIdx)) return false;
- 
+
       const myCell    = gs.cellStates[myCellIdx];
       const enemyCell = gs.cellStates[enemyCellIdx];
- 
+
       if (!myCell || !enemyCell) return false;
       if (Number(myCell.owner_user_id)    !== Number(cur.user_id)) return false;
       if (Number(enemyCell.owner_user_id) === Number(cur.user_id)) return false;
- 
-      const previousMyOwner    = myCell.owner_user_id;
-      const previousEnemyOwner = enemyCell.owner_user_id;
-      const previousMyColor    = myCell.planet_color;
-      const previousEnemyColor = enemyCell.planet_color;
- 
-      // Hoán đổi chủ sở hữu + màu tinh cầu
-      myCell.owner_user_id    = previousEnemyOwner;
-      myCell.planet_color     = previousEnemyColor;
-      enemyCell.owner_user_id = previousMyOwner;
-      enemyCell.planet_color  = previousMyColor;
- 
-      // Nếu cell bị buff tax thì giữ nguyên buff (buff theo ô, không theo người)
-      // Đây là thiết kế có chủ đích
- 
-      io.to(`game_${room_id}`).emit('game:skill_event', {
-        type:                   'swap_planet',
-        user_id:                cur.user_id,
-        name:                   cur.name,
-        my_cell_index:          myCellIdx,
-        enemy_cell_index:       enemyCellIdx,
-        new_my_owner:           myCell.owner_user_id,
-        new_my_color:           myCell.planet_color,
-        new_enemy_owner:        enemyCell.owner_user_id,
-        new_enemy_color:        enemyCell.planet_color
+
+      console.log('[swap_planet] TRƯỚC:', {
+        myCell:    { idx: myCellIdx,    owner: myCell.owner_user_id,    color: myCell.planet_color },
+        enemyCell: { idx: enemyCellIdx, owner: enemyCell.owner_user_id, color: enemyCell.planet_color }
       });
- 
+
+      // Swap toàn bộ: owner + màu (tinh cầu đi theo người)
+      const tmpOwner = myCell.owner_user_id;
+      const tmpColor = myCell.planet_color;
+
+      myCell.owner_user_id    = enemyCell.owner_user_id;
+      myCell.planet_color     = enemyCell.planet_color;
+      enemyCell.owner_user_id = tmpOwner;
+      enemyCell.planet_color  = tmpColor;
+
+      console.log('[swap_planet] SAU:', {
+        myCell:    { idx: myCellIdx,    owner: myCell.owner_user_id,    color: myCell.planet_color },
+        enemyCell: { idx: enemyCellIdx, owner: enemyCell.owner_user_id, color: enemyCell.planet_color }
+      });
+
+      io.to(`game_${room_id}`).emit('game:skill_event', {
+        type:             'swap_planet',
+        user_id:          cur.user_id,
+        name:             cur.name,
+        my_cell_index:    myCellIdx,
+        enemy_cell_index: enemyCellIdx
+      });
+
       return true;
     }
  
@@ -591,6 +596,10 @@ function resetTurnTarotFlags(player) {
   player.used_tarot_this_turn = false;
   Object.values(player.tarot_runtime || {}).forEach(rt => {
     rt.used_this_turn = false;
+    // Giảm cooldown_turns_left mỗi lượt (không phân biệt đã dùng hay chưa — cooldown là số lượt chờ)
+    if ((rt.cooldown_turns_left ?? 0) > 0) {
+      rt.cooldown_turns_left -= 1;
+    }
   });
 }
 
@@ -672,6 +681,29 @@ function endTurn(room_id) {
   if (gs._buildTimer) {
     clearTimeout(gs._buildTimer);
     gs._buildTimer = null;
+  }
+
+  // Xúc Xắc Ma Thuật: giữ lại lượt hiện tại
+  const curPlayer = getCurrentTurnPlayer(room_id);
+  if (curPlayer?.extra_roll_queued) {
+    curPlayer.extra_roll_queued = false;
+    gs.phase = "IDLE";
+    const now = Date.now();
+    io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:turn_changed", {
+      current_turn: curPlayer.socket_id,
+      socket_id: curPlayer.socket_id,
+      current_turn_user_id: curPlayer.user_id,
+      user_id: curPlayer.user_id,
+      name: curPlayer.name,
+      turn_order: curPlayer.turn_order,
+      planet_color: curPlayer.planet_color,
+      turn_number: gs.turn_number,
+      must_answer: false,
+      server_now_ms: now,
+      is_extra_turn: true
+    });
+    emitTarotState(room_id);
+    return;
   }
 
   gs.phase = "IDLE";
@@ -875,7 +907,7 @@ function emitGameStateSync(room_id) {
   const gs = gameStates[room_id];
   if (!gs) return;
 
-  io.to(`game_${room_id}`).emit("game:state_sync", {
+  const payload = {
     room_id,
     server_now_ms: Date.now(),
     phase: gs.phase,
@@ -897,7 +929,10 @@ function emitGameStateSync(room_id) {
       recover_house_money_charges: Number(p.recover_house_money_charges || 0)
     })),
     cellStates: gs.cellStates || {}
-  });
+  };
+
+  console.log('[emitGameStateSync] cellStates gửi đi:', JSON.stringify(payload.cellStates));
+  io.to(`game_${room_id}`).emit("game:state_sync", payload);
 }
 
 // ===== SOCKET EVENTS =====
@@ -1153,7 +1188,7 @@ io.on("connection", (socket) => {
     emitTarotState(room_id);
   });
 
-socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, target_cell_index = null }) => {
+socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, target_cell_index = null, my_cell_index = null }) => {
   try {
     const gs = gameStates[room_id];
     if (!gs) return socket.emit("game:tarot_denied", { message: "Không tìm thấy game" });
@@ -1192,7 +1227,8 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
 
     const ok = await applyTarotEffect(gs, cur, tarotDef, {
       target_user_id,
-      target_cell_index
+      target_cell_index,
+      my_cell_index
     });
 
     if (!ok) return;
@@ -1202,6 +1238,8 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     runtime.last_used_at = now;
     runtime.last_used_turn = gs.turn_number;
     runtime.next_available_at = now + Number(tarotDef.cooldown_seconds || 0) * 1000;
+    // Cooldown theo lượt (song song với cooldown_seconds)
+    runtime.cooldown_turns_left = Number(tarotDef.cooldown_turns ?? 0);
 
     io.to(`game_${room_id}`).emit("game:tarot_used", {
       room_id,
@@ -1213,7 +1251,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     });
 
     emitTarotState(room_id);
-    emitGameStateSync(room_id);
+    setTimeout(() => emitGameStateSync(room_id), 700);
   } catch (err) {
     console.error("game:use_tarot error:", err);
     socket.emit("game:tarot_denied", { message: "Lỗi server khi dùng thẻ" });
@@ -1704,6 +1742,22 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
       actualRent = 0;
       payer.free_rent_turns -= 1;
     }
+
+    // Thần Giữ Của: hoàn lại toàn bộ tiền thuê
+    if (payer && payer.rent_refund_pending) {
+      payer.rent_refund_pending = false;
+      io.to(`room_${room_id}`).to(`game_${room_id}`).emit('game:skill_event', {
+        type: 'rent_refunded',
+        user_id: payer.user_id,
+        name: payer.name,
+        amount: actualRent
+      });
+      setTimeout(() => endTurn(room_id), 1200);
+      return;
+    }
+
+    // Nhận Trợ Giúp: lấy 20% tiền đối thủ ngay khi đổ xúc xắc xong
+    applyPendingSteal(gs, cur);
 
     // Check if payer can afford the rent
     if (payer && (payer.cash || 0) < actualRent) {

@@ -138,9 +138,10 @@ export default class TarotModalSystem {
     const sc      = this.scene;
     const myUid   = sc._myUserId();
     const runtime = sc.tarotStateByUserId?.[myUid]?.tarot_runtime?.[card.id] || {};
-    const now     = sc._estimateServerNowMs ? sc._estimateServerNowMs() : Date.now();
-    const remaining  = Math.max(0, Math.ceil((Number(runtime.next_available_at || 0) - now) / 1000));
-    const onCooldown = remaining > 0;
+    // Cooldown theo số lần đổ xúc xắc
+    const remaining    = Math.max(0, Number(runtime.cooldown_turns_left ?? 0));
+    const cdUnit       = 'lần đổ';
+    const onCooldown   = remaining > 0;
     const usedThisTurn = !!(sc.tarotStateByUserId?.[myUid]?.used_tarot_this_turn);
 
     const left = cx - CW / 2;
@@ -192,7 +193,7 @@ export default class TarotModalSystem {
 
     // Cooldown label
     const cdText = push(sc.add.text(cx, top + CH - 68 * S,
-      onCooldown ? `⏳ Hồi chiêu: ${remaining}s` : `⚡ CD: ${card.cooldown_seconds || 0}s`, {
+      onCooldown ? `⏳ Còn ${remaining} lần đổ` : `⚡ CD: ${card.cooldown_turns ?? card.cooldown_seconds ?? 0} lần`, {
       fontFamily: "Signika", fontSize: Math.floor(16 * S) + "px",
       color: onCooldown ? "#ff9966" : "#ffe28a", fontStyle: "bold"
     }).setOrigin(0.5).setDepth(D + 5).setAlpha(0));
@@ -218,7 +219,7 @@ export default class TarotModalSystem {
     if (!onCooldown && !usedThisTurn) {
       this._buildUseButton(card, cx, top + CH - 22 * S, CW, S, D, push, ui);
     } else {
-      const reason = usedThisTurn ? "Đã dùng lượt này" : `Đang hồi: ${remaining}s`;
+      const reason = usedThisTurn ? "Đã dùng lượt này" : `Còn ${remaining} lần đổ`;
       const disBtn = push(sc.add.graphics().setDepth(D + 5).setAlpha(0));
       disBtn.fillStyle(0x444444, 1);
       disBtn.fillRoundedRect(cx - (CW * 0.7) / 2, top + CH - 38 * S, CW * 0.7, 34 * S, 17 * S);
@@ -493,11 +494,25 @@ export default class TarotModalSystem {
     sc._startDarkMapEffect?.();
 
     const enemyCells = [];
+    // Dùng overlay riêng — KHÔNG gọi paintCellGlowAnimated để không đổi màu gốc
+    this._highlightObjs = this._highlightObjs || [];
     Object.entries(sc.cellStates || {}).forEach(([idx, cell]) => {
       if (Number(cell.owner_user_id) !== Number(myUid)) {
         enemyCells.push(Number(idx));
-        const cellObj = sc.boardPath?.[idx];
-        if (cellObj) sc.paintCellGlowAnimated?.(cellObj, 0xff2200);
+        const cellObj = sc.boardPath?.[Number(idx)];
+        if (cellObj) {
+          const x = cellObj.x * sc.scale.width;
+          const y = cellObj.y * sc.scale.height;
+          const S = sc.minRatio || 1;
+          const ring = sc.add.graphics().setDepth(500);
+          ring.lineStyle(3 * S, 0xff2200, 1);
+          ring.strokeCircle(x, y, 28 * S);
+          ring.fillStyle(0xff2200, 0.25);
+          ring.fillCircle(x, y, 28 * S);
+          this._highlightObjs.push(ring);
+          // Pulse
+          sc.tweens.add({ targets: ring, alpha: { from: 1, to: 0.4 }, duration: 500, yoyo: true, repeat: -1 });
+        }
       }
     });
 
@@ -513,9 +528,10 @@ export default class TarotModalSystem {
       const hitCell = this._getCellAtPointer(pointer);
       if (!hitCell || !enemyCells.includes(hitCell.index)) return;
 
-      // Clean up
+      // Clean up highlights
       sc.input.off("pointerdown", this._targetingListener);
       this._targetingListener = null;
+      this._clearHighlightObjs();
       sc._stopDarkMapEffect?.();
       sc._clearToasts?.();
 
@@ -585,13 +601,25 @@ export default class TarotModalSystem {
 
     sc._startDarkMapEffect?.();
 
-    // Step 1: highlight tinh cầu đối thủ
+    // Step 1: highlight tinh cầu đối thủ bằng overlay ring — không đổi màu gốc
     this._enemyCells = [];
+    this._highlightObjs = this._highlightObjs || [];
     Object.entries(sc.cellStates || {}).forEach(([idx, cell]) => {
       if (Number(cell.owner_user_id) !== Number(myUid)) {
         this._enemyCells.push(Number(idx));
-        const cellObj = sc.boardPath?.[idx];
-        if (cellObj) sc.paintCellGlowAnimated?.(cellObj, 0xffaa00);
+        const cellObj = sc.boardPath?.[Number(idx)];
+        if (cellObj) {
+          const x = cellObj.x * sc.scale.width;
+          const y = cellObj.y * sc.scale.height;
+          const S = sc.minRatio || 1;
+          const ring = sc.add.graphics().setDepth(500);
+          ring.lineStyle(3 * S, 0xffaa00, 1);
+          ring.strokeCircle(x, y, 28 * S);
+          ring.fillStyle(0xffaa00, 0.22);
+          ring.fillCircle(x, y, 28 * S);
+          this._highlightObjs.push(ring);
+          sc.tweens.add({ targets: ring, alpha: { from: 1, to: 0.4 }, duration: 500, yoyo: true, repeat: -1 });
+        }
       }
     });
 
@@ -612,16 +640,29 @@ export default class TarotModalSystem {
 
       // Chuyển sang step 2: highlight tinh cầu của mình
       sc.input.off("pointerdown", this._targetingListener);
+      this._clearHighlightObjs();
       sc._stopDarkMapEffect?.();
       sc._clearToasts?.();
       sc._startDarkMapEffect?.();
 
       const myCells = [];
+      this._highlightObjs = [];
       Object.entries(sc.cellStates || {}).forEach(([idx, cell]) => {
         if (Number(cell.owner_user_id) === Number(myUid)) {
           myCells.push(Number(idx));
-          const cellObj = sc.boardPath?.[idx];
-          if (cellObj) sc.paintCellGlowAnimated?.(cellObj, 0x44ff88);
+          const cellObj = sc.boardPath?.[Number(idx)];
+          if (cellObj) {
+            const x = cellObj.x * sc.scale.width;
+            const y = cellObj.y * sc.scale.height;
+            const S = sc.minRatio || 1;
+            const ring = sc.add.graphics().setDepth(500);
+            ring.lineStyle(3 * S, 0x44ff88, 1);
+            ring.strokeCircle(x, y, 28 * S);
+            ring.fillStyle(0x44ff88, 0.22);
+            ring.fillCircle(x, y, 28 * S);
+            this._highlightObjs.push(ring);
+            sc.tweens.add({ targets: ring, alpha: { from: 1, to: 0.4 }, duration: 500, yoyo: true, repeat: -1 });
+          }
         }
       });
 
@@ -640,6 +681,7 @@ export default class TarotModalSystem {
         // Clean up
         sc.input.off("pointerdown", this._secondaryListener);
         this._secondaryListener = null;
+        this._clearHighlightObjs();
         sc._stopDarkMapEffect?.();
         sc._clearToasts?.();
 
@@ -671,8 +713,9 @@ export default class TarotModalSystem {
     const bx = cellB.x * sc.scale.width,  by = cellB.y * sc.scale.height;
     const S  = sc.minRatio || 1;
 
-    const iconA = sc.add.text(ax, ay, "🔴", { fontSize: Math.floor(28 * S) + "px" }).setOrigin(0.5).setDepth(900);
-    const iconB = sc.add.text(bx, by, "🟢", { fontSize: Math.floor(28 * S) + "px" }).setOrigin(0.5).setDepth(900);
+    // Dùng icon trung tính thay vì màu cứng
+    const iconA = sc.add.text(ax, ay, "⭐", { fontSize: Math.floor(28 * S) + "px" }).setOrigin(0.5).setDepth(900);
+    const iconB = sc.add.text(bx, by, "⭐", { fontSize: Math.floor(28 * S) + "px" }).setOrigin(0.5).setDepth(900);
 
     sc.tweens.add({ targets: iconA, x: bx, y: by, duration: 600, ease: 'Quad.easeInOut' });
     sc.tweens.add({
@@ -683,7 +726,6 @@ export default class TarotModalSystem {
       }
     });
 
-    // Flash ở 2 ô
     [{ x: ax, y: ay }, { x: bx, y: by }].forEach(pos => {
       const fl = sc.add.circle(pos.x, pos.y, 50 * S, 0xffffff, 0.5).setDepth(899);
       sc.tweens.add({ targets: fl, alpha: 0, scaleX: 1.8, scaleY: 1.8, duration: 500,
@@ -720,12 +762,18 @@ export default class TarotModalSystem {
       sc.input.off("pointerdown", this._secondaryListener);
       this._secondaryListener = null;
     }
+    this._clearHighlightObjs();
     sc._stopDarkMapEffect?.();
     sc._clearToasts?.();
     this._targetingMode     = null;
     this._selectedEnemyCell = null;
     this._swapCard          = null;
     this._enemyCells        = [];
+  }
+
+  _clearHighlightObjs() {
+    (this._highlightObjs || []).forEach(o => { try { o?.destroy?.(); } catch {} });
+    this._highlightObjs = [];
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -746,29 +794,28 @@ export default class TarotModalSystem {
   // ─────────────────────────────────────────────────────────────────────────
 
   _startLiveCooldownTicker(cards, myUid) {
-    if (this._timer) clearInterval(this._timer);
-    this._timer = setInterval(() => {
-      if (!this._open) { clearInterval(this._timer); return; }
-      this._updateCooldownDisplays(cards, myUid);
-    }, 1000);
+    // Cooldown theo rolls — không cần ticker giây
+    // Chỉ update 1 lần khi mở modal
+    this._updateCooldownDisplays(cards, myUid);
   }
 
   _updateCooldownDisplays(cards, myUid) {
-    const sc  = this.scene;
-    const now = sc._estimateServerNowMs ? sc._estimateServerNowMs() : Date.now();
+    const sc = this.scene;
 
     (this._cardUIs || []).forEach(({ card, ui }) => {
       const runtime   = sc.tarotStateByUserId?.[myUid]?.tarot_runtime?.[card.id] || {};
-      const remaining = Math.max(0, Math.ceil((Number(runtime.next_available_at || 0) - now) / 1000));
-      const maxCd     = Number(card.cooldown_seconds || 1);
-      const pct       = remaining > 0 ? remaining / maxCd : 0;
+      const rollsLeft = Math.max(0, Number(runtime.cooldown_turns_left ?? 0));
+      const maxCd     = Number(card.cooldown_turns ?? card.cooldown_seconds ?? 1);
+      const pct       = rollsLeft > 0 ? rollsLeft / maxCd : 0;
 
       if (ui.cdText) {
-        ui.cdText.setText(remaining > 0 ? `⏳ Hồi chiêu: ${remaining}s` : `⚡ CD: ${maxCd}s`);
-        ui.cdText.setColor(remaining > 0 ? "#ff9966" : "#ffe28a");
+        ui.cdText.setText(rollsLeft > 0
+          ? `⏳ Còn ${rollsLeft} lần đổ`
+          : `⚡ CD: ${Number(card.cooldown_turns ?? card.cooldown_seconds ?? 0)} lần`);
+        ui.cdText.setColor(rollsLeft > 0 ? "#ff9966" : "#ffe28a");
       }
-      if (ui.barFill) this._drawCdBar(ui.barFill, ui.barX, ui.barY, ui.barW, ui.barH, pct, remaining > 0);
-      if (ui.bigCD)   ui.bigCD.setText(remaining > 0 ? `${remaining}` : '');
+      if (ui.barFill) this._drawCdBar(ui.barFill, ui.barX, ui.barY, ui.barW, ui.barH, pct, rollsLeft > 0);
+      if (ui.bigCD)   ui.bigCD.setText(rollsLeft > 0 ? `${rollsLeft}` : '');
     });
   }
 }

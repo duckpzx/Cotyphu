@@ -1,6 +1,7 @@
 import PowerDiceSystem   from "./components/PowerDiceSystem.js";
 import TarotModalSystem  from "./components/TarotModalSystem.js";
 import TarotButtonWidget from "./components/TarotButtonWidget.js";
+import CardSystem        from "./components/CardSystem.js";
 import { getActiveProfile, getPlayerData } from "../server/utils/playerData.js";
 
 export default class BoardScene extends Phaser.Scene {
@@ -71,14 +72,12 @@ _refreshPlayerTarotCooldownByUserId(userId) {
     this.gamePlayers?.find(p => Number(p.user_id) === Number(userId))?.active_tarot_ids
   );
 
-  const now = this._estimateServerNowMs();
-
-  const secondsLeft = ids.map((id) => {
-    const nextAt = Number(runtime?.[id]?.next_available_at || 0);
-    return Math.max(0, Math.ceil((nextAt - now) / 1000));
+  // Cooldown tính bằng số lần đổ xúc xắc còn lại
+  const rollsLeft = ids.map((id) => {
+    return Math.max(0, Number(runtime?.[id]?.cooldown_turns_left ?? 0));
   });
 
-  this.updatePlayerTarotCooldownsByUserId(userId, secondsLeft);
+  this.updatePlayerTarotCooldownsByUserId(userId, rollsLeft);
 }
 
 _refreshAllTarotCooldownUIs() {
@@ -88,15 +87,7 @@ _refreshAllTarotCooldownUIs() {
 }
 
 _startTarotUiTicker() {
-  if (this._tarotUiTimer) return;
-
-  this._tarotUiTimer = this.time.addEvent({
-    delay: 1000,
-    loop: true,
-    callback: () => {
-      this._refreshAllTarotCooldownUIs();
-    }
-  });
+  // Cooldown theo rolls — không cần ticker giây, refresh khi nhận event từ server
 }
 
 _canUseTarotNow() {
@@ -306,6 +297,10 @@ _closeTarotModal() { this.tarotModal?.close(); }
       }
       // Thêm: mở/đóng nút tarot theo lượt
       this._applyTurnState();  // dòng này đã có, đảm bảo gọi sau khi set isMyTurn
+
+      // Tick cooldown theo lượt cho người vừa kết thúc lượt
+      const prevUserId = data.prev_turn_user_id ?? data.user_id;
+      if (prevUserId) this.cardSystem?.tickCooldowns(Number(prevUserId));
 
       this._refreshAllTarotCooldownUIs();
     });
@@ -704,6 +699,115 @@ _closeTarotModal() { this.tarotModal?.close(); }
         // Hiệu ứng phá hủy được xử lý riêng qua sự kiện game:cell_destroyed
         return;
       }
+
+      // ================== SWAP PLANET ==================
+      if (data.type === "swap_planet") {
+        this._showSkillPanel({
+          title: "HOÁN ĐỔI",
+          text: `${data.name} hoán đổi tinh cầu!`,
+          icon: "orb_purple"
+        });
+        // Chỉ animation — màu sẽ được render đúng bởi game:state_sync
+        const cellA = this.boardPath?.[data.my_cell_index];
+        const cellB = this.boardPath?.[data.enemy_cell_index];
+        if (cellA && cellB) {
+          const ax = cellA.x * this.scale.width, ay = cellA.y * this.scale.height;
+          const bx = cellB.x * this.scale.width, by = cellB.y * this.scale.height;
+          const S  = this.minRatio || 1;
+          const iA = this.add.text(ax, ay, "⭐", { fontSize: Math.floor(28*S)+"px" }).setOrigin(0.5).setDepth(900);
+          const iB = this.add.text(bx, by, "⭐", { fontSize: Math.floor(28*S)+"px" }).setOrigin(0.5).setDepth(900);
+          this.tweens.add({ targets: iA, x: bx, y: by, duration: 500, ease: 'Quad.easeInOut' });
+          this.tweens.add({ targets: iB, x: ax, y: ay, duration: 500, ease: 'Quad.easeInOut',
+            onComplete: () => { iA.destroy(); iB.destroy(); }
+          });
+        }
+        return;
+      }
+
+      // ================== TAX MULTIPLIER (Tài Phiệt) ==================
+      if (data.type === "tax_multiplier") {
+        this._showSkillPanel({
+          title: "TÀI PHIỆT",
+          text: `${data.name} tăng thuế các tinh cầu!`,
+          icon: "orb_orange"
+        });
+        (data.cells || []).forEach(c => {
+          if (this.cellStates?.[c.index]) {
+            this.cellStates[c.index].tax_multiplier        = c.multiplier;
+            this.cellStates[c.index].tax_multiplier_active = true;
+          }
+          const cell = this.boardPath[c.index];
+          if (cell && cell.type !== 'skill') {
+            this.time.delayedCall(300, () => this._waterBallDrop(cell, c.multiplier));
+          }
+        });
+        return;
+      }
+
+      // ================== STEAL CASH PENDING (Nhận Trợ Giúp) ==================
+      if (data.type === "steal_cash_percent_pending") {
+        this._showSkillPanel({
+          title: "NHẬN TRỢ GIÚP",
+          text: `${data.name} sẽ lấy ${data.percent}% tiền đối thủ!`,
+          icon: "orb_orange"
+        });
+        return;
+      }
+
+      // ================== SKIP TURN ENEMY (Công An) ==================
+      if (data.type === "skip_turn_enemy") {
+        this._showSkillPanel({
+          title: "CÔNG AN",
+          text: `${data.name} khiến ${data.target_name} mất lượt!`,
+          icon: "orb_red"
+        });
+        if (data.target_user_id === this._myUserId()) {
+          this._showToast(`🚔 Bạn bị ${data.name} cho mất lượt!`, "#ff6666", 3000);
+        }
+        return;
+      }
+
+      // ================== RECOVER HOUSE MONEY (Thần Giữ Của) ==================
+      if (data.type === "recover_house_money") {
+        this._showSkillPanel({
+          title: "THẦN GIỮ CỦA",
+          text: `${data.name} được bảo vệ khỏi tiền thuê lượt này!`,
+          icon: "orb_blue"
+        });
+        if (isMe) this._showToast("🛡 Bạn được hoàn tiền thuê nếu dẫm vào nhà đối thủ!", "#88ffcc", 3000);
+        return;
+      }
+
+      // ================== RENT REFUNDED ==================
+      if (data.type === "rent_refunded") {
+        this._showSkillPanel({
+          title: "HOÀN TIỀN THUÊ",
+          text: `${data.name} được hoàn lại ${this._formatMoney(data.amount)} tiền thuê!`,
+          icon: "orb_blue"
+        });
+        if (isMe) this._showToast(`🛡 Hoàn lại ${this._formatMoney(data.amount)} tiền thuê!`, "#88ffcc", 2500);
+        return;
+      }
+
+      // ================== MOVE FORWARD PENDING (Nhanh Chân) ==================
+      if (data.type === "move_forward_range_pending") {
+        this._showSkillPanel({
+          title: "NHANH CHÂN",
+          text: `${data.name} sẽ di chuyển thêm ${data.min}–${data.max} ô sau lượt này!`,
+          icon: "orb_blue"
+        });
+        return;
+      }
+
+      // ================== EXTRA ROLL TAROT (Xúc Xắc Ma Thuật) ==================
+      if (data.type === "extra_roll" && data.source === "tarot") {
+        this._showSkillPanel({
+          title: "XÚC XẮC MA THUẬT",
+          text: `${data.name} được thêm 1 lượt tung xúc xắc!`,
+          icon: "orb_orange"
+        });
+        return;
+      }
     });
 
   this.socket.on("game:tax_boost", (data) => {
@@ -965,13 +1069,39 @@ this.socket.on("game:tarot_denied", (data) => {
     this.tarotModal?.close();
   });
 
+  // ── game:state_sync — đồng bộ toàn bộ state (cellStates, players) ──
+  this.socket.on("game:state_sync", (data) => {
+    if (!data) return;
+
+    if (data.cellStates) {
+      console.log('[state_sync] cellStates nhận được:', JSON.stringify(data.cellStates));
+      console.log('[state_sync] cellStates cũ:', JSON.stringify(this.cellStates));
+      this.cellStates = data.cellStates;
+      this._renderAllCells(this.cellStates);
+      console.log('[state_sync] _renderAllCells xong');
+    } else {
+      console.warn('[state_sync] KHÔNG có cellStates trong data!');
+    }
+
+    if (Array.isArray(data.players)) {
+      data.players.forEach(sp => {
+        const gp = (this.gamePlayers || []).find(p => Number(p.user_id) === Number(sp.user_id));
+        if (gp) {
+          if (sp.cash !== undefined) gp.cash = sp.cash;
+          if (sp.skip_next_turn !== undefined) gp.skip_next_turn = sp.skip_next_turn;
+        }
+      });
+      this._updatePlayerStatsInUI();
+    }
+  });
+
   this.socket.on("game:tarot_state", (data) => {
     if (data.server_now_ms) {
       this.serverClockOffsetMs = Number(data.server_now_ms) - Date.now();
     }
     const userId = Number(data.user_id);
     if (!userId) return;
- 
+
     this.tarotStateByUserId[userId] = {
       tarot_runtime:        data.tarot_runtime || {},
       cooldown_seconds_left: data.cooldown_seconds_left || [],
@@ -984,12 +1114,10 @@ this.socket.on("game:tarot_denied", (data) => {
       this.updatePlayerTarotSlotsByUserId(userId, data.active_tarot_ids);
     }
     this._refreshPlayerTarotCooldownByUserId(userId);
- 
-    // Cập nhật cooldown live trong panel nhỏ
-    const myUid = this._myUserId();
-    if (Number(userId) === Number(myUid)) {
-      // Nếu modal đang mở thì không cần cập nhật thêm (ticker tự lo)
-    }
+
+    // Sync cooldown_turns_left vào CardSystem
+    this.cardSystem?.syncFromServer(userId, data.active_tarot_ids || [], data.tarot_runtime || {});
+    this._refreshPlayerTarotCooldownByUserId(userId);
   });
 
   }
@@ -1589,11 +1717,11 @@ this.socket.on("game:tarot_denied", (data) => {
   _applyTurnState() {
     if (!this.isMyTurn || this.mustAnswerNext) {
       this.powerDice?.hide();
-      this.tarotBtn?.hide();           // ← ẩn nút tarot khi không phải lượt
+      this.tarotBtn?.hide();
       return;
     }
     this.powerDice?.showForMyTurn();
-    this.tarotBtn?.show();             // ← hiện nút tarot khi đến lượt
+    this.tarotBtn?.show();
   }
 
   // =====================
@@ -2229,7 +2357,13 @@ this.input.keyboard.on("keydown-Y", () => {
 
     // ── Tarot Modal System ──
     this.tarotModal = new TarotModalSystem(this);
- 
+
+    // ── Card System (turn-based cooldown + effect logic) ──
+    this.cardSystem = new CardSystem(this);
+    this.cardSystem.on('card:cooldown_tick', ({ userId }) => {
+      this._refreshPlayerTarotCooldownByUserId(userId);
+    });
+
     // ── Tarot Button Widget ──
     this.tarotBtn = new TarotButtonWidget(this, this.tarotModal);
     this.tarotBtn.create(minRatio);
@@ -4084,6 +4218,7 @@ this.input.keyboard.on("keydown-Y", () => {
       const cell = this.boardPath[Number(idx)];
       if (cell && cell.type !== 'skill') {
         const hex = this._planetColorToHex(data.planet_color);
+        console.log(`[renderAllCells] ô ${idx}: planet_color=${data.planet_color} → hex=0x${hex.toString(16)}`);
         this.paintCellGlowAnimated(cell, hex);
       }
     });
