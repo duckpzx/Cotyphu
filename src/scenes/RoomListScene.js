@@ -266,6 +266,9 @@ export default class RoomListScene extends Phaser.Scene {
     g.fillRoundedRect(panelX + 6, panelY + 4, panelW - 12, 20, 8);
     g.lineStyle(1.5, 0xb8922e, 0.5);
     const ins = 10;
+    const cornerR = 16; // radius của góc bo tròn
+    
+    // Hàm vẽ đường thẳng đứt nét
     const drawD = (x1, y1, x2, y2) => {
       const dist = Phaser.Math.Distance.Between(x1, y1, x2, y2);
       const ang  = Phaser.Math.Angle.Between(x1, y1, x2, y2);
@@ -276,10 +279,31 @@ export default class RoomListScene extends Phaser.Scene {
         g.strokePath();
       }
     };
-    drawD(panelX+ins+16, panelY+ins, panelX+panelW-ins-16, panelY+ins);
-    drawD(panelX+panelW-ins, panelY+ins+16, panelX+panelW-ins, panelY+panelH-ins-16);
-    drawD(panelX+panelW-ins-16, panelY+panelH-ins, panelX+ins+16, panelY+panelH-ins);
-    drawD(panelX+ins, panelY+panelH-ins-16, panelX+ins, panelY+ins+16);
+    
+    // Hàm vẽ cung tròn đứt nét cho góc
+    const drawArc = (cx, cy, radius, startAngle, endAngle) => {
+      const arcLength = radius * Math.abs(endAngle - startAngle);
+      const steps = Math.ceil(arcLength / 14);
+      for (let i = 0; i < steps; i++) {
+        const a1 = startAngle + (endAngle - startAngle) * (i / steps);
+        const a2 = startAngle + (endAngle - startAngle) * Math.min((i + 0.57) / steps, 1);
+        g.beginPath();
+        g.arc(cx, cy, radius, a1, a2);
+        g.strokePath();
+      }
+    };
+    
+    // Vẽ 4 cạnh thẳng (không bao gồm góc)
+    drawD(panelX+ins+cornerR, panelY+ins, panelX+panelW-ins-cornerR, panelY+ins); // top
+    drawD(panelX+panelW-ins, panelY+ins+cornerR, panelX+panelW-ins, panelY+panelH-ins-cornerR); // right
+    drawD(panelX+panelW-ins-cornerR, panelY+panelH-ins, panelX+ins+cornerR, panelY+panelH-ins); // bottom
+    drawD(panelX+ins, panelY+panelH-ins-cornerR, panelX+ins, panelY+ins+cornerR); // left
+    
+    // Vẽ 4 góc bo tròn
+    drawArc(panelX+ins+cornerR, panelY+ins+cornerR, cornerR, Math.PI, Math.PI*1.5); // top-left
+    drawArc(panelX+panelW-ins-cornerR, panelY+ins+cornerR, cornerR, Math.PI*1.5, Math.PI*2); // top-right
+    drawArc(panelX+panelW-ins-cornerR, panelY+panelH-ins-cornerR, cornerR, 0, Math.PI*0.5); // bottom-right
+    drawArc(panelX+ins+cornerR, panelY+panelH-ins-cornerR, cornerR, Math.PI*0.5, Math.PI); // bottom-left
     this._panelBounds = { x: panelX, y: panelY, w: panelW, h: panelH };
   }
 
