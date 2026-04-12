@@ -676,27 +676,62 @@ export default class RoomScene extends Phaser.Scene {
     bg.lineStyle(2, 0x2a4a6a, 0.6);
     bg.strokeRoundedRect(-hw, -hh, sw, sh, 14);
 
-    const plusTxt = this.add.text(0, -14, "+", {
-      fontFamily: "Signika", fontSize: "52px",
-      color: "#1a4a7a", fontStyle: "bold"
+    // ── 2 nút pill: Mời bạn + Đổi chỗ ───────────────────────────────
+    const btnW = sw - 44, btnH = 36, btnR = btnH / 2;
+    const btn1Y = -18, btn2Y = btn1Y + btnH + 10;
+
+    const drawBtn = (g, by, c1, c2, hover = false) => {
+      g.clear();
+      g.fillStyle(c1, 0.18);
+      g.fillRoundedRect(-btnW/2 - 4, by - btnH/2 - 4, btnW + 8, btnH + 8, btnR + 3);
+      g.fillStyle(0x000000, 0.25);
+      g.fillRoundedRect(-btnW/2 + 3, by - btnH/2 + 5, btnW, btnH, btnR);
+      g.fillGradientStyle(c1, c1, c2, c2, 1);
+      g.fillRoundedRect(-btnW/2, by - btnH/2, btnW, btnH, btnR);
+      g.fillStyle(0xffffff, hover ? 0.38 : 0.22);
+      g.fillRoundedRect(-btnW/2 + 8, by - btnH/2 + 5, btnW - 16, btnH / 3, btnR - 4);
+      g.lineStyle(2, 0xffffff, hover ? 0.7 : 0.5);
+      g.strokeRoundedRect(-btnW/2, by - btnH/2, btnW, btnH, btnR);
+    };
+
+    const g1 = this.add.graphics();
+    drawBtn(g1, btn1Y, 0x22aa44, 0x44cc66);
+    const t1 = this.add.text(0, btn1Y, "Mời bạn", {
+      fontFamily: "Signika", fontSize: "18px", color: "#ffffff",
+      fontStyle: "bold", stroke: "#000000", strokeThickness: 3,
     }).setOrigin(0.5);
 
-    const waitTxt = this.add.text(0, 26, "Chờ người chơi...", {
-      fontFamily: "Signika", fontSize: "12px",
-      color: "#2a5a8a"
+    const g2 = this.add.graphics();
+    drawBtn(g2, btn2Y, 0xff8800, 0xffaa00);
+    const t2 = this.add.text(0, btn2Y, "Đổi chỗ", {
+      fontFamily: "Signika", fontSize: "18px", color: "#ffffff",
+      fontStyle: "bold", stroke: "#000000", strokeThickness: 3,
     }).setOrigin(0.5);
 
-    container.add([bg, plusTxt, waitTxt]);
+    container.add([bg, g1, t1, g2, t2]);
 
-    // Click vào slot trống → đổi chỗ (nếu đang ở slot khác)
-    container.setSize(sw, sh).setInteractive({ cursor: "pointer" });
-    container.on("pointerdown", () => {
+    // Zone nút 1: Mời bạn
+    const z1 = this.add.zone(0, btn1Y, btnW, btnH).setInteractive({ cursor: "pointer" });
+    z1.on("pointerover",  () => drawBtn(g1, btn1Y, 0x22aa44, 0x44cc66, true));
+    z1.on("pointerout",   () => drawBtn(g1, btn1Y, 0x22aa44, 0x44cc66, false));
+    z1.on("pointerdown",  () => {
+      this.tweens.add({ targets: g1, alpha: 0.65, duration: 60, yoyo: true });
+      // TODO: mở modal mời bạn
+    });
+
+    // Zone nút 2: Đổi chỗ
+    const z2 = this.add.zone(0, btn2Y, btnW, btnH).setInteractive({ cursor: "pointer" });
+    z2.on("pointerover",  () => drawBtn(g2, btn2Y, 0xff8800, 0xffaa00, true));
+    z2.on("pointerout",   () => drawBtn(g2, btn2Y, 0xff8800, 0xffaa00, false));
+    z2.on("pointerdown",  () => {
+      this.tweens.add({ targets: g2, alpha: 0.65, duration: 60, yoyo: true });
       const myPlayer = this._getMyPlayer();
-      if (!myPlayer) return;
-      if (myPlayer.slot_index === slotIndex) return;
-      // Phát sự kiện đổi sang slot trống này
+      if (!myPlayer || myPlayer.slot_index === slotIndex) return;
       this.socket.emit("room:swap_slot", { target_slot: slotIndex });
     });
+
+    container.add([z1, z2]);
+
     container.on("pointerover", () => {
       bg.lineStyle(2, 0x44aaff, 0.8);
       bg.strokeRoundedRect(-hw, -hh, sw, sh, 14);
