@@ -14,7 +14,9 @@ export default class CreateCharacterScene extends Phaser.Scene {
 
   preload() {
     this.load.image("create_bg", "./assets/nen_taikhoan.png");
-    this.load.image("btn_play", "./assets/ui/buttons/play.png");
+    this.load.image("btn_play",  "./assets/ui/buttons/play.png");
+    this.load.image("podium",    "assets/ui/shared/podium.png");
+    this.load.image("banner",    "assets/ui/shared/banner_cr_ch.png");
   }
 
   async create() {
@@ -45,11 +47,8 @@ export default class CreateCharacterScene extends Phaser.Scene {
     // ── Load characters ───────────────────────────────────────────────────────
     await this.loadCharacters();
 
-    // ── Name input ────────────────────────────────────────────────────────────
+    // ── Name input + Button trên cùng 1 hàng ─────────────────────────────────
     this.createNameInput(width, height);
-
-    // ── "Vào Game" button ─────────────────────────────────────────────────────
-    this._buildPlayButton(width, height);
 
     // ── Cleanup on shutdown ───────────────────────────────────────────────────
     this.events.once("shutdown", () => {
@@ -61,47 +60,15 @@ export default class CreateCharacterScene extends Phaser.Scene {
   // Title Banner  (red ribbon + golden outlined text + stars)
   // ────────────────────────────────────────────────────────────────────────────
   _buildTitleBanner(width) {
-    const bx = width / 2, by = 72;
-    const bw = 480, bh = 72;
+    const bx = width / 2, by = 92;
 
-    // Ribbon shadow
-    const shadow = this.add.graphics();
-    shadow.fillStyle(0x000000, 0.25);
-    shadow.fillRoundedRect(bx - bw / 2 + 6, by - bh / 2 + 6, bw, bh, 10);
+    // Ảnh banner kích thước gốc, không scale
+    const bannerImg = this.add.image(bx, by, "banner").setOrigin(0.5).setScale(0.8);
 
-    // Ribbon body
-    const ribbon = this.add.graphics();
-    ribbon.fillGradientStyle(0xd42020, 0xd42020, 0xff4444, 0xff4444, 1);
-    ribbon.fillRoundedRect(bx - bw / 2, by - bh / 2, bw, bh, 10);
-
-    // Gold border
-    ribbon.lineStyle(3, 0xffdd55, 1);
-    ribbon.strokeRoundedRect(bx - bw / 2, by - bh / 2, bw, bh, 10);
-
-    // Stars left & right
-    const starStyle = { fontSize: "28px", color: "#ffdd55" };
-    this.add.text(bx - bw / 2 + 18, by, "★", starStyle).setOrigin(0.5);
-    this.add.text(bx + bw / 2 - 18, by, "★", starStyle).setOrigin(0.5);
-
-    // Title text
-    this.add.text(bx, by + 2, "CHỌN NHÂN VẬT", {
-      fontFamily: "Signika",
-      fontSize: "34px",
-      color: "#ffe066",
-      fontStyle: "bold",
-      stroke: "#7a2000",
-      strokeThickness: 6,
-      shadow: { offsetX: 2, offsetY: 2, color: "#000", blur: 4, fill: true }
-    }).setOrigin(0.5);
-
-    // Animate subtle pulse on ribbon
     this.tweens.add({
-      targets: ribbon,
-      alpha: { from: 1, to: 0.88 },
-      duration: 1400,
-      yoyo: true,
-      repeat: -1,
-      ease: "Sine.easeInOut"
+      targets: bannerImg,
+      alpha: { from: 1, to: 0.90 },
+      duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
     });
   }
 
@@ -110,64 +77,47 @@ export default class CreateCharacterScene extends Phaser.Scene {
   // ────────────────────────────────────────────────────────────────────────────
   _buildPlayButton(width, height) {
     const bx = width / 2, by = height - 80;
-    const bw = 220, bh = 60, br = 30;
+    const bw = 240, bh = 60, br = bh / 2;
 
-    const btnGfx = this.add.graphics();
-
-    const drawBtn = (alpha) => {
-      btnGfx.clear();
-      // outer glow
-      btnGfx.fillStyle(0xff8c00, 0.3 * alpha);
-      btnGfx.fillRoundedRect(bx - bw / 2 - 10, by - bh / 2 - 10, bw + 20, bh + 20, br + 8);
-      // shadow
-      btnGfx.fillStyle(0x000000, 0.3);
-      btnGfx.fillRoundedRect(bx - bw / 2 + 4, by - bh / 2 + 6, bw, bh, br);
-      // gradient body
-      btnGfx.fillGradientStyle(0xff6600, 0xff6600, 0xff9900, 0xff9900, 1);
-      btnGfx.fillRoundedRect(bx - bw / 2, by - bh / 2, bw, bh, br);
-      // highlight line
-      btnGfx.fillStyle(0xffffff, 0.25);
-      btnGfx.fillRoundedRect(bx - bw / 2 + 8, by - bh / 2 + 6, bw - 16, bh / 3, br - 4);
-      // border
-      btnGfx.lineStyle(2, 0xffd060, 1);
-      btnGfx.strokeRoundedRect(bx - bw / 2, by - bh / 2, bw, bh, br);
+    const g = this.add.graphics();
+    const draw = (hover = false) => {
+      g.clear();
+      // Viền ngoài xám nhạt (như ảnh)
+      g.fillStyle(0xddccbb, 0.9);
+      g.fillRoundedRect(bx - bw/2 - 6, by - bh/2 - 6, bw + 12, bh + 12, br + 5);
+      // Shadow đáy đỏ đậm
+      g.fillStyle(0xaa2200, 1);
+      g.fillRoundedRect(bx - bw/2, by - bh/2 + 6, bw, bh, br);
+      // Thân nút đỏ cam gradient
+      g.fillGradientStyle(0xff5500, 0xff5500, 0xdd2200, 0xdd2200, 1);
+      g.fillRoundedRect(bx - bw/2, by - bh/2, bw, bh - 4, br);
+      // Gloss trên cùng
+      g.fillStyle(0xffffff, hover ? 0.45 : 0.30);
+      g.fillRoundedRect(bx - bw/2 + 10, by - bh/2 + 5, bw - 20, bh * 0.32, br - 4);
+      // Viền trong
+      g.lineStyle(2, 0xff8866, 0.6);
+      g.strokeRoundedRect(bx - bw/2, by - bh/2, bw, bh - 4, br);
     };
-    drawBtn(1);
+    draw(false);
 
-    const btnText = this.add.text(bx, by, "VÀO GAME", {
-      fontFamily: "Signika",
-      fontSize: "26px",
-      color: "#ffffff",
+    this.add.text(bx, by - 2, "VÀO GAME", {
+      fontFamily: "Signika", fontSize: "26px", color: "#fff5e0",
       fontStyle: "bold",
-      stroke: "#7a2000",
-      strokeThickness: 5,
+      stroke: "#5a1500", strokeThickness: 5,
       shadow: { offsetX: 1, offsetY: 2, color: "#000", blur: 3, fill: true }
     }).setOrigin(0.5);
 
-    // Hit area
-    const hitZone = this.add.zone(bx, by, bw, bh).setInteractive({ cursor: "pointer" });
+    this.tweens.add({ targets: g, alpha: { from: 1, to: 0.88 }, duration: 1000, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
 
-    // hitZone.on("pointerover", () => {
-    //   this.tweens.add({ targets: [btnGfx, btnText], scaleX: 1.06, scaleY: 1.06, duration: 100 });
-    // });
-    // hitZone.on("pointerout", () => {
-    //   this.tweens.add({ targets: [btnGfx, btnText], scaleX: 1, scaleY: 1, duration: 100 });
-    // });
-    hitZone.on("pointerdown", () => {
+    const zone = this.add.zone(bx, by, bw, bh).setInteractive({ cursor: "pointer" });
+    zone.on("pointerover",  () => draw(true));
+    zone.on("pointerout",   () => draw(false));
+    zone.on("pointerdown",  () => {
+      this.tweens.add({ targets: g, alpha: 0.65, duration: 60, yoyo: true });
       const name = this.nameInput ? this.nameInput.value.trim() : "";
-      if (!name) { alert("Vui lòng nhập tên nhân vật"); return; }
-      if (!this.selectedCharacter) { alert("Vui lòng chọn nhân vật"); return; }
+      if (!name) { this.showAlert("Vui lòng nhập tên nhân vật"); return; }
+      if (!this.selectedCharacter) { this.showAlert("Vui lòng chọn nhân vật"); return; }
       this.createCharacter(name);
-    });
-
-    // Idle glow pulse on button
-    this.tweens.add({
-      targets: btnGfx,
-      alpha: { from: 1, to: 0.85 },
-      duration: 900,
-      yoyo: true,
-      repeat: -1,
-      ease: "Sine.easeInOut"
     });
   }
 
@@ -225,7 +175,7 @@ export default class CreateCharacterScene extends Phaser.Scene {
     const spacing = 160; 
     const startX = width / 2 - ((total - 1) * spacing) / 2;
 
-    const charY = height / 2 - 60;  
+    const charY = height / 2 - 55;  
     const pedestalY = height / 2 + 30;
 
     this.characters.forEach((char, index) => {
@@ -236,18 +186,24 @@ export default class CreateCharacterScene extends Phaser.Scene {
       const pedestal = this._buildPedestal(x, pedestalY, index);
       this.pedestals.push(pedestal);
 
+      // ── Bóng tròn cố định trên bục ───────────────────────────────────────
+      const shadow = this.add.graphics();
+      shadow.fillStyle(0x000000, 0.28);
+      shadow.fillEllipse(x, pedestalY - 5, 70, 14);
+
       // ── Glow ring (hidden by default) ─────────────────────────────────────
       const glowRing = this.add.graphics();
       this.selectors.push(glowRing);
 
       // ── Sprite ────────────────────────────────────────────────────────────
       const sprite = this.add.sprite(x, charY, `${char.name}_${char.skin_number}_idle_000`)
-        .setScale(0.28)
+        .setScale(0.26)
         .setInteractive({ cursor: "pointer" });
 
       sprite.play(`${char.name}_${char.skin_number}_idle`);
-      sprite.setTint(0x888888);
-      sprite.setAlpha(0.75);
+      // Xám tối để gần grayscale
+      sprite.setTint(0x707070);
+      sprite.setAlpha(0.85);
       this.characterSprites.push(sprite);
 
       // bỏ dấu _
@@ -259,12 +215,12 @@ export default class CreateCharacterScene extends Phaser.Scene {
       // rút ngắn tên
       let shortName = displayName;
 
-      if (shortName.length > 12) {
-        shortName = shortName.substring(0, 12) + "...";
+      if (shortName.length > 8) {
+        shortName = shortName.substring(0, 8) + "...";
       }
 
       // ── Name label ────────────────────────────────────────────────────────
-      this.add.text(x, pedestalY + 32, shortName, {
+      this.add.text(x, pedestalY + 26, shortName, {
         fontFamily: "Signika",
         fontSize: "18px",
         color: "#ffffff",
@@ -276,19 +232,19 @@ export default class CreateCharacterScene extends Phaser.Scene {
       // ── Click to select ───────────────────────────────────────────────────
       sprite.on("pointerover", () => {
         if (this.selectedCharacter !== char) {
-          this.tweens.add({ targets: sprite, scaleX: 0.31, scaleY: 0.31, duration: 120 });
+          this.tweens.add({ targets: sprite, scaleX: 0.27, scaleY: 0.27, duration: 120 });
         }
       });
       sprite.on("pointerout", () => {
         if (this.selectedCharacter !== char) {
-          this.tweens.add({ targets: sprite, scaleX: 0.28, scaleY: 0.28, duration: 120 });
+          this.tweens.add({ targets: sprite, scaleX: 0.26, scaleY: 0.26, duration: 120 });
         }
       });
       sprite.on("pointerdown", () => this._selectCharacter(index, char));
     });
 
     // Default select first
-    this.time.delayedCall(120, () => this._selectCharacter(0, this.characters[0]));
+    this.time.delayedCall(120, () => this._selectCharacter(3, this.characters[3]));
   }
 
   _selectCharacter(index, char) {
@@ -296,13 +252,17 @@ export default class CreateCharacterScene extends Phaser.Scene {
 
     this.characterSprites.forEach((s, i) => {
       if (i === index) {
+        // Nhân vật được chọn: màu đầy đủ
+        try { s.resetPipeline(); } catch(e) {}
         s.clearTint();
         s.setAlpha(1);
-        this.tweens.add({ targets: s, scaleX: 0.31, scaleY: 0.31, duration: 180, ease: "Back.easeOut" });
+        this.tweens.add({ targets: s, scaleX: 0.27, scaleY: 0.27, duration: 180, ease: "Back.easeOut" });
       } else {
-        s.setTint(0x888888);
-        s.setAlpha(0.72);
-        this.tweens.add({ targets: s, scaleX: 0.28, scaleY: 0.28, duration: 120 });
+        // Nhân vật không chọn: xám tối
+        try { s.resetPipeline(); } catch(e) {}
+        s.setTint(0x707070);
+        s.setAlpha(0.85);
+        this.tweens.add({ targets: s, scaleX: 0.26, scaleY: 0.26, duration: 120 });
       }
     });
 
@@ -324,108 +284,123 @@ export default class CreateCharacterScene extends Phaser.Scene {
   // Pedestal graphic (circular platform like the screenshot)
   // ────────────────────────────────────────────────────────────────────────────
   _buildPedestal(x, y, index) {
-    // Alternating tones: grey for unselected, pink/lavender for selected female
-    const colors = [0xaaaaaa, 0xf0b0d0, 0x90c0ff, 0xb0e0a0];
-    const baseColor = colors[index % colors.length];
-
-    const g = this.add.graphics();
-
-    // Shadow ellipse
-    g.fillStyle(0x000000, 0.2);
-    g.fillEllipse(x, y + 18, 140, 30);
-
-    // Top surface ellipse
-    g.fillStyle(baseColor, 1);
-    g.fillEllipse(x, y, 130, 28);
-
-    // Cylinder body
-    g.fillStyle(Phaser.Display.Color.ValueToColor(baseColor).darken(20).color, 1);
-    g.fillRect(x - 65, y, 130, 20);
-
-    // Bottom ellipse
-    g.fillStyle(Phaser.Display.Color.ValueToColor(baseColor).darken(30).color, 1);
-    g.fillEllipse(x, y + 20, 130, 28);
-
-    // Highlight line on top
-    g.fillStyle(0xffffff, 0.35);
-    g.fillEllipse(x - 10, y - 4, 80, 12);
-
-    // Checker pattern shadow on floor
-    g.fillStyle(0x000000, 0.08);
-    g.fillEllipse(x, y + 30, 160, 24);
-
-    return g;
+    // Dùng ảnh podium.png, scale vừa khít dưới chân nhân vật
+    const podium = this.add.image(x, y + 20, "podium").setOrigin(0.5, 0.5).setScale(0.65);
+    return podium;
   }
 
   // ────────────────────────────────────────────────────────────────────────────
   // HTML Name Input  (styled to match screenshot: blue/teal pill)
   // ────────────────────────────────────────────────────────────────────────────
   createNameInput(width, height) {
+    const INP_W = 280, BTN_W = 160, H = 52;
+    const totalW = INP_W + BTN_W;
+    // Tọa độ Phaser (game units)
+    const rowY   = height * 0.80;
+    const rowX   = width / 2 - totalW / 2;  // góc trái input
+
+    // Tính scale canvas → DOM
+    const canvas = this.game.canvas;
+    const rect   = canvas.getBoundingClientRect();
+    const sx = rect.width  / width;
+    const sy = rect.height / height;
+
+    // ── Input DOM ────────────────────────────────────────────────
     const wrapper = document.createElement("div");
     Object.assign(wrapper.style, {
-      position: "absolute",
-      top: "0",
-      left: "0",
-      width: "100%",
-      height: "100%",
-      pointerEvents: "none",
+      position: "fixed",
+      left:   `${rect.left + rowX * sx}px`,
+      top:    `${rect.top  + (rowY - H/2) * sy}px`,
+      width:  `${INP_W * sx}px`,
+      height: `${H * sy}px`,
+      pointerEvents: "all",
       zIndex: "10"
-    });
-
-    const inputWrap = document.createElement("div");
-    Object.assign(inputWrap.style, {
-      position: "absolute",
-      top: `${height * 0.69}px`,
-      left: "50%",
-      transform: "translateX(-50%)",
-      display: "flex",
-      alignItems: "center",
-      gap: "0",
-      pointerEvents: "all"
     });
 
     this.nameInput = document.createElement("input");
     this.nameInput.placeholder = "Tên nhân vật...";
-
-    const style = document.createElement("style");
-    style.innerHTML = `
-    ::placeholder{
-      color:#ffffd199;
-      opacity:1;
-    }
-    `;
-    document.head.appendChild(style);
-
     Object.assign(this.nameInput.style, {
-      padding: "13px 23px",
-      paddingLeft: "25px",
-      borderRadius: "30px",
-      border: "3px solid #4ab8e8",
-      backgroundColor: "rgba(0,30,80,0.85)",
-      fontSize: "18px",
-      width: "240px",
+      width: "100%", height: "100%",
+      padding: `0 ${14*sx}px`,
+      boxSizing: "border-box",
+      borderRadius: `${H/2*sy}px 0 0 ${H/2*sy}px`,
+      border: `${1*sy}px solid #cc22009d`,
+      borderRight: "none",
+      backgroundColor: "rgba(10,40,120,0.88)",
+      background: "linear-gradient(to bottom, #0077bb, #004488)",      fontSize: `${17*sy}px`,
       color: "#ffffff",
       outline: "none",
       fontFamily: "Signika",
-      boxShadow: "0 0 16px rgba(74,184,232,0.5), inset 0 1px 4px rgba(255,255,255,0.1)",
-      caretColor: "#4ab8e8"
+      fontWeight: "bold",
+      caretColor: "#88ccff",
+      boxSizing: "border-box"
     });
-
-
-    inputWrap.appendChild(this.nameInput);
-    wrapper.appendChild(inputWrap);
-    document.body.appendChild(wrapper);
-    this._inputWrapper = wrapper;
-
-    // Focus style
     this.nameInput.addEventListener("focus", () => {
-      this.nameInput.style.boxShadow = "0 0 24px rgba(74,184,232,0.9), inset 0 1px 4px rgba(255,255,255,0.2)";
+      this.nameInput.style.background = "linear-gradient(to bottom, #0099dd, #005599)";
+      this.nameInput.style.borderColor = "#f0c040";
     });
     this.nameInput.addEventListener("blur", () => {
-      this.nameInput.style.boxShadow = "0 0 16px rgba(74,184,232,0.5), inset 0 1px 4px rgba(255,255,255,0.1)";
+      this.nameInput.style.background = "linear-gradient(to bottom, #0077bb, #004488)";
+      this.nameInput.style.borderColor = "#c8a030";
     });
 
+    const style = document.createElement("style");
+    style.innerHTML = `input::placeholder { color: rgba(255,255,180,0.55); font-weight:normal; }`;
+    document.head.appendChild(style);
+
+    wrapper.appendChild(this.nameInput);
+    document.body.appendChild(wrapper);
+    this._inputWrapper = wrapper;
     this.events.once("shutdown", () => wrapper.remove());
+
+    // ── Button Phaser: ngay sát phải input ───────────────────────
+    const bx = rowX + INP_W + BTN_W / 2;
+    const by = rowY;
+    const bw = BTN_W, bh = H, br = bh / 2;
+
+    const g = this.add.graphics().setDepth(20);
+    const draw = (hover = false) => {
+      g.clear();
+      g.fillStyle(0xee4400, 0.18);
+      g.fillRoundedRect(bx - bw/2 - 4, by - bh/2 - 4, bw + 8, bh + 8,
+        { tl: 0, tr: br + 3, bl: 0, br: br + 3 });
+      // Shadow đáy đỏ đậm
+      g.fillStyle(0x880000, 1);
+      g.fillRoundedRect(bx - bw/2, by - bh/2 + 4, bw, bh,
+        { tl: 0, tr: br, bl: 0, br: br });
+      g.fillGradientStyle(0xff5500, 0xff5500, 0xcc2200, 0xcc2200, 1);
+      g.fillRoundedRect(bx - bw/2, by - bh/2, bw, bh,
+        { tl: 0, tr: br, bl: 0, br: br });
+      g.fillStyle(0xffffff, hover ? 0.40 : 0.22);
+      g.fillRoundedRect(bx - bw/2 + 6, by - bh/2 + 5, bw - 12, bh / 3,
+        { tl: 0, tr: br - 4, bl: 0, br: br - 4 });
+      // Viền trái khớp màu input
+      g.lineStyle(2, 0xc8a030, 1);
+      g.beginPath(); g.moveTo(bx - bw/2, by - bh/2); g.lineTo(bx - bw/2, by + bh/2); g.strokePath();
+      g.lineStyle(2, 0xffffff, hover ? 0.7 : 0.5);
+      g.strokeRoundedRect(bx - bw/2, by - bh/2, bw, bh,
+        { tl: 0, tr: br, bl: 0, br: br });
+    };
+    draw(false);
+
+    this.add.text(bx, by, "VÀO GAME", {
+      fontFamily: "Signika", fontSize: "18px", color: "#ffffff",
+      fontStyle: "bold", stroke: "#000000", strokeThickness: 3,
+      shadow: { offsetX: 1, offsetY: 2, color: "#000", blur: 3, fill: true }
+    }).setOrigin(0.5).setDepth(21);
+
+    this.tweens.add({ targets: g, alpha: { from: 1, to: 0.85 }, duration: 1000, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+
+    const zone = this.add.zone(bx, by, bw, bh).setInteractive({ cursor: "pointer" }).setDepth(22);
+    zone.on("pointerover",  () => draw(true));
+    zone.on("pointerout",   () => draw(false));
+    zone.on("pointerdown",  () => {
+      this.tweens.add({ targets: g, alpha: 0.65, duration: 60, yoyo: true });
+      const name = this.nameInput.value.trim();
+      if (!name) { this.showAlert("Vui lòng nhập tên nhân vật"); return; }
+      if (!this.selectedCharacter) { this.showAlert("Vui lòng chọn nhân vật"); return; }
+      this.createCharacter(name);
+    });
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -463,11 +438,28 @@ export default class CreateCharacterScene extends Phaser.Scene {
         if (this._inputWrapper) this._inputWrapper.remove();
         this.scene.start("LobbyScene");
       } else {
-        alert(data.message);
+        this.showAlert(data.message);
       }
     } catch (err) {
       console.error("createCharacter lỗi:", err);
-      alert("Lỗi kết nối server");
+      this.showAlert("Lỗi kết nối server");
     }
+  }
+
+  showAlert(message, color = "#fff6d7", duration = 2200) {
+    const { width, height } = this.scale;
+    const t = this.add.text(width / 2, height - 80, message, {
+      fontFamily: "Signika", fontSize: "17px", color,
+      fontStyle: "bold", stroke: "#000000", strokeThickness: 3,
+      backgroundColor: "#00000099", padding: { x: 16, y: 9 },
+    }).setOrigin(0.5).setDepth(300).setAlpha(0);
+    this.tweens.add({
+      targets: t, alpha: 1, y: height - 100, duration: 200, ease: "Back.easeOut",
+      onComplete: () => {
+        this.time.delayedCall(duration, () => {
+          this.tweens.add({ targets: t, alpha: 0, duration: 300, onComplete: () => t.destroy() });
+        });
+      }
+    });
   }
 }

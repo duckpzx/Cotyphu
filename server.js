@@ -2130,8 +2130,7 @@ app.get("/rooms", async (req, res) => {
 });
 
 server.listen(3000, "0.0.0.0", () => {
-  console.log("✅ Server ready at http://0.0.0.0:3000 (tất cả interface)");
-  console.log("   Máy khác trong LAN truy cập qua IP của máy này:3000");
+  console.log("✅ Server ready at (tất cả interface)");
 });
 app.get("/tarots", async (req, res) => {
   try {
