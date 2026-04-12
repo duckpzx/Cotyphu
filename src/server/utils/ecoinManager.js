@@ -112,7 +112,7 @@ const EcoinManager = {
      * Format tiền cho hiển thị
      */
     format(val) {
-        return Number(val || 0).toLocaleString("vi-VN");
+        return Number(val || 0).toLocaleString("en-US");
     }
 };
 

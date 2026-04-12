@@ -188,7 +188,7 @@ export default class RoomListScene extends Phaser.Scene {
       fontFamily: "Signika", fontSize: "32px", color: "#ffffff", fontStyle: "bold",
       stroke: "#003388", strokeThickness: 6,
       shadow: { offsetX: 2, offsetY: 3, color: "#001166", blur: 6, fill: true },
-    }).setOrigin(0, 0.5).setPadding(7, 5, 7, 5);
+    }).setOrigin(0, 0.5).setPadding(8, 6, 8, 6);
   }
 
   _buildTitle(width, height) {
@@ -211,7 +211,7 @@ export default class RoomListScene extends Phaser.Scene {
       this._tabGraphics.push(g);
       const txt = this.add.text(tx + tabW / 2, tabY + tabH / 2, label, {
         fontFamily: "Signika", fontSize: "18px", color: "#ffffff",
-        fontStyle: "bold", stroke: "#3a2000", strokeThickness: 3,
+        fontStyle: "bold", stroke: "#3a2000", strokeThickness: 2.5,
       }).setOrigin(0.5).setPadding(6, 4, 6, 4);
       this._tabTexts.push(txt);
       this.add.zone(tx + tabW / 2, tabY + tabH / 2, tabW, tabH)

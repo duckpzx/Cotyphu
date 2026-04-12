@@ -84,7 +84,7 @@ export default class BagScene extends Phaser.Scene {
             fontFamily: "Signika", fontSize: "32px", color: "#ffffff", fontStyle: "bold",
             stroke: "#003388", strokeThickness: 6,
             shadow: { offsetX: 2, offsetY: 3, color: "#001166", blur: 6, fill: true },
-        }).setOrigin(0, 0.5).setPadding(7, 5, 7, 5).setDepth(200);
+        }).setOrigin(0, 0.5).setPadding(8, 6, 8, 6).setDepth(200);
         [[230, 30], [310, 22], [355, 38]].forEach(([sx, sy]) => {
             this.add.text(sx, sy, "✦", { fontSize: "14px", color: "#ffffff" }).setOrigin(0.5).setAlpha(0.6);
         });

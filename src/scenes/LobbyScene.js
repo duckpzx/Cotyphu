@@ -251,11 +251,11 @@ createTopBar() {
   // 3. Tên người chơi (đặt vào trong khung nền)
   const name = this.add.text(profileX + avatarSize + 15, y, this.playerName, {
     fontFamily: "Signika",
-    fontSize: "26px",
+    fontSize: "23px",
     fontWeight: "bold",
     color: "#ffffff",
     stroke: "#222222",
-    strokeThickness: 4
+    strokeThickness: 3
   })
   .setOrigin(0, 0.5)
   .setDepth(104);
@@ -289,11 +289,11 @@ createTopBar() {
     EcoinManager.format(ecoinValue),
     {
       fontFamily: "Signika",
-      fontSize: "26px",
+      fontSize: "23px",
       fontWeight: "bold",
       color: "#ffffff",
       stroke: "#222222",
-      strokeThickness: 4,
+      strokeThickness: 3,
       padding: { left: 15 }
     }
   )

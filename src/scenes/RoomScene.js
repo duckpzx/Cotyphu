@@ -814,7 +814,7 @@ export default class RoomScene extends Phaser.Scene {
     const readyItems = this._makeReadyBadge(0, readyY, sw, player, idx);
 
     // ── Info "i" ──────────────────────────────────────────────────────────
-    const infoIcon = this.add.image(hw - 12, hh - 14, "icon_info")
+    const infoIcon = this.add.image(hw - 5, hh - 60, "icon_info")
       .setDisplaySize(45, 45)
       .setInteractive({ cursor: "pointer" });
     infoIcon.on("pointerdown", () => {
@@ -970,14 +970,8 @@ export default class RoomScene extends Phaser.Scene {
       });
     });
 
-    const RANK_LABEL = {
-      pho_thong: "Phổ thông", tan_thu: "Tân thủ",
-      cao_thu: "Cao thủ", bac_thay: "Bậc thầy", huyen_thoai: "Huyền thoại",
-    };
-    const rankKey   = rd.rank_required ?? rd.rank ?? "pho_thong";
-    const rankLabel = RANK_LABEL[rankKey] ?? rankKey;
     const roomType  = rd.is_private ? "NỘI BỘ" : "TỰ DO";
-    const titleStr  = `PHÒNG ${roomType} #${rd.id}  ·  ${rankLabel}`;
+    const titleStr  = `PHÒNG ${roomType} SỐ ${rd.id}`;
     this.add.text(105, 55, titleStr, {
       fontFamily: "Signika",
       fontSize:   "30px",
@@ -986,7 +980,7 @@ export default class RoomScene extends Phaser.Scene {
       stroke:     "#003388",
       strokeThickness: 6,
       shadow: { offsetX: 2, offsetY: 3, color: "#001166", blur: 6, fill: true },
-    }).setOrigin(0, 0.5);
+    }).setOrigin(0, 0.5).setPadding(8, 6, 8, 6);
 
     const gearIcon = this.add.image(width - 48, 48, "icon_setting")
       .setDisplaySize(60, 60)
