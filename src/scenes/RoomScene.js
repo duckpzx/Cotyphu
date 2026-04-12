@@ -62,6 +62,7 @@ export default class RoomScene extends Phaser.Scene {
     this.load.image("icon_info",     "assets/ui/shared/info.png");
     this.load.image("icon_setting",  "assets/ui/shared/setting.png");
     this.load.image("versus2",       "assets/ui/shared/versus3.png");
+    this.load.image("author",        "assets/ui/shared/author.png");
 
     // Pre-load idle frames của người chơi hiện tại từ localStorage
     const activeProfile = getActiveProfile(this);
@@ -814,7 +815,7 @@ export default class RoomScene extends Phaser.Scene {
     const readyItems = this._makeReadyBadge(0, readyY, sw, player, idx);
 
     // ── Info "i" ──────────────────────────────────────────────────────────
-    const infoIcon = this.add.image(hw - 5, hh - 60, "icon_info")
+    const infoIcon = this.add.image(hw - 5, hh - 70, "icon_info")
       .setDisplaySize(45, 45)
       .setInteractive({ cursor: "pointer" });
     infoIcon.on("pointerdown", () => {
@@ -866,22 +867,10 @@ export default class RoomScene extends Phaser.Scene {
     const items = [];
 
     if (player.is_host) {
-      const g = this.add.graphics();
-      g.fillStyle(0xcc8800, 1);
-      g.fillRoundedRect(x - 52, y - 14, 104, 28, 14);
-      g.lineStyle(1.5, 0xffcc44, 0.8);
-      g.strokeRoundedRect(x - 52, y - 14, 104, 28, 14);
-      g.fillStyle(0xffffff, 0.18);
-      g.fillRoundedRect(x - 46, y - 10, 92, 10, 6);
-      const t = this.add.text(x, y, "👑 Chủ phòng", {
-        fontFamily: "Signika",
-        fontSize:   "13px",
-        color:      "#ffffff",
-        fontStyle:  "bold",
-        stroke:     "#553300",
-        strokeThickness: 3
-      }).setOrigin(0.5);
-      items.push(g, t);
+      const authorImg = this.add.image(sw / 2 - 5, y + 0, "author")
+        .setDisplaySize(45, 45)
+        .setOrigin(0.5);
+      items.push(authorImg);
 
     } else if (player.is_ready) {
       const g = this.add.graphics();
