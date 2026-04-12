@@ -56,7 +56,7 @@ export default class RegisterScene extends Phaser.Scene {
     this._injectStyles();
     this.form = document.createElement("div");
     this.form.style.cssText = `
-      position:absolute; top:40%; left:50%;
+      position:absolute; top:39%; left:50%;
       transform:translate(-50%, -42%);
       display:flex; flex-direction:column; gap:14px; width:320px;
     `;
@@ -71,7 +71,7 @@ export default class RegisterScene extends Phaser.Scene {
 
     // ── Nút Đăng ký (pill cam) ───────────────────────────────────
     const btnW = 200, btnH = 50, btnR2 = btnH / 2;
-    const btnX = PX, btnY = py + PH - 120;
+    const btnX = PX, btnY = py + PH - 125;
     const btnG = this.add.graphics().setDepth(6);
     const drawRegBtn = (hover = false) => {
       btnG.clear();
@@ -109,12 +109,12 @@ export default class RegisterScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(6);
 
     const loginG = this.add.graphics().setDepth(6);
-    loginG.fillGradientStyle(0x33cc55, 0x33cc55, 0x118833, 0x118833, 1);
+    loginG.fillGradientStyle(0xf5c842, 0xf5c842, 0xd4960a, 0xd4960a, 1);
     loginG.fillRoundedRect(loginBtnX - loginBtnW/2, linkY - loginBtnH/2, loginBtnW, loginBtnH, loginBtnR);
-    loginG.lineStyle(1.5, 0x006622, 1);
+    loginG.lineStyle(1.5, 0x8b6010, 1);
     loginG.strokeRoundedRect(loginBtnX - loginBtnW/2, linkY - loginBtnH/2, loginBtnW, loginBtnH, loginBtnR);
     this.add.text(loginBtnX, linkY, "Đăng nhập", {
-      fontFamily: "Signika", fontSize: "13px", color: "#023e16", fontStyle: "bold",
+      fontFamily: "Signika", fontSize: "13px", color: "#3a1800", fontStyle: "bold",
     }).setOrigin(0.5).setDepth(7);
     const loginZone = this.add.zone(loginBtnX, linkY, loginBtnW, loginBtnH).setInteractive({ cursor: "pointer" }).setDepth(8);
     loginZone.on("pointerdown", () => {
@@ -173,12 +173,17 @@ export default class RegisterScene extends Phaser.Scene {
 
   _spawnStars(width, height) {
     for (let i = 0; i < 55; i++) {
-      const x = Phaser.Math.Between(0, width);
-      const y = Phaser.Math.Between(0, height);
-      const r = Phaser.Math.FloatBetween(0.8, 2.2);
-      const star = this.add.circle(x, y, r, 0xfff0c0, Phaser.Math.FloatBetween(0.3, 0.9)).setDepth(-3);
+      const x    = Phaser.Math.Between(0, width);
+      const y    = Phaser.Math.Between(0, height);
+      const size = Phaser.Math.FloatBetween(3, 7);
+      const g    = this.add.graphics().setDepth(-3);
+      g.fillStyle(0xfff0c0, Phaser.Math.FloatBetween(0.4, 0.9));
+      g.fillTriangle(x, y - size, x - size*0.35, y, x + size*0.35, y);
+      g.fillTriangle(x, y + size, x - size*0.35, y, x + size*0.35, y);
+      g.fillTriangle(x - size, y, x, y - size*0.35, x, y + size*0.35);
+      g.fillTriangle(x + size, y, x, y - size*0.35, x, y + size*0.35);
       this.tweens.add({
-        targets: star, alpha: 0.1,
+        targets: g, alpha: 0.05,
         duration: Phaser.Math.Between(1200, 3000), yoyo: true, repeat: -1,
         delay: Phaser.Math.Between(0, 2000), ease: "Sine.easeInOut"
       });

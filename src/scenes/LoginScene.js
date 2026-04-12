@@ -6,7 +6,7 @@ export default class LoginScene extends Phaser.Scene {
   }
 
   preload() {
-    this.load.image("bg_account", "assets/nen_1.png");
+    this.load.image("bg_account", "assets/nen_24.png");
     this.load.image("icon", "assets/ui/cotyphu.png");
   }
 
@@ -267,15 +267,18 @@ export default class LoginScene extends Phaser.Scene {
     for (let i = 0; i < 55; i++) {
       const x = Phaser.Math.Between(0, width);
       const y = Phaser.Math.Between(0, height);
-      const r = Phaser.Math.FloatBetween(0.8, 2.2);
-      const alpha = Phaser.Math.FloatBetween(0.3, 0.9);
-      const star = this.add.circle(x, y, r, 0xfff0c0, alpha).setDepth(-3);
+      const size = Phaser.Math.FloatBetween(3, 7);
+      const g = this.add.graphics().setDepth(-3);
+      g.fillStyle(0xfff0c0, Phaser.Math.FloatBetween(0.4, 0.9));
+      // Ngôi sao 4 cánh
+      g.fillTriangle(x, y - size, x - size*0.35, y, x + size*0.35, y);
+      g.fillTriangle(x, y + size, x - size*0.35, y, x + size*0.35, y);
+      g.fillTriangle(x - size, y, x, y - size*0.35, x, y + size*0.35);
+      g.fillTriangle(x + size, y, x, y - size*0.35, x, y + size*0.35);
       this.tweens.add({
-        targets: star, alpha: 0.1,
-        duration: Phaser.Math.Between(1200, 3000),
-        yoyo: true, repeat: -1,
-        delay: Phaser.Math.Between(0, 2000),
-        ease: "Sine.easeInOut"
+        targets: g, alpha: 0.05,
+        duration: Phaser.Math.Between(1200, 3000), yoyo: true, repeat: -1,
+        delay: Phaser.Math.Between(0, 2000), ease: "Sine.easeInOut"
       });
     }
   }
