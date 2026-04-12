@@ -72,21 +72,41 @@ export default class ShopScene extends Phaser.Scene {
         // ── Tải dữ liệu ──
         await this._loadShopData();
 
-        // ── Layout ──
-        const GAP     = 20;
+        // ── Layout (giống BagScene) ──
+        const TAB_H   = 46;
+        const PANEL_Y = 110;
+        const GAP     = 16;
         const LEFT_W  = 360;
         const RIGHT_W = width - LEFT_W - GAP - 40;
-        const PANEL_H = height - 100;
+        const PANEL_H = height - PANEL_Y - 40;
         const START_X = 20;
 
         const leftCX  = START_X + LEFT_W / 2;
         const rightCX = START_X + LEFT_W + GAP + RIGHT_W / 2;
-        const panelY  = height / 2 + 10;
+        const panelY  = PANEL_Y + PANEL_H / 2;
 
-        this.createStyledPanel(leftCX,  panelY, LEFT_W,  PANEL_H, 22);
-        this.createStyledPanel(rightCX, panelY, RIGHT_W, PANEL_H, 22);
+        this._layout = { leftCX, rightCX, panelY, LEFT_W, RIGHT_W, PANEL_H, GAP, PANEL_Y, TAB_H };
 
-        this._layout = { leftCX, rightCX, panelY, LEFT_W, RIGHT_W, PANEL_H, GAP };
+        this.createStyledPanel(leftCX,  panelY, LEFT_W,  PANEL_H, 18);
+        this.createStyledPanel(rightCX, panelY, RIGHT_W, PANEL_H, 18);
+
+        // ── Header: Back + "CỬA HÀNG" ─────────────────────────────────
+        const backBtn = this.add.image(48, 48, "out").setScale(1).setDepth(200).setInteractive({ cursor: "pointer" });
+        backBtn.on("pointerdown", () => {
+            this.tweens.add({ targets: backBtn, scale: 0.7, duration: 80, yoyo: true });
+            this.time.delayedCall(160, () => {
+                this.cameras.main.fadeOut(200);
+                this.cameras.main.once("camerafadeoutcomplete", () => this.scene.start("LobbyScene"));
+            });
+        });
+        this.add.text(105, 55, "CỬA HÀNG", {
+            fontFamily: "Signika", fontSize: "32px", color: "#ffffff", fontStyle: "bold",
+            stroke: "#003388", strokeThickness: 6,
+            shadow: { offsetX: 2, offsetY: 3, color: "#001166", blur: 6, fill: true },
+        }).setOrigin(0, 0.5).setPadding(8, 6, 8, 6).setDepth(200);
+        [[260, 30], [340, 22], [385, 38]].forEach(([sx, sy]) => {
+            this.add.text(sx, sy, "✦", { fontSize: "14px", color: "#ffffff" }).setOrigin(0.5).setAlpha(0.6);
+        });
 
         // ── Header: Ecoin bar ──
         this._buildEcoinHeader();
@@ -95,20 +115,9 @@ export default class ShopScene extends Phaser.Scene {
         this._autoSelectFirst();
 
         // ── Build UI ──
-        this.buildLeftPanel();
         this.buildTabs();
+        this.buildLeftPanel();
         this.renderRightPanel();
-
-        // ── Nút Back ──
-        const backBtn = this.add.image(36, 36, "out")
-            .setScale(0.9).setDepth(200)
-            .setInteractive({ cursor: "pointer" });
-        backBtn.on("pointerover", () => backBtn.setTint(0xdddddd));
-        backBtn.on("pointerout",  () => backBtn.clearTint());
-        backBtn.on("pointerup",   () => {
-            this.cameras.main.fadeOut(200);
-            this.cameras.main.once("camerafadeoutcomplete", () => this.scene.start("LobbyScene"));
-        });
 
         this._setupDrag(rightCX, RIGHT_W);
     }
@@ -371,44 +380,39 @@ export default class ShopScene extends Phaser.Scene {
         this._headerObjs = [];
         const push = o => { this._headerObjs.push(o); return o; };
 
-        // Ecoin badge ở góc trên phải
-        const badgeW = 230, badgeH = 36;
+        const badgeW = 180, badgeH = 36;
         const bx = width - 30 - badgeW / 2;
         const by = 28;
 
+        let isTransparent = false;
+
         const hg = push(this.add.graphics().setDepth(100));
-        hg.fillStyle(0x1a0e00, 0.75);
-        hg.fillRoundedRect(bx - badgeW / 2, by - badgeH / 2, badgeW, badgeH, badgeH / 2);
-        hg.lineStyle(2, 0xd4a030, 0.9);
-        hg.strokeRoundedRect(bx - badgeW / 2, by - badgeH / 2, badgeW, badgeH, badgeH / 2);
+        const drawBadge = (transparent = false) => {
+            hg.clear();
+            if (!transparent) {
+                hg.fillStyle(0x1a0e00, 0.75);
+                hg.fillRoundedRect(bx - badgeW / 2, by - badgeH / 2, badgeW, badgeH, badgeH / 2);
+            }
+            hg.lineStyle(2, 0xd4a030, 0.9);
+            hg.strokeRoundedRect(bx - badgeW / 2, by - badgeH / 2, badgeW, badgeH, badgeH / 2);
+        };
+        drawBadge(false);
 
         push(this.add.image(bx - badgeW / 2 + 22, by, "coin")
             .setDisplaySize(28, 28).setDepth(101));
 
-        this._ecoinText = push(this.add.text(bx - 5, by, this._formatMoney(this.playerEcoin), {
+        this._ecoinText = push(this.add.text(bx + 10, by, this._formatMoney(this.playerEcoin), {
             fontFamily: "Signika", fontSize: "16px",
             color: "#ffe066", fontStyle: "bold",
             stroke: "#000000", strokeThickness: 2,
         }).setOrigin(0.5).setDepth(101));
 
-        // Nút + (Nạp Ecoin)
-        const plusX = bx + badgeW / 2 - 22;
-        const plusG = push(this.add.graphics().setDepth(101));
-        plusG.fillStyle(0x44bb44, 1);
-        plusG.fillCircle(plusX, by, 14);
-        plusG.lineStyle(2, 0xffffff, 0.6);
-        plusG.strokeCircle(plusX, by, 14);
-
-        const plusTxt = push(this.add.text(plusX, by, "+", {
-            fontFamily: "Signika", fontSize: "22px",
-            color: "#ffffff", fontStyle: "bold",
-        }).setOrigin(0.5).setDepth(102));
-
-        const plusZone = push(this.add.zone(plusX, by, 30, 30)
-            .setInteractive({ useHandCursor: true }).setDepth(103));
-        plusZone.on("pointerover", () => { plusG.clear(); plusG.fillStyle(0x66dd66, 1); plusG.fillCircle(plusX, by, 15); plusG.lineStyle(2, 0xffffff, 0.9); plusG.strokeCircle(plusX, by, 15); });
-        plusZone.on("pointerout", () => { plusG.clear(); plusG.fillStyle(0x44bb44, 1); plusG.fillCircle(plusX, by, 14); plusG.lineStyle(2, 0xffffff, 0.6); plusG.strokeCircle(plusX, by, 14); });
-        plusZone.on("pointerup", () => this._showEcoinModal());
+        const zone = push(this.add.zone(bx, by, badgeW, badgeH)
+            .setInteractive({ useHandCursor: true }).setDepth(102));
+        zone.on("pointerup", () => {
+            isTransparent = !isTransparent;
+            drawBadge(isTransparent);
+        });
     }
 
     _showEcoinModal() {
@@ -796,69 +800,75 @@ export default class ShopScene extends Phaser.Scene {
         this._tabBtnObjs = [];
         const push = o => { this._tabBtnObjs.push(o); return o; };
 
-        const { rightCX, panelY, RIGHT_W, PANEL_H } = this._layout;
-        const top   = panelY - PANEL_H / 2;
-        const TAB_H = 36;
-        const TAB_Y = top + 15;
+        const { rightCX, RIGHT_W, PANEL_Y } = this._layout;
 
-        const tabs = [
-            { id: "character",  label: "Nhân Vật",    icon: "⚔" },
-            { id: "skin",       label: "Trang Phục",  icon: "👔" },
-            { id: "background", label: "Phông Nền",   icon: "🖼" },
-        ];
+        const tabs = ["NHÂN VẬT", "TRANG PHỤC", "PHÔNG NỀN"];
+        const ids  = ["character", "skin", "background"];
+        const tabW = Math.floor((RIGHT_W - 8) / tabs.length);
+        const tabH = 46;
+        const gap  = 4;
+        const startX = rightCX - RIGHT_W / 2;
+        const tabY   = PANEL_Y - tabH;
 
-        const TAB_W  = (RIGHT_W - 24) / tabs.length;
-        const startX = rightCX - RIGHT_W / 2 + 12;
+        this._tabGraphics = this._tabGraphics || [];
+        this._tabTexts    = this._tabTexts    || [];
+        this._tabGraphics.forEach(g => { try { g?.destroy(); } catch(e){} });
+        this._tabTexts.forEach(t => { try { t?.destroy(); } catch(e){} });
+        this._tabGraphics = [];
+        this._tabTexts    = [];
 
-        tabs.forEach((tab, i) => {
-            const tx = startX + 2 + i * TAB_W + TAB_W / 2;
-            const isActive = this.activeTab === tab.id;
+        tabs.forEach((label, i) => {
+            const tx = startX + i * (tabW + gap);
+            const g  = push(this.add.graphics().setDepth(8));
+            this._tabGraphics.push(g);
 
-            const bg = push(this.add.graphics().setDepth(8));
-            const drawTab = (active, hover = false) => {
-                bg.clear();
-                if (active) {
-                    bg.fillStyle(0xd4a030, 1);
-                    bg.fillRoundedRect(tx - TAB_W / 2, TAB_Y, TAB_W - 4, TAB_H, 12);
-                    bg.fillStyle(0xfff5b0, 0.38);
-                    bg.fillRoundedRect(tx - TAB_W / 2 + 4, TAB_Y + 3, TAB_W - 12, TAB_H * 0.45, 8);
-                    bg.lineStyle(2.5, 0x8b5e1a, 1);
-                    bg.strokeRoundedRect(tx - TAB_W / 2, TAB_Y, TAB_W - 4, TAB_H, 12);
-                } else if (hover) {
-                    bg.fillStyle(0xc8a060, 0.40);
-                    bg.fillRoundedRect(tx - TAB_W / 2, TAB_Y, TAB_W - 4, TAB_H, 12);
-                    bg.lineStyle(1.5, 0xc8a060, 0.55);
-                    bg.strokeRoundedRect(tx - TAB_W / 2, TAB_Y, TAB_W - 4, TAB_H, 12);
-                } else {
-                    bg.fillStyle(0xc8a060, 0.22);
-                    bg.fillRoundedRect(tx - TAB_W / 2, TAB_Y, TAB_W - 4, TAB_H, 12);
-                    bg.lineStyle(1.5, 0xc8a060, 0.45);
-                    bg.strokeRoundedRect(tx - TAB_W / 2, TAB_Y, TAB_W - 4, TAB_H, 12);
-                }
-            };
-            drawTab(isActive);
-
-            const label = `${tab.icon}  ${tab.label}`;
-            const txt = push(this.add.text(tx - 2, TAB_Y + TAB_H / 2, label, {
-                fontFamily: "Signika",
-                fontSize: isActive ? "14px" : "13px",
-                color: isActive ? "#4a2000" : "#9b7040",
-                fontStyle: "bold",
+            const txt = push(this.add.text(tx + tabW / 2, tabY + tabH / 2, label, {
+                fontFamily: "Signika", fontSize: "17px", color: "#ffffff",
+                fontStyle: "bold", stroke: "#3a2000", strokeThickness: 3,
             }).setOrigin(0.5).setDepth(9));
+            this._tabTexts.push(txt);
 
-            const zone = push(this.add.zone(tx - 2, TAB_Y + TAB_H / 2, TAB_W - 4, TAB_H)
-                .setInteractive({ useHandCursor: true }).setDepth(10));
+            push(this.add.zone(tx + tabW / 2, tabY + tabH / 2, tabW, tabH)
+                .setInteractive({ cursor: "pointer" }).setDepth(10))
+                .on("pointerdown", () => {
+                    if (this.activeTab === ids[i]) return;
+                    this.activeTab = ids[i];
+                    this._autoSelectFirstForTab();
+                    this._drawAllTabs(startX, tabY, tabW, tabH, gap);
+                    this.buildLeftPanel();
+                    this.renderRightPanel();
+                });
+        });
 
-            zone.on("pointerover", () => { if (this.activeTab !== tab.id) drawTab(false, true); });
-            zone.on("pointerout",  () => drawTab(this.activeTab === tab.id));
-            zone.on("pointerup",   () => {
-                if (this.activeTab === tab.id) return;
-                this.activeTab = tab.id;
-                this._autoSelectFirstForTab();
-                this.buildTabs();
-                this.buildLeftPanel();
-                this.renderRightPanel();
-            });
+        this._drawAllTabs(startX, tabY, tabW, tabH, gap);
+        this._tabMeta = { startX, tabY, tabW, tabH, gap };
+    }
+
+    _drawAllTabs(startX, tabY, tabW, tabH, gap) {
+        const ids = ["character", "skin", "background"];
+        this._tabGraphics.forEach((g, i) => {
+            const tx     = startX + i * (tabW + gap);
+            const active = this.activeTab === ids[i];
+            g.clear();
+            if (active) {
+                g.fillStyle(0x000000, 0.25);
+                g.fillRoundedRect(tx + 4, tabY - 1, tabW, tabH, { tl: 12, tr: 12, bl: 0, br: 0 });
+                g.fillGradientStyle(0xf5c842, 0xf5c842, 0xd4960a, 0xd4960a, 1);
+                g.fillRoundedRect(tx, tabY - 5, tabW, tabH + 5, { tl: 12, tr: 12, bl: 0, br: 0 });
+                g.lineStyle(2.5, 0x8b6010, 1);
+                g.strokeRoundedRect(tx, tabY - 5, tabW, tabH + 5, { tl: 12, tr: 12, bl: 0, br: 0 });
+                g.fillStyle(0xffffff, 0.32);
+                g.fillRoundedRect(tx + 8, tabY - 1, tabW - 16, 12, 5);
+                this._tabTexts[i].setColor("#3a1800").setFontSize("17px");
+            } else {
+                g.fillStyle(0x000000, 0.15);
+                g.fillRoundedRect(tx + 3, tabY + 3, tabW, tabH, { tl: 10, tr: 10, bl: 0, br: 0 });
+                g.fillGradientStyle(0xb89848, 0xb89848, 0x9a7c30, 0x9a7c30, 1);
+                g.fillRoundedRect(tx, tabY, tabW, tabH, { tl: 10, tr: 10, bl: 0, br: 0 });
+                g.lineStyle(1.5, 0x7a5a18, 0.7);
+                g.strokeRoundedRect(tx, tabY, tabW, tabH, { tl: 10, tr: 10, bl: 0, br: 0 });
+                this._tabTexts[i].setColor("#f0e8c8").setFontSize("15px");
+            }
         });
     }
 
@@ -903,9 +913,9 @@ export default class ShopScene extends Phaser.Scene {
         this._rightObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
         this._rightObjs = [];
 
-        const { rightCX, panelY, RIGHT_W, PANEL_H } = this._layout;
-        const top    = panelY - PANEL_H / 2 + 58;
-        const GRID_H = PANEL_H - 76;
+        const { rightCX, panelY, RIGHT_W, PANEL_H, PANEL_Y } = this._layout;
+        const top    = (PANEL_Y || panelY - PANEL_H / 2) + 14;
+        const GRID_H = PANEL_H - 28;
         const push   = o => { this._rightObjs.push(o); return o; };
 
         let items = [];

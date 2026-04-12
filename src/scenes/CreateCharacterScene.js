@@ -459,16 +459,21 @@ export default class CreateCharacterScene extends Phaser.Scene {
 
         if (playerData.user) {
           playerData.user.active_character_id = this.selectedCharacter.id;
+          playerData.user.name = name;
         }
 
         playerData.active = {
           characterId: this.selectedCharacter.id,
           characterName: this.selectedCharacter.name,
+          playerName: name,
           skin: this.selectedCharacter.skin_number,
           active_skin_id: this.selectedCharacter.skin_number
         };
 
         localStorage.setItem("playerData", JSON.stringify(playerData));
+
+        // Xóa registry cache để LobbyScene đọc lại data mới từ localStorage
+        this.registry.remove("playerData");
 
         if (this.nameInput) this.nameInput.remove();
         if (this._inputWrapper) this._inputWrapper.remove();
