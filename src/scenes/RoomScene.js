@@ -677,8 +677,11 @@ export default class RoomScene extends Phaser.Scene {
     bg.strokeRoundedRect(-hw, -hh, sw, sh, 14);
 
     // ── 2 nút pill: Mời bạn + Đổi chỗ ───────────────────────────────
-    const btnW = sw - 44, btnH = 36, btnR = btnH / 2;
-    const btn1Y = -18, btn2Y = btn1Y + btnH + 10;
+    const btnW = sw - 60, btnH = 38, btnR = btnH / 2;
+    const gap  = 10;
+    const totalH = btnH * 2 + gap;
+    const btn1Y  = -totalH / 2 + btnH / 2;
+    const btn2Y  = btn1Y + btnH + gap;
 
     const drawBtn = (g, by, c1, c2, hover = false) => {
       g.clear();

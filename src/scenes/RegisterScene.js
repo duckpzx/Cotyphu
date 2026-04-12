@@ -6,321 +6,230 @@ export default class RegisterScene extends Phaser.Scene {
   }
 
   preload() {
-
-    this.load.image("bg", "assets/nen_1.png");
-    this.load.image("icon", "assets/ui/cotyphu.png");
-    this.load.image("panel", "assets/ui/panel.png");
-  }
-
-  showAlert(message){
-
-    const { width, height } = this.scale;
-
-    const container = this.add.container(width/2, height/2);
-
-    // nền
-    const bg = this.add.rectangle(0,0,320,150,0x000000,0.75)
-    .setStrokeStyle(4,0xffc66d)
-    .setOrigin(0.5);
-
-    // text
-    const text = this.add.text(0,-10,message,{
-      fontFamily:"Signika",
-      fontSize:"20px",
-      color:"#fff6d7",
-      align:"center",
-      wordWrap:{width:260}
-    }).setOrigin(0.5);
-
-    // button
-    const btn = this.add.text(0,45,"OK",{
-      fontFamily:"Signika",
-      fontSize:"22px",
-      color:"#3b1b00",
-      backgroundColor:"#ffa63c",
-      padding:{x:20,y:8}
-    })
-    .setOrigin(0.5)
-    .setInteractive();
-
-    btn.on("pointerdown",()=>{
-      container.destroy();
-    });
-
-    container.add([bg,text,btn]);
+    this.load.image("bg_account", "assets/nen_1.png");
   }
 
   create() {
-
     const { width, height } = this.scale;
 
-    // BACKGROUND
-    const bg = this.add.image(width / 2, height / 2, "bg");
+    // ── Background ──────────────────────────────────────────────
+    const bg = this.add.image(width / 2, height / 2, "bg_account");
     bg.setScale(Math.max(width / bg.width, height / bg.height));
     bg.setDepth(-10);
+    this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.30).setDepth(-5);
+    this._spawnStars(width, height);
 
-    // PANEL
-    const panelWidth = 420;
-    const panelHeight = 420;
+    // ── Panel chính ─────────────────────────────────────────────
+    const PW = 440, PH = 420;
+    const PX = width / 2, PY = height / 2;
+    const px = PX - PW / 2, py = PY - PH / 2;
+    const R  = 18;
 
-    const panelX = width / 2;
-    const panelY = height / 2 + 10;
+    const panel = this.add.graphics().setDepth(2);
+    panel.fillStyle(0x000000, 0.28);
+    panel.fillRoundedRect(px + 6, py + 8, PW, PH, R);
+    panel.fillGradientStyle(0xf5e8c0, 0xf5e8c0, 0xeedd99, 0xeedd99, 1);
+    panel.fillRoundedRect(px, py, PW, PH, R);
+    panel.lineStyle(3, 0xffffff, 1);
+    panel.strokeRoundedRect(px, py, PW, PH, R);
+    panel.fillStyle(0xffffff, 0.18);
+    panel.fillRoundedRect(px + 6, py + 4, PW - 12, 20, 8);
+    this._drawDashedBorderInner(panel, px + 14, py + 14, PW - 28, PH - 28, R - 4, 0xb8922e);
 
-    this.createDashedPanel(panelX, panelY, panelWidth, panelHeight, 22);
+    // ── Header pill ──────────────────────────────────────────────
+    const pillW = 220, pillH = 52, pillR = pillH / 2;
+    const pillY = py - pillH / 2;
+    const hdr = this.add.graphics().setDepth(5);
+    hdr.fillStyle(0x000000, 0.20);
+    hdr.fillRoundedRect(PX - pillW/2 + 4, pillY + 5, pillW, pillH, pillR);
+    hdr.fillGradientStyle(0xf5c842, 0xf5c842, 0xd4960a, 0xd4960a, 1);
+    hdr.fillRoundedRect(PX - pillW/2, pillY, pillW, pillH, pillR);
+    hdr.fillStyle(0xffffff, 0.30);
+    hdr.fillRoundedRect(PX - pillW/2 + 10, pillY + 7, pillW - 20, pillH * 0.38, pillR - 2);
+    hdr.lineStyle(2.5, 0x8b6010, 1);
+    hdr.strokeRoundedRect(PX - pillW/2, pillY, pillW, pillH, pillR);
+    this.add.text(PX, pillY + pillH / 2, "Cờ Tỷ Phú", {
+      fontFamily: "Signika", fontSize: "22px", color: "#3a1800", fontStyle: "bold",
+    }).setOrigin(0.5).setDepth(6);
 
-    // LOGO
-    const logo = this.add.image(panelX, panelY - 225, "icon");
-    logo.setScale(0.9);
-    logo.setDepth(5);
-
-    // TITLE
-    this.add.text(panelX, panelY - 125, "ĐĂNG KÝ", {
-      fontFamily: "Signika",
-      fontSize: "30px",
-      color: "#3c2a12",
-      fontStyle: "bold",
-    }).setOrigin(0.5);
-
-    // FORM HTML
-    const form = document.createElement("div");
-
-    form.style.position = "absolute";
-    form.style.top = "50%";
-    form.style.left = "50%";
-    form.style.transform = "translate(-50%, -35%)";
-    form.style.display = "flex";
-    form.style.flexDirection = "column";
-    form.style.gap = "18px";
-    form.style.width = "260px";
-
-    form.innerHTML = `
-
-    <input id="username" class="gameInput" placeholder="Tài khoản"/>
-    <input id="email" class="gameInput" placeholder="Email"/>
-    <input id="password" class="gameInput" type="password" placeholder="Mật khẩu"/>
-
-    <button id="registerBtn" class="gameBtn">
-      Đăng ký
-    </button>
-
+    // ── DOM inputs ───────────────────────────────────────────────
+    this._injectStyles();
+    this.form = document.createElement("div");
+    this.form.style.cssText = `
+      position:absolute; top:40%; left:50%;
+      transform:translate(-50%, -42%);
+      display:flex; flex-direction:column; gap:14px; width:320px;
     `;
+    this.form.innerHTML = `
+      <input id="reg_username" class="gameInputFlat" placeholder="Tài khoản"/>
+      <input id="reg_password" class="gameInputFlat" type="password" placeholder="Mật khẩu"/>
+            <input id="reg_email"    class="gameInputFlat" placeholder="Email"/>
+    `;
+    document.body.appendChild(this.form);
+    this.form.addEventListener("keydown", (e) => { if (e.key === "Enter") this._handleRegister(); });
+    this.events.once("shutdown", () => { if (this.form) this.form.remove(); });
 
-    document.body.appendChild(form);
-
-    const btn = document.getElementById("registerBtn");
-
-    btn.onclick = async () => {
-
-    const username = document.getElementById("username").value;
-    const email = document.getElementById("email").value;
-    const password = document.getElementById("password").value;
-
-    // ===== CHECK RỖNG =====
-    if(!username || !email || !password){
-        this.showAlert("Vui lòng nhập đầy đủ thông tin");
-        return;
-    }
-
-    // ===== CHECK KHOẢNG TRẮNG =====
-    if(username.includes(" ") || email.includes(" ") || password.includes(" ")){
-        alert("Thông tin không được chứa khoảng trắng");
-        return;
-    }
-
-    // ===== GỬI SERVER =====
-    const res = await fetch(`${SERVER_URL}/register`,{
-
-        method:"POST",
-
-        headers:{
-        "Content-Type":"application/json"
-        },
-
-        body:JSON.stringify({
-        username,
-        email,
-        password
-        })
-
+    // ── Nút Đăng ký (pill cam) ───────────────────────────────────
+    const btnW = 200, btnH = 50, btnR2 = btnH / 2;
+    const btnX = PX, btnY = py + PH - 120;
+    const btnG = this.add.graphics().setDepth(6);
+    const drawRegBtn = (hover = false) => {
+      btnG.clear();
+      btnG.fillStyle(0xff8800, 0.15);
+      btnG.fillRoundedRect(btnX - btnW/2 - 4, btnY - btnH/2 - 4, btnW + 8, btnH + 8, btnR2 + 3);
+      btnG.fillStyle(0x000000, 0.22);
+      btnG.fillRoundedRect(btnX - btnW/2 + 3, btnY - btnH/2 + 5, btnW, btnH, btnR2);
+      btnG.fillGradientStyle(0xffaa22, 0xffaa22, 0xdd6600, 0xdd6600, 1);
+      btnG.fillRoundedRect(btnX - btnW/2, btnY - btnH/2, btnW, btnH, btnR2);
+      btnG.fillStyle(0xffffff, hover ? 0.38 : 0.22);
+      btnG.fillRoundedRect(btnX - btnW/2 + 10, btnY - btnH/2 + 6, btnW - 20, btnH * 0.35, btnR2 - 4);
+      btnG.lineStyle(2, 0xffffff, hover ? 0.7 : 0.5);
+      btnG.strokeRoundedRect(btnX - btnW/2, btnY - btnH/2, btnW, btnH, btnR2);
+    };
+    drawRegBtn();
+    this.add.text(btnX, btnY, "Đăng ký", {
+      fontFamily: "Signika", fontSize: "22px", color: "#ffffff",
+      fontStyle: "bold", stroke: "#663300", strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(7);
+    const regZone = this.add.zone(btnX, btnY, btnW, btnH).setInteractive({ cursor: "pointer" }).setDepth(8);
+    regZone.on("pointerover",  () => drawRegBtn(true));
+    regZone.on("pointerout",   () => drawRegBtn(false));
+    regZone.on("pointerdown",  () => {
+      this.tweens.add({ targets: btnG, alpha: 0.65, duration: 60, yoyo: true });
+      this._handleRegister();
     });
 
-    const data = await res.json();
+    // ── Dòng Đăng nhập ───────────────────────────────────────────
+    const linkY = py + PH - 50;
+    const loginBtnW = 100, loginBtnH = 28, loginBtnR = loginBtnH / 2;
+    const loginBtnX = PX + 70;
 
-    alert(data.message);
+    this.add.text(PX - 50, linkY, "Bạn đã có tài khoản?", {
+      fontFamily: "Signika", fontSize: "13px", color: "#7a5820",
+    }).setOrigin(0.5).setDepth(6);
 
-    };
-
-    // GAME STYLE
-    const style = document.createElement("style");
-
-    style.innerHTML = `
-
-    .gameInput{
-
-      all:unset;
-      padding:12px;
-
-      color:#5b1f07;
-
-      border-radius:10px;
-
-      border-top:3px solid #a38643;
-      border-left:3px solid #a38643;
-      border-bottom:1px solid #a38643;
-      border-right:1px solid #a38643;
-
-      background:#ecc383;
-
-      font-family:Signika;
-      font-size:16px;
-      font-weight:bold;
-
-      box-shadow:
-      inset 0 3px 6px rgba(0,0,0,0.2);
-
-    }
-
-    .gameInput::placeholder{
-      color:#fff6d7;
-    }
-
-    .gameBtn{
-
-      padding:12px;
-
-      border-radius:16px;
-      border:2.5px solid #6a3a10;
-
-      background: linear-gradient(
-      to bottom,
-      #ffa63c,
-      #f07e2a 60%,
-      #d8611a
-      );
-
-      color:#3b1b00;
-
-      font-family:Signika;
-      font-size:18px;
-      font-weight:bold;
-
-      box-shadow:
-      inset 0 2px 0 rgba(255,255,255,0.6),
-      0 5px 0 #5a2c0d;
-
-      cursor:pointer;
-
-      transition:0.15s;
-
-    }
-
-    .gameBtn:hover{
-
-      filter:brightness(1.1);
-
-    }
-
-    .gameBtn:active{
-
-      transform:translateY(4px);
-
-      box-shadow:
-      inset 0 2px 0 rgba(255,255,255,0.4),
-      0 1px 0 #5a2c0d;
-
-    }
-
-    `;
-
-    document.head.appendChild(style);
-
+    const loginG = this.add.graphics().setDepth(6);
+    loginG.fillGradientStyle(0x33cc55, 0x33cc55, 0x118833, 0x118833, 1);
+    loginG.fillRoundedRect(loginBtnX - loginBtnW/2, linkY - loginBtnH/2, loginBtnW, loginBtnH, loginBtnR);
+    loginG.lineStyle(1.5, 0x006622, 1);
+    loginG.strokeRoundedRect(loginBtnX - loginBtnW/2, linkY - loginBtnH/2, loginBtnW, loginBtnH, loginBtnR);
+    this.add.text(loginBtnX, linkY, "Đăng nhập", {
+      fontFamily: "Signika", fontSize: "13px", color: "#023e16", fontStyle: "bold",
+    }).setOrigin(0.5).setDepth(7);
+    const loginZone = this.add.zone(loginBtnX, linkY, loginBtnW, loginBtnH).setInteractive({ cursor: "pointer" }).setDepth(8);
+    loginZone.on("pointerdown", () => {
+      if (this.form) this.form.remove();
+      this.scene.start("LoginScene");
+    });
   }
 
-createDashedPanel(x, y, w, h, radius) {
+  async _handleRegister() {
+    const username = document.getElementById("reg_username")?.value?.trim();
+    const email    = document.getElementById("reg_email")?.value?.trim();
+    const password = document.getElementById("reg_password")?.value;
 
-  const g = this.add.graphics();
-
-  const left = x - w / 2;
-  const top = y - h / 2;
-
-  // nền panel
-  g.fillStyle(0xffe7c3, 1);
-  g.fillRoundedRect(left, top, w, h, radius);
-
-  g.lineStyle(3, 0xb7a36d);
-
-  const inset = 12;
-  const r = radius - inset / 2;
-
-  const iL = left + inset;
-  const iR = x + w / 2 - inset;
-  const iT = top + inset;
-  const iB = y + h / 2 - inset;
-
-  const drawD = (x1, y1, x2, y2) => {
-
-    const dist = Phaser.Math.Distance.Between(x1, y1, x2, y2);
-    const angle = Phaser.Math.Angle.Between(x1, y1, x2, y2);
-
-    for (let i = 0; i < dist; i += 18) {
-
-      g.beginPath();
-
-      g.moveTo(
-        x1 + Math.cos(angle) * i,
-        y1 + Math.sin(angle) * i
-      );
-
-      g.lineTo(
-        x1 + Math.cos(angle) * (i + 10),
-        y1 + Math.sin(angle) * (i + 10)
-      );
-
-      g.strokePath();
+    if (!username || !email || !password) {
+      this.showAlert("Vui lòng nhập đầy đủ thông tin"); return;
     }
-  };
-
-  // ===== TOP (chia 2 đoạn để chừa chữ) =====
-
-  const gap = 120;
-
-  drawD(iL + r, iT, x - gap, iT);
-  drawD(x + gap, iT, iR - r, iT);
-
-  // ===== RIGHT =====
-  drawD(iR, iT + r, iR, iB - r);
-
-  // ===== BOTTOM =====
-  drawD(iR - r, iB, iL + r, iB);
-
-  // ===== LEFT =====
-  drawD(iL, iB - r, iL, iT + r);
-
-  // ===== CORNER ARCS =====
-
-  const drawArc = (cx, cy, start, end) => {
-
-    const step = 0.2;
-
-    for (let a = start; a < end; a += step) {
-
-      const x1 = cx + Math.cos(a) * r;
-      const y1 = cy + Math.sin(a) * r;
-
-      const x2 = cx + Math.cos(a + step / 2) * r;
-      const y2 = cy + Math.sin(a + step / 2) * r;
-
-      g.beginPath();
-      g.moveTo(x1, y1);
-      g.lineTo(x2, y2);
-      g.strokePath();
+    if (username.includes(" ") || email.includes(" ") || password.includes(" ")) {
+      this.showAlert("Thông tin không được chứa khoảng trắng"); return;
     }
-  };
 
-  drawArc(iL + r, iT + r, Math.PI, Math.PI * 1.5);      // top-left
-  drawArc(iR - r, iT + r, Math.PI * 1.5, Math.PI * 2);  // top-right
-  drawArc(iR - r, iB - r, 0, Math.PI / 2);              // bottom-right
-  drawArc(iL + r, iB - r, Math.PI / 2, Math.PI);        // bottom-left
-}
+    try {
+      const res  = await fetch(`${SERVER_URL}/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, email, password }),
+      });
+      const data = await res.json();
+      this.showAlert(data.message, data.success ? "#44ff88" : "#fff6d7");
+      if (data.success) {
+        this.time.delayedCall(1200, () => {
+          if (this.form) this.form.remove();
+          this.scene.start("LoginScene");
+        });
+      }
+    } catch {
+      this.showAlert("Không thể kết nối server");
+    }
+  }
 
+  showAlert(message, color = "#fff6d7", duration = 2200) {
+    const { width, height } = this.scale;
+    const t = this.add.text(width / 2, height - 80, message, {
+      fontFamily: "Signika", fontSize: "17px", color,
+      fontStyle: "bold", stroke: "#000000", strokeThickness: 3,
+      backgroundColor: "#00000099", padding: { x: 16, y: 9 },
+    }).setOrigin(0.5).setDepth(300).setAlpha(0);
+    this.tweens.add({
+      targets: t, alpha: 1, y: height - 100, duration: 200, ease: "Back.easeOut",
+      onComplete: () => {
+        this.time.delayedCall(duration, () => {
+          this.tweens.add({ targets: t, alpha: 0, duration: 300, onComplete: () => t.destroy() });
+        });
+      }
+    });
+  }
+
+  _spawnStars(width, height) {
+    for (let i = 0; i < 55; i++) {
+      const x = Phaser.Math.Between(0, width);
+      const y = Phaser.Math.Between(0, height);
+      const r = Phaser.Math.FloatBetween(0.8, 2.2);
+      const star = this.add.circle(x, y, r, 0xfff0c0, Phaser.Math.FloatBetween(0.3, 0.9)).setDepth(-3);
+      this.tweens.add({
+        targets: star, alpha: 0.1,
+        duration: Phaser.Math.Between(1200, 3000), yoyo: true, repeat: -1,
+        delay: Phaser.Math.Between(0, 2000), ease: "Sine.easeInOut"
+      });
+    }
+  }
+
+  _drawDashedBorderInner(g, left, top, w, h, r, color) {
+    g.lineStyle(1.5, color, 0.55);
+    const dash = 9, skip = 7;
+    const seg = (x1, y1, x2, y2) => {
+      const len = Math.hypot(x2-x1, y2-y1), ax = (x2-x1)/len, ay = (y2-y1)/len;
+      for (let d = 0; d < len; d += dash+skip) {
+        const e = Math.min(d+dash, len);
+        g.beginPath(); g.moveTo(x1+ax*d, y1+ay*d); g.lineTo(x1+ax*e, y1+ay*e); g.strokePath();
+      }
+    };
+    seg(left+r, top, left+w-r, top); seg(left+w, top+r, left+w, top+h-r);
+    seg(left+w-r, top+h, left+r, top+h); seg(left, top+h-r, left, top+r);
+    [{ a:180,b:270,cx:left+r,cy:top+r }, { a:270,b:360,cx:left+w-r,cy:top+r },
+     { a:0,b:90,cx:left+w-r,cy:top+h-r }, { a:90,b:180,cx:left+r,cy:top+h-r }]
+    .forEach(c => {
+      g.beginPath(); g.arc(c.cx, c.cy, r, Phaser.Math.DegToRad(c.a), Phaser.Math.DegToRad(c.b)); g.strokePath();
+    });
+  }
+
+  _injectStyles() {
+    if (document.getElementById("loginStyles")) return;
+    const style = document.createElement("style");
+    style.id = "loginStyles";
+    style.innerHTML = `
+      .gameInputFlat {
+        all: unset;
+        width: 100%;
+        padding: 13px 16px;
+        box-sizing: border-box;
+        color: #5b1f07;
+        border-radius: 12px;
+        background: linear-gradient(to bottom, #e8d4a8, #f5e8c8);
+        border: 2px solid #c8a060;
+        font-family: Signika;
+        font-size: 16px;
+        font-weight: bold;
+        box-shadow: inset 0 2px 5px rgba(0,0,0,0.15);
+        transition: box-shadow 0.2s;
+      }
+      .gameInputFlat:focus {
+        box-shadow: inset 0 2px 5px rgba(0,0,0,0.15), 0 0 0 3px rgba(0,170,204,0.45);
+        outline: none;
+      }
+      .gameInputFlat::placeholder { color: #a07840; font-weight: normal; }
+    `;
+    document.head.appendChild(style);
+  }
 }
