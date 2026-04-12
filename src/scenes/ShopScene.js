@@ -1020,66 +1020,125 @@ export default class ShopScene extends Phaser.Scene {
 
     _buildItemCard(x, y, w, h, item) {
         const container = this.add.container(x, y);
-        const r = 10;
+        const r = 18; // bo góc mượt mà
         const isSelected = this.selectedItem &&
             this.selectedItem.id === item.id &&
             this.selectedItem.type === item.type;
+
+        // Chiều cao header cam (khoảng 25% card)
+        const HDR_H = Math.round(h * 0.25);
 
         const bg = this.add.graphics();
 
         const drawCard = (hover = false) => {
             bg.clear();
-            bg.fillStyle(0x000000, 0.22);
-            bg.fillRoundedRect(3, 5, w, h, r);
+            
+            // ── Bóng đổ ──────────────────────────────────────────
+            bg.fillStyle(0x000000, 0.25);
+            bg.fillRoundedRect(4, 6, w, h, r);
 
-            bg.fillStyle(item.isOwned ? 0x0d2a4a : 0x1a1a2e, 1);
+            // ── Thân card: nền kem trắng gradient ──────────────────────────
+            bg.fillGradientStyle(
+                item.isOwned ? 0xf0f8ff : 0xfff8f0,
+                item.isOwned ? 0xf0f8ff : 0xfff8f0,
+                item.isOwned ? 0xe0f0ff : 0xffeedd,
+                item.isOwned ? 0xe0f0ff : 0xffeedd,
+                1
+            );
             bg.fillRoundedRect(0, 0, w, h, r);
-            bg.fillStyle(item.isOwned ? 0x1a5090 : 0x2a2a44, 0.55);
-            bg.fillRoundedRect(0, 0, w, h * 0.45, r);
-            bg.fillStyle(0xffffff, hover ? 0.20 : 0.11);
-            bg.fillRoundedRect(8, 6, w - 16, h * 0.22, r - 3);
 
+            // ── Header cam/vàng gradient (hoặc xanh nếu đã sở hữu) ───────────────────────────────────
+            const hdrTop = item.isOwned ? 0x4488cc
+                : isSelected ? 0xff9900
+                : hover      ? 0xff8800
+                : 0xff8800;
+            const hdrBot = item.isOwned ? 0x2266aa
+                : isSelected ? 0xdd6600
+                : hover      ? 0xdd5500
+                : 0xdd5500;
+            
+            bg.fillGradientStyle(hdrTop, hdrTop, hdrBot, hdrBot, 1);
+            bg.fillRoundedRect(0, 0, w, HDR_H, { tl: r, tr: r, bl: 0, br: 0 });
+
+            // ── Gloss trên header (dải sáng trên cùng) ────────────
+            bg.fillStyle(0xffffff, hover ? 0.50 : 0.38);
+            bg.fillRoundedRect(6, 4, w - 12, HDR_H * 0.45, { tl: r - 3, tr: r - 3, bl: 0, br: 0 });
+
+            // ── Gloss chéo trên thân card (như ảnh) ───────────────
+            bg.fillStyle(0xffffff, hover ? 0.20 : 0.12);
+            bg.fillTriangle(
+                w * 0.50, HDR_H,
+                w,        HDR_H,
+                w,        h * 0.75
+            );
+
+            // ── Viền ngoài ─────────────────
+            const borderColor = isSelected ? 0xffcc00
+                : item.isOwned ? 0x6699cc
+                : hover     ? 0xffaa33
+                : 0xcc8822;
+            bg.lineStyle(isSelected ? 3.5 : 2.5, borderColor, isSelected ? 1 : 0.90);
+            bg.strokeRoundedRect(0, 0, w, h, r);
+
+            // ── Viền trong (selected) ─────────────────────────────
             if (isSelected) {
-                bg.lineStyle(3, 0xffe030, 1.0);
-                bg.strokeRoundedRect(0, 0, w, h, r);
-                bg.lineStyle(1.5, 0xffffff, 0.35);
+                bg.lineStyle(1.5, 0xffffff, 0.50);
                 bg.strokeRoundedRect(3, 3, w - 6, h - 6, r - 2);
-            } else if (hover) {
-                bg.lineStyle(2.5, 0xc8a060, 0.9);
-                bg.strokeRoundedRect(0, 0, w, h, r);
-            } else {
-                bg.lineStyle(2, item.isOwned ? 0x6a8ab0 : 0x444466, 0.6);
-                bg.strokeRoundedRect(0, 0, w, h, r);
             }
         };
         drawCard(false);
 
-        // Badge trạng thái
+        // Badge trạng thái (trên header)
         let badgeObj = null;
         if (item.isActive) {
-            badgeObj = this._createBadge(w, "✓ Đang dùng", 0x3a8a3a);
+            const bw = Math.min(w - 10, 80), bh = 20;
+            const badgeG = this.add.graphics();
+            badgeG.fillStyle(0x1a6e1a, 0.95);
+            badgeG.fillRoundedRect(w / 2 - bw / 2, 6, bw, bh, 10);
+            badgeG.fillStyle(0xffffff, 0.25);
+            badgeG.fillRoundedRect(w / 2 - bw / 2 + 3, 7, bw - 6, bh * 0.45, 7);
+            badgeG.lineStyle(1.5, 0x44dd44, 0.6);
+            badgeG.strokeRoundedRect(w / 2 - bw / 2, 6, bw, bh, 10);
+            const badgeTxt = this.add.text(w / 2, 16, "✓ Đang dùng", {
+                fontFamily: "Signika", fontSize: "10px", color: "#e0ffe0", fontStyle: "bold",
+            }).setOrigin(0.5);
+            badgeObj = this.add.container(0, 0, [badgeG, badgeTxt]);
         } else if (item.isOwned) {
-            badgeObj = this._createBadge(w, "Đã sở hữu", 0x2266cc);
+            const bw = Math.min(w - 10, 80), bh = 20;
+            const badgeG = this.add.graphics();
+            badgeG.fillStyle(0x2266cc, 0.95);
+            badgeG.fillRoundedRect(w / 2 - bw / 2, 6, bw, bh, 10);
+            badgeG.fillStyle(0xffffff, 0.25);
+            badgeG.fillRoundedRect(w / 2 - bw / 2 + 3, 7, bw - 6, bh * 0.45, 7);
+            badgeG.lineStyle(1.5, 0x5599ff, 0.6);
+            badgeG.strokeRoundedRect(w / 2 - bw / 2, 6, bw, bh, 10);
+            const badgeTxt = this.add.text(w / 2, 16, "Đã sở hữu", {
+                fontFamily: "Signika", fontSize: "10px", color: "#d0e8ff", fontStyle: "bold",
+            }).setOrigin(0.5);
+            badgeObj = this.add.container(0, 0, [badgeG, badgeTxt]);
         }
 
-        // Ảnh item
+        // ── Ảnh item (trong vùng thân kem) ───────────────────────
+        const imgAreaY  = HDR_H + 6;
+        const imgAreaH  = h - HDR_H - 50; // chừa chỗ cho label + giá
+        const imgCenterY = imgAreaY + imgAreaH / 2;
+
         let imgObj = null;
         if (item.imgKey && this.textures.exists(item.imgKey)) {
-            imgObj = this.add.image(w / 2, h * 0.40, item.imgKey);
-            const wRatio = (w - 18) / imgObj.width;
-            const hRatio = (h * 0.50) / imgObj.height;
-            // For backgrounds we want to fit inside the card to avoid complicated local/world mask scaling issues in scrollviews
+            imgObj = this.add.image(w / 2, imgCenterY, item.imgKey);
+            const wRatio = (w - 16) / imgObj.width;
+            const hRatio = (imgAreaH - 10) / imgObj.height;
             const scale = Math.min(wRatio, hRatio);
             imgObj.setScale(scale);
         } else {
-            imgObj = this.add.text(w / 2, h * 0.38, item.type === "background" ? "🖼" : "🎭", { fontSize: "36px" }).setOrigin(0.5);
+            imgObj = this.add.text(w / 2, imgCenterY, item.type === "background" ? "🖼" : "🎭", { fontSize: "36px" }).setOrigin(0.5);
         }
 
         // Tên
         const nameLabel = item.label || this._getDisplayName(item.name || "");
-        const labelTxt = this.add.text(w / 2, h - 36, nameLabel, {
-            fontFamily: "Signika", fontSize: "11px",
-            color: isSelected ? "#ffe066" : item.isOwned ? "#a8d0f0" : "#8888aa",
+        const labelTxt = this.add.text(w / 2, h - 38, nameLabel, {
+            fontFamily: "Signika", fontSize: "12px",
+            color: isSelected ? "#7a3800" : item.isOwned ? "#2a5a8a" : "#5c3300",
             fontStyle: "bold", align: "center",
             wordWrap: { width: w - 10 },
         }).setOrigin(0.5);
@@ -1089,17 +1148,18 @@ export default class ShopScene extends Phaser.Scene {
         const price = item.price || 0;
         if (!item.isOwned) {
             if (price === 0) {
-                priceObj = this.add.text(w / 2, h - 16, "Miễn phí", {
+                priceObj = this.add.text(w / 2, h - 18, "Miễn phí", {
                     fontFamily: "Signika", fontSize: "11px",
-                    color: "#66dd66", fontStyle: "bold",
+                    color: "#44aa44", fontStyle: "bold",
                 }).setOrigin(0.5);
             } else {
                 // Coin icon + price
                 const priceC = this.add.container(0, 0);
-                const ci = this.add.image(w / 2 - 26, h - 16, "coin").setDisplaySize(16, 16);
-                const pt = this.add.text(w / 2 - 14, h - 16, this._formatMoney(price), {
-                    fontFamily: "Signika", fontSize: "11px",
-                    color: "#ffe066", fontStyle: "bold",
+                const ci = this.add.image(w / 2 - 28, h - 18, "coin").setDisplaySize(18, 18);
+                const pt = this.add.text(w / 2 - 14, h - 18, this._formatMoney(price), {
+                    fontFamily: "Signika", fontSize: "12px",
+                    color: "#d4a030", fontStyle: "bold",
+                    stroke: "#ffffff", strokeThickness: 1,
                 }).setOrigin(0, 0.5);
                 priceC.add([ci, pt]);
                 priceObj = priceC;
@@ -1109,7 +1169,7 @@ export default class ShopScene extends Phaser.Scene {
         // Glow nếu selected
         if (isSelected) {
             this.tweens.add({
-                targets: bg, alpha: { from: 1, to: 0.80 },
+                targets: bg, alpha: { from: 1, to: 0.85 },
                 duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
             });
         }

@@ -1,4 +1,4 @@
-import { getPlayerData, setPlayerData } from "../server/utils/playerData.js";
+﻿import { getPlayerData, setPlayerData } from "../server/utils/playerData.js";
 import { SERVER_URL } from "../config.js";
 
 export default class BagScene extends Phaser.Scene {
@@ -41,60 +41,76 @@ export default class BagScene extends Phaser.Scene {
     preload() {
         this.load.image("bag-bg",    "assets/ui/nen_chung.png");
         this.load.image("out",       "assets/ui/shared/return.png");
+        this.load.image("card_item1","assets/ui/shared/item_card3.png");
     }
 
     async create() {
         const { width, height } = this.scale;
 
-        // Lấy playerData
         this.playerData = getPlayerData(this) || {};
         this.playerUserId = this.playerData?.user_id || this.playerData?.user?.id || null;
 
-        // ── Background ───────────────────────────────────────────────
         const bg = this.add.image(width / 2, height / 2, "bag-bg");
         bg.setScale(Math.max(width / bg.width, height / bg.height));
 
-        // ── Tải dữ liệu từ server ────────────────────────────────────
+        this._buildStarfield(width, height);
         await this.loadAllAssets();
 
         // ── Layout ───────────────────────────────────────────────────
-        const GAP        = 20;
-        const LEFT_W     = 360;
-        const RIGHT_W    = width - LEFT_W - GAP - 40;
-        const PANEL_H    = height - 100;
-        const START_X    = 20;
+        const TAB_H   = 46;
+        const PANEL_Y = 110;
+        const PANEL_H = height - PANEL_Y - 40;
+        const GAP     = 16;
+        const LEFT_W  = 340;
+        const RIGHT_W = width - LEFT_W - GAP - 40;
+        const START_X = 20;
 
         const leftCX  = START_X + LEFT_W / 2;
         const rightCX = START_X + LEFT_W + GAP + RIGHT_W / 2;
-        const panelY  = height / 2 + 10;
+        const panelY  = PANEL_Y + PANEL_H / 2;
 
-        // ── Panel trái ───────────────────────────────────────────────
-        this.createStyledPanel(leftCX,  panelY, LEFT_W,  PANEL_H, 22);
-        // ── Panel phải ───────────────────────────────────────────────
-        this.createStyledPanel(rightCX, panelY, RIGHT_W, PANEL_H, 22);
+        this._layout = { leftCX, rightCX, panelY, LEFT_W, RIGHT_W, PANEL_H, GAP, PANEL_Y, TAB_H };
 
-        // Lưu layout để dùng lại
-        this._layout = { leftCX, rightCX, panelY, LEFT_W, RIGHT_W, PANEL_H, GAP };
-
-        // ── Panel trái: preview nhân vật ─────────────────────────────
-        this.buildLeftPanel();
-
-        // ── Tabs + nội dung phải ────────────────────────────────────
-        this.buildTabs();
-        this.renderRightPanel();
-
-        // ── Nút Back ────────────────────────────────────────────────
-        const backBtn = this.add.image(36, 36, "out")
-            .setScale(0.9).setDepth(200)
-            .setInteractive({ cursor: "pointer" });
-        backBtn.on("pointerover", () => backBtn.setTint(0xdddddd));
-        backBtn.on("pointerout",  () => backBtn.clearTint());
-        backBtn.on("pointerup",   () => {
-            this.cameras.main.fadeOut(200);
-            this.cameras.main.once("camerafadeoutcomplete", () => this.scene.start("LobbyScene"));
+        // ── Header: Back + "TÚI ĐỒ" ─────────────────────────────────
+        const backBtn = this.add.image(48, 48, "out").setScale(1).setDepth(200).setInteractive({ cursor: "pointer" });
+        backBtn.on("pointerdown", () => {
+            this.tweens.add({ targets: backBtn, scale: 0.7, duration: 80, yoyo: true });
+            this.time.delayedCall(160, () => {
+                this.cameras.main.fadeOut(200);
+                this.cameras.main.once("camerafadeoutcomplete", () => this.scene.start("LobbyScene"));
+            });
+        });
+        this.add.text(105, 55, "TÚI ĐỒ", {
+            fontFamily: "Signika", fontSize: "32px", color: "#ffffff", fontStyle: "bold",
+            stroke: "#003388", strokeThickness: 6,
+            shadow: { offsetX: 2, offsetY: 3, color: "#001166", blur: 6, fill: true },
+        }).setOrigin(0, 0.5).setPadding(7, 5, 7, 5).setDepth(200);
+        [[230, 30], [310, 22], [355, 38]].forEach(([sx, sy]) => {
+            this.add.text(sx, sy, "✦", { fontSize: "14px", color: "#ffffff" }).setOrigin(0.5).setAlpha(0.6);
         });
 
-        // ── Drag cho grid phải ──────────────────────────────────────
+        // const backBtn = this.add.image(48, 48, "back").setScale(1).setInteractive({ cursor: "pointer" });
+        //     backBtn.on("pointerdown", () => {
+        //     this.tweens.add({ targets: backBtn, scale: 0.6, duration: 80, yoyo: true });
+        //     this.time.delayedCall(160, () => this.scene.start("LobbyScene"));
+        // });
+        // this.add.text(105, 55, "ĐẤU TRƯỜNG", {
+        // fontFamily: "Signika", fontSize: "32px", color: "#ffffff", fontStyle: "bold",
+        // stroke: "#003388", strokeThickness: 6,
+        // shadow: { offsetX: 2, offsetY: 3, color: "#001166", blur: 6, fill: true },
+        // }).setOrigin(0, 0.5).setPadding(7, 5, 7, 5);
+
+        // ── Tabs phía trên panel phải ────────────────────────────────
+        this.buildTabs();
+
+        // ── 2 Panel chính ────────────────────────────────────────────
+        this.createStyledPanel(leftCX,  panelY, LEFT_W,  PANEL_H, 18);
+        this.createStyledPanel(rightCX, panelY, RIGHT_W, PANEL_H, 18);
+
+        // ── Nội dung ─────────────────────────────────────────────────
+        this.buildLeftPanel();
+        this.renderRightPanel();
+
         this._setupDrag(rightCX, RIGHT_W);
     }
 
@@ -115,6 +131,20 @@ export default class BagScene extends Phaser.Scene {
     // ═══════════════════════════════════════════════════════════════
     //  LOAD DATA + ASSETS
     // ═══════════════════════════════════════════════════════════════
+    _buildStarfield(width, height) {
+        for (let i = 0; i < 22; i++) {
+            const x  = Phaser.Math.Between(0, width);
+            const y  = Phaser.Math.Between(0, height * 0.55);
+            const sz = Phaser.Math.FloatBetween(1, 2.5);
+            const g  = this.add.graphics();
+            g.fillStyle(0xffffff, Phaser.Math.FloatBetween(0.2, 0.65));
+            g.fillCircle(x, y, sz);
+            this.tweens.add({ targets: g, alpha: { from: g.alpha, to: 0.04 },
+                duration: Phaser.Math.Between(900, 2200), yoyo: true, repeat: -1,
+                delay: Phaser.Math.Between(0, 1800), ease: "Sine.easeInOut" });
+        }
+    }
+
     async loadAllAssets() {
         if (!this.playerUserId) return;
 
@@ -274,32 +304,19 @@ export default class BagScene extends Phaser.Scene {
     //  PANEL TRÁI — Preview nhân vật + tên
     // ═══════════════════════════════════════════════════════════════
     buildLeftPanel() {
-        const { leftCX, panelY, LEFT_W, PANEL_H } = this._layout;
+        const { leftCX, panelY, LEFT_W, PANEL_H, PANEL_Y } = this._layout;
         this._previewObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
         this._previewObjs = [];
         const push = o => { this._previewObjs.push(o); return o; };
 
-        const top = panelY - PANEL_H / 2;
+        const top     = PANEL_Y || (panelY - PANEL_H / 2);
+        const PAD     = 16;
 
-        // ── Tiêu đề "TÚI ĐỒ" ────────────────────────────────────────
-        const titleBg = push(this.add.graphics().setDepth(5));
-        titleBg.fillStyle(0xd4a030, 1);
-        titleBg.fillRoundedRect(leftCX - 75, top + 14, 150, 34, 17);
-        titleBg.fillStyle(0xfff5b0, 0.40);
-        titleBg.fillRoundedRect(leftCX - 73, top + 15, 146, 14, 12);
-        titleBg.lineStyle(2.5, 0x8b5e1a, 1);
-        titleBg.strokeRoundedRect(leftCX - 75, top + 14, 150, 34, 17);
-
-        push(this.add.text(leftCX, top + 31, "TÚI ĐỒ", {
-            fontFamily: "Signika", fontSize: "18px",
-            color: "#4a2000", fontStyle: "bold",
-        }).setOrigin(0.5).setDepth(6));
-
-        // ── Khung preview ────────────────────────────────────────────
-        const PREVIEW_W = LEFT_W - 40;
-        const PREVIEW_H = 220;
+        // ── Khung preview — to, sát trên ─────────────────────────────
+        const PREVIEW_W = LEFT_W - PAD * 2;
+        const PREVIEW_H = Math.round(PANEL_H * 0.52);
         const PREVIEW_X = leftCX - PREVIEW_W / 2;
-        const PREVIEW_Y = top + 62;
+        const PREVIEW_Y = top + PAD;
 
         const prevG = push(this.add.graphics().setDepth(4));
         prevG.fillStyle(0x1a3a6a, 1);
@@ -361,70 +378,63 @@ export default class BagScene extends Phaser.Scene {
             }
         }
 
-        // ── Nội dung bên dưới preview — tùy theo tab ─────────────────
-        if (this.activeTab === "background") {
-            const currentBg  = this.myBackgrounds.find(b => Number(b.background_id || b.id) === Number(this.selectedBgId));
-            const isCurrentActive = currentBg && Number(currentBg.background_id || currentBg.id) === activeBgId;
+        // ── Nội dung bên dưới preview ────────────────────────────────
+        const infoY = PREVIEW_Y + PREVIEW_H + 12;
 
+        if (this.activeTab === "background") {
+            const currentBg = this.myBackgrounds.find(b => Number(b.background_id || b.id) === Number(this.selectedBgId));
+            const isCurrentActive = currentBg && Number(currentBg.background_id || currentBg.id) === activeBgId;
             const displayName = currentBg?.name || `Phông nền ${this.selectedBgId || ""}`;
-            push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H + 16, displayName, {
+
+            push(this.add.text(leftCX, infoY, displayName, {
                 fontFamily: "Signika", fontSize: "20px", color: "#5c3300", fontStyle: "bold",
                 stroke: "#f5dfa0", strokeThickness: 2,
             }).setOrigin(0.5).setDepth(5));
 
-            const divY2 = PREVIEW_Y + PREVIEW_H + 44;
             const dg = push(this.add.graphics().setDepth(5));
             dg.lineStyle(1.5, 0xc8a060, 0.6);
-            dg.lineBetween(leftCX - LEFT_W / 2 + 20, divY2, leftCX + LEFT_W / 2 - 20, divY2);
+            dg.lineBetween(leftCX - LEFT_W / 2 + 20, infoY + 28, leftCX + LEFT_W / 2 - 20, infoY + 28);
 
-            push(this.add.text(leftCX - LEFT_W / 2 + 20, divY2 + 18,
+            push(this.add.text(leftCX - LEFT_W / 2 + 20, infoY + 38,
                 `✦  Trạng thái: ${isCurrentActive ? "Đang sử dụng" : "Chưa trang bị"}`, {
                 fontFamily: "Signika", fontSize: "13px",
                 color: isCurrentActive ? "#2a8b2a" : "#8b5e1a", fontStyle: "italic",
             }).setDepth(5));
-
-            push(this.add.text(leftCX, divY2 + 50, "← Bấm vào phông nền để trang bị", {
-                fontFamily: "Signika", fontSize: "12px",
-                color: "#a07840", fontStyle: "italic", align: "center",
-                wordWrap: { width: LEFT_W - 40 },
-            }).setOrigin(0.5, 0).setDepth(5));
         } else {
-            // Tab nhân vật hoặc trang phục
             const displayName = currentChar?.name || "Chưa chọn";
-            push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H + 16, displayName, {
+            push(this.add.text(leftCX, infoY, displayName, {
                 fontFamily: "Signika", fontSize: "20px", color: "#5c3300", fontStyle: "bold",
                 stroke: "#f5dfa0", strokeThickness: 2,
             }).setOrigin(0.5).setDepth(5));
 
-            const divY2 = PREVIEW_Y + PREVIEW_H + 44;
             const dg = push(this.add.graphics().setDepth(5));
             dg.lineStyle(1.5, 0xc8a060, 0.6);
-            dg.lineBetween(leftCX - LEFT_W / 2 + 20, divY2, leftCX + LEFT_W / 2 - 20, divY2);
-
-            const skinLabelY = divY2 + 18;
-            push(this.add.text(leftCX - LEFT_W / 2 + 20, skinLabelY, "✦  Trang phục đang dùng:", {
-                fontFamily: "Signika", fontSize: "13px", color: "#8b5e1a", fontStyle: "italic",
-            }).setDepth(5));
+            dg.lineBetween(leftCX - LEFT_W / 2 + 20, infoY + 28, leftCX + LEFT_W / 2 - 20, infoY + 28);
 
             const activeSkinNum = this.selectedSkinNum || currentChar?.active_skin_number || 1;
             const skinLabelMap  = { 1: "Sơ cấp", 2: "Trung cấp", 3: "Cao cấp" };
-            push(this.add.text(leftCX - LEFT_W / 2 + 20, skinLabelY + 22,
+
+            push(this.add.text(leftCX - LEFT_W / 2 + 20, infoY + 38,
+                "✦  Trang phục đang dùng:", {
+                fontFamily: "Signika", fontSize: "13px", color: "#8b5e1a", fontStyle: "italic",
+            }).setDepth(5));
+            push(this.add.text(leftCX - LEFT_W / 2 + 20, infoY + 56,
                 skinLabelMap[activeSkinNum] || `Skin ${activeSkinNum}`, {
                 fontFamily: "Signika", fontSize: "15px", color: "#4a2000", fontStyle: "bold",
             }).setDepth(5));
 
             if (currentChar) {
                 const isActive = Number(currentChar.is_active_character) === 1;
-                push(this.add.text(leftCX - LEFT_W / 2 + 20, skinLabelY + 52,
+                push(this.add.text(leftCX - LEFT_W / 2 + 20, infoY + 78,
                     `✦  Trạng thái: ${isActive ? "Đang sử dụng" : "Chưa trang bị"}`, {
                     fontFamily: "Signika", fontSize: "13px",
                     color: isActive ? "#2a8b2a" : "#8b5e1a", fontStyle: "italic",
                 }).setDepth(5));
             }
 
-            const btnY = panelY + PANEL_H / 2 - 46;
+            const btnY = top + PANEL_H - 36;
             const isCurrentActive = currentChar && Number(currentChar.is_active_character) === 1;
-            this._buildActionBtn(leftCX, btnY, 180, 42,
+            this._buildActionBtn(leftCX, btnY, 200, 44,
                 isCurrentActive ? "✓ Đang Trang Bị" : "⚔️ Trang Bị",
                 isCurrentActive ? 0x3a8a3a : 0xd4a030,
                 isCurrentActive ? 0x1a5a1a : 0x8a5e10,
@@ -462,79 +472,86 @@ export default class BagScene extends Phaser.Scene {
         this._tabBtnObjs = [];
         const push = o => { this._tabBtnObjs.push(o); return o; };
 
-        const { rightCX, panelY, RIGHT_W, PANEL_H } = this._layout;
-        const top     = panelY - PANEL_H / 2;
-        const TAB_H   = 36;
-        const TAB_Y   = top + 15;
+        const { rightCX, RIGHT_W, PANEL_Y } = this._layout;
 
-        const tabs = [
-            { id: "character",  label: "Nhân Vật"  },
-            { id: "skin",       label: "Trang Phục" },
-            { id: "background", label: "Phông Nền"  },
-        ];
+        const tabs   = ["NHÂN VẬT", "TRANG PHỤC", "PHÔNG NỀN"];
+        const ids    = ["character", "skin", "background"];
+        const tabW   = Math.floor((RIGHT_W - 8) / tabs.length);
+        const tabH   = 46;
+        const gap    = 4;
+        const startX = rightCX - RIGHT_W / 2;
+        const tabY   = PANEL_Y - tabH;
 
-        const TAB_W   = (RIGHT_W - 24) / tabs.length;
-        const startX  = rightCX - RIGHT_W / 2 + 12;
+        // Khởi tạo graphics và text
+        this._tabGraphics = this._tabGraphics || [];
+        this._tabTexts    = this._tabTexts    || [];
+        this._tabGraphics.forEach(g => { try { g?.destroy(); } catch(e){} });
+        this._tabTexts.forEach(t => { try { t?.destroy(); } catch(e){} });
+        this._tabGraphics = [];
+        this._tabTexts    = [];
 
-        tabs.forEach((tab, i) => {
-            const tx = startX + 2 + i * TAB_W + TAB_W / 2;
+        tabs.forEach((label, i) => {
+            const tx = startX + i * (tabW + gap);
+            const g  = push(this.add.graphics().setDepth(8));
+            this._tabGraphics.push(g);
 
-            const bg = push(this.add.graphics().setDepth(8));
-            const drawTab = (active) => {
-                bg.clear();
-                if (active) {
-                    bg.fillStyle(0xd4a030, 1);
-                    bg.fillRoundedRect(tx - TAB_W / 2, TAB_Y, TAB_W - 4, TAB_H, 12);
-                    bg.fillStyle(0xfff5b0, 0.38);
-                    bg.fillRoundedRect(tx - TAB_W / 2 + 4, TAB_Y + 3, TAB_W - 12, TAB_H * 0.45, 8);
-                    bg.lineStyle(2.5, 0x8b5e1a, 1);
-                    bg.strokeRoundedRect(tx - TAB_W / 2, TAB_Y, TAB_W - 4, TAB_H, 12);
-                } else {
-                    bg.fillStyle(0xc8a060, 0.22);
-                    bg.fillRoundedRect(tx - TAB_W / 2, TAB_Y, TAB_W - 4, TAB_H, 12);
-                    bg.lineStyle(1.5, 0xc8a060, 0.45);
-                    bg.strokeRoundedRect(tx - TAB_W / 2, TAB_Y, TAB_W - 4, TAB_H, 12);
-                }
-            };
-            drawTab(this.activeTab === tab.id);
-
-            const txt = push(this.add.text(tx - 2, TAB_Y + TAB_H / 2, tab.label, {
-                fontFamily: "Signika",
-                fontSize: this.activeTab === tab.id ? "15px" : "13px",
-                color: this.activeTab === tab.id ? "#4a2000" : "#9b7040",
-                fontStyle: "bold",
+            const txt = push(this.add.text(tx + tabW / 2, tabY + tabH / 2, label, {
+                fontFamily: "Signika", fontSize: "17px", color: "#ffffff",
+                fontStyle: "bold", stroke: "#3a2000", strokeThickness: 3,
             }).setOrigin(0.5).setDepth(9));
+            this._tabTexts.push(txt);
 
-            const zone = push(this.add.zone(tx - 2, TAB_Y + TAB_H / 2, TAB_W - 4, TAB_H)
-                .setInteractive({ useHandCursor: true }).setDepth(10));
+            push(this.add.zone(tx + tabW / 2, tabY + tabH / 2, tabW, tabH)
+                .setInteractive({ cursor: "pointer" }).setDepth(10))
+                .on("pointerdown", async () => {
+                    if (this.activeTab === ids[i]) return;
+                    this.activeTab = ids[i];
+                    if (ids[i] !== "skin") this.selectedSkinNum = null;
+                    if (ids[i] === "skin") {
+                        this.ensureSelectedCharacter();
+                        await this.loadSkinsForCharacter(this.selectedCharId);
+                    }
+                    this._drawAllTabs(startX, tabY, tabW, tabH, gap);
+                    this.buildLeftPanel();
+                    this.renderRightPanel();
+                });
+        });
 
-            zone.on("pointerover", () => {
-                if (this.activeTab !== tab.id) {
-                    bg.clear();
-                    bg.fillStyle(0xc8a060, 0.40);
-                    bg.fillRoundedRect(tx - TAB_W / 2, TAB_Y, TAB_W - 4, TAB_H, 12);
-                }
-            });
-            zone.on("pointerout", () => drawTab(this.activeTab === tab.id));
-            zone.on("pointerup", async () => {
-                if (this.activeTab === tab.id) return;
+        this._drawAllTabs(startX, tabY, tabW, tabH, gap);
+        this._tabMeta = { startX, tabY, tabW, tabH, gap };
+    } 
 
-                this.activeTab = tab.id;
-
-                // Reset selectedSkinNum khi rời tab skin
-                if (tab.id !== "skin") {
-                    this.selectedSkinNum = null;
-                }
-
-                if (tab.id === "skin") {
-                    this.ensureSelectedCharacter();
-                    await this.loadSkinsForCharacter(this.selectedCharId);
-                }
-
-                this.buildTabs();
-                this.buildLeftPanel();
-                this.renderRightPanel();
-            });
+    _drawAllTabs(startX, tabY, tabW, tabH, gap) {
+        const ids = ["character", "skin", "background"];
+        this._tabGraphics.forEach((g, i) => {
+            const tx     = startX + i * (tabW + gap);
+            const active = this.activeTab === ids[i];
+            g.clear();
+            if (active) {
+                // Shadow
+                g.fillStyle(0x000000, 0.25);
+                g.fillRoundedRect(tx + 4, tabY - 1, tabW, tabH, { tl: 12, tr: 12, bl: 0, br: 0 });
+                // Nền vàng đậm nổi bật
+                g.fillGradientStyle(0xf5c842, 0xf5c842, 0xd4960a, 0xd4960a, 1);
+                g.fillRoundedRect(tx, tabY - 5, tabW, tabH + 5, { tl: 12, tr: 12, bl: 0, br: 0 });
+                // Viền
+                g.lineStyle(2.5, 0x8b6010, 1);
+                g.strokeRoundedRect(tx, tabY - 5, tabW, tabH + 5, { tl: 12, tr: 12, bl: 0, br: 0 });
+                // Gloss
+                g.fillStyle(0xffffff, 0.32);
+                g.fillRoundedRect(tx + 8, tabY - 1, tabW - 16, 12, 5);
+                this._tabTexts[i].setColor("#3a1800").setFontSize("17px");
+            } else {
+                // Shadow
+                g.fillStyle(0x000000, 0.15);
+                g.fillRoundedRect(tx + 3, tabY + 3, tabW, tabH, { tl: 10, tr: 10, bl: 0, br: 0 });
+                // Nền xỉn hơn
+                g.fillGradientStyle(0xb89848, 0xb89848, 0x9a7c30, 0x9a7c30, 1);
+                g.fillRoundedRect(tx, tabY, tabW, tabH, { tl: 10, tr: 10, bl: 0, br: 0 });
+                g.lineStyle(1.5, 0x7a5a18, 0.7);
+                g.strokeRoundedRect(tx, tabY, tabW, tabH, { tl: 10, tr: 10, bl: 0, br: 0 });
+                this._tabTexts[i].setColor("#f0e8c8").setFontSize("15px");
+            }
         });
     }
 
@@ -552,10 +569,10 @@ export default class BagScene extends Phaser.Scene {
         this._rightObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
         this._rightObjs = [];
 
-        const { rightCX, panelY, RIGHT_W, PANEL_H } = this._layout;
+        const { rightCX, panelY, RIGHT_W, PANEL_H, PANEL_Y } = this._layout;
 
-        const top    = panelY - PANEL_H / 2 + 58;
-        const GRID_H = PANEL_H - 76;
+        const top    = (PANEL_Y || panelY - PANEL_H / 2) + 14;
+        const GRID_H = PANEL_H - 28;
         const push   = o => { this._rightObjs.push(o); return o; };
 
         if (this.activeTab === "skin") {
@@ -660,14 +677,16 @@ export default class BagScene extends Phaser.Scene {
 
         const ROWS   = 2;
         const COLS   = Math.ceil(items.length / ROWS);
-        const PAD_X  = 26;
-        const PAD_Y  = 22;
-        const GAP_X  = 16;
-        const GAP_Y  = 16;
+        const PAD_X  = 16;
+        const PAD_Y  = 12;
+        const GAP_X  = 10;
+        const GAP_Y  = 10;
 
-        const availW = RIGHT_W - PAD_X * 2;
-        const CARD_W = Math.min(132, (availW - GAP_X * (Math.min(COLS, 4) - 1)) / Math.min(COLS, 4));
-        const CARD_H = Math.floor(CARD_W * 1.30);
+        // Hiển thị đúng 3 cột cùng lúc, tính CARD_W từ RIGHT_W
+        const VISIBLE_COLS = 3;
+        const CARD_W = Math.floor((RIGHT_W - PAD_X * 2 - GAP_X * (VISIBLE_COLS - 1)) / VISIBLE_COLS);
+        // CARD_H vừa khít 2 hàng trong GRID_H
+        const CARD_H = Math.floor((GRID_H - PAD_Y * 2 - GAP_Y) / 2);
 
         const totalW     = COLS * CARD_W + (COLS - 1) * GAP_X;
         const gridStartX = rightCX - RIGHT_W / 2 + PAD_X;
@@ -696,11 +715,11 @@ export default class BagScene extends Phaser.Scene {
 
         const maskShape = push(this.make.graphics());
         maskShape.fillRoundedRect(
-            rightCX - RIGHT_W / 2 + 18,
-            top + 6,
-            RIGHT_W - 36,
-            GRID_H - 12,
-            16
+            rightCX - RIGHT_W / 2 + 8,
+            top,
+            RIGHT_W - 16,
+            GRID_H,
+            12
         );
         this._gridContainer.setMask(maskShape.createGeometryMask());
 
@@ -712,127 +731,114 @@ export default class BagScene extends Phaser.Scene {
     // ═══════════════════════════════════════════════════════════════
     _buildItemCard(x, y, w, h, item) {
         const container = this.add.container(x, y);
-        const r = 10;
-        
-        // isSelected chỉ dùng để highlight card đang chọn
-        const isSelected = 
-            (item.type === "character" && Number(item.id) === Number(this.selectedCharId)) ||
-            (item.type === "skin"      && item.skinNum === this.selectedSkinNum) ||
+
+        const isSelected =
+            (item.type === "character"  && Number(item.id) === Number(this.selectedCharId)) ||
+            (item.type === "skin"       && item.skinNum === this.selectedSkinNum) ||
             (item.type === "background" && item.id === this.selectedBgId);
-            
-        // isActive dùng để hiện badge "Đang dùng" - bug fixed!
+
         const isActive = !!item.isActive;
         const isLocked = !!item.locked;
 
-        const bg = this.add.graphics();
+        // Header cam chiếm ~26% chiều cao card
+        const HDR_H = Math.round(h * 0.26);
 
-        const drawCard = (hover = false) => {
-            bg.clear();
-            // Bóng
-            bg.fillStyle(0x000000, 0.22);
-            bg.fillRoundedRect(3, 5, w, h, r);
-            // Nền card
-            bg.fillStyle(isLocked ? 0x1a1a2a : 0x0d2a4a, 1);
-            bg.fillRoundedRect(0, 0, w, h, r);
-            // Dải sáng trên
-            bg.fillStyle(isLocked ? 0x333355 : 0x1a5090, 0.55);
-            bg.fillRoundedRect(0, 0, w, h * 0.45, r);
-            // Shine
-            bg.fillStyle(0xffffff, hover ? 0.20 : 0.11);
-            bg.fillRoundedRect(8, 6, w - 16, h * 0.22, r - 3);
-            // Viền
-            if (isSelected) {
-                bg.lineStyle(3, 0xffe030, 1.0);
-                bg.strokeRoundedRect(0, 0, w, h, r);
-                bg.lineStyle(1.5, 0xffffff, 0.35);
-                bg.strokeRoundedRect(3, 3, w - 6, h - 6, r - 2);
-            } else if (isLocked) {
-                bg.lineStyle(2, 0x444466, 0.6);
-                bg.strokeRoundedRect(0, 0, w, h, r);
-            } else if (hover) {
-                bg.lineStyle(2.5, 0xc8a060, 0.9);
-                bg.strokeRoundedRect(0, 0, w, h, r);
-            } else {
-                bg.lineStyle(2, 0x6a8ab0, 0.6);
-                bg.strokeRoundedRect(0, 0, w, h, r);
-            }
-        };
-        drawCard(false);
+        // ── Ảnh nền card ──────────────────────────────────────────
+        const cardBg = this.add.image(w / 2, h / 2, "card_item1")
+            .setDisplaySize(w, h);
+        if (isLocked) cardBg.setAlpha(0.55);
 
-        // Badge "Đang dùng"
-        let badgeObj = null;
-        if (isActive) {
-            const badgeG = this.add.graphics();
-            badgeG.fillStyle(0xd4a030, 1);
-            badgeG.fillRoundedRect(w / 2 - 38, 6, 76, 20, 10);
-            badgeG.fillStyle(0xfff5b0, 0.38);
-            badgeG.fillRoundedRect(w / 2 - 36, 7, 72, 9, 7);
-            const badgeTxt = this.add.text(w / 2, 16, "✓ Đang dùng", {
-                fontFamily: "Signika", fontSize: "11px", color: "#4a2000", fontStyle: "bold",
-            }).setOrigin(0.5);
-            badgeObj = this.add.container(0, 0, [badgeG, badgeTxt]);
-        }
-
-        // Badge "Chưa mở khóa"
-        let lockBadge = null;
-        if (isLocked) {
-            lockBadge = this.add.text(w / 2, h / 2 - 10, "🔒", {
-                fontSize: "28px"
-            }).setOrigin(0.5);
-        }
-
-        // Ảnh item
-        let imgObj = null;
-        const imgKey = item.imgKey;
-        if (imgKey && this.textures.exists(imgKey)) {
-            imgObj = this.add.image(w / 2, h * 0.46, imgKey);
-            const wRatio = (w - 18) / imgObj.width;
-            const hRatio = (h * 0.58) / imgObj.height;
-            const scale = Math.min(wRatio, hRatio);
-            imgObj.setScale(scale);
-
-            if (isLocked) imgObj.setAlpha(0.3);
-        } else if (!isLocked) {
-            imgObj = this.add.text(w / 2, h * 0.46, item.type === "background" ? "🖼" : "🎭", {
-                fontFamily: "Signika", fontSize: "38px",
-            }).setOrigin(0.5);
-        }
-
-        // Tên item
-        const labelTxt = this.add.text(w / 2, h - 20, item.label, {
-            fontFamily: "Signika", fontSize: "12px",
-            color: isSelected ? "#ffe066" : isLocked ? "#666688" : "#a8d0f0",
-            fontStyle: "bold",
-            align: "center",
-            wordWrap: { width: w - 10 },
-        }).setOrigin(0.5);
-
-        // Glow animation nếu selected
+        // ── Viền vàng khi selected ────────────────────────────────
+        const selGlow = this.add.graphics();
         if (isSelected) {
+            selGlow.lineStyle(3.5, 0xffcc00, 1);
+            selGlow.strokeRoundedRect(0, 0, w, h, 16);
+            selGlow.lineStyle(1.5, 0xffffff, 0.55);
+            selGlow.strokeRoundedRect(3, 3, w - 6, h - 6, 14);
             this.tweens.add({
-                targets: bg, alpha: { from: 1, to: 0.80 },
+                targets: cardBg, alpha: { from: 1, to: 0.82 },
                 duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
             });
         }
 
-        const children = [bg];
-        if (imgObj)    children.push(imgObj);
-        children.push(labelTxt);
+        // ── Tên trên header cam ───────────────────────────────────
+        const fontSize = Math.max(10, Math.min(14, Math.round(w * 0.115)));
+        const nameTxt = this.add.text(w / 2, HDR_H / 2, item.label || "", {
+            fontFamily: "Signika",
+            fontSize: fontSize + "px",
+            color: "#ffffff",
+            fontStyle: "bold",
+            stroke: "#7a2800",
+            strokeThickness: 3,
+            align: "center",
+            wordWrap: { width: w - 8 },
+        }).setOrigin(0.5);
+
+        // ── Badge "Đã dùng" góc trên phải (như ảnh mẫu) ──────────
+        let badgeObj = null;
+        if (isActive) {
+            const bw = Math.min(w - 8, 72), bh = 18;
+            const bx = w - bw - 4, by = 4;
+            const badgeG = this.add.graphics();
+            badgeG.fillStyle(0x1a7a1a, 0.95);
+            badgeG.fillRoundedRect(bx, by, bw, bh, 9);
+            badgeG.fillStyle(0xffffff, 0.20);
+            badgeG.fillRoundedRect(bx + 2, by + 2, bw - 4, bh * 0.4, 6);
+            badgeG.lineStyle(1.5, 0x55ee55, 0.7);
+            badgeG.strokeRoundedRect(bx, by, bw, bh, 9);
+            const badgeTxt = this.add.text(bx + bw / 2, by + bh / 2, "Đã dùng", {
+                fontFamily: "Signika", fontSize: "10px",
+                color: "#e0ffe0", fontStyle: "bold",
+            }).setOrigin(0.5);
+            badgeObj = this.add.container(0, 0, [badgeG, badgeTxt]);
+        }
+
+        // ── Ảnh nhân vật / skin / background ─────────────────────
+        // Chiếm toàn bộ phần thân (dưới header)
+        const imgAreaY   = HDR_H + 4;
+        const imgAreaH   = h - HDR_H - 8;
+        const imgCenterY = imgAreaY + imgAreaH / 2;
+
+        let imgObj = null;
+        if (item.imgKey && this.textures.exists(item.imgKey)) {
+            imgObj = this.add.image(w / 2, imgCenterY, item.imgKey);
+            const scale = Math.min((w - 16) / imgObj.width, (imgAreaH - 8) / imgObj.height);
+            imgObj.setScale(scale);
+            if (isLocked) imgObj.setAlpha(0.35);
+        } else if (!isLocked) {
+            imgObj = this.add.text(w / 2, imgCenterY,
+                item.type === "background" ? "🖼" : "🎭",
+                { fontSize: Math.round(h * 0.35) + "px" }
+            ).setOrigin(0.5);
+        }
+
+        // ── Badge khóa ────────────────────────────────────────────
+        let lockBadge = null;
+        if (isLocked) {
+            lockBadge = this.add.text(w / 2, imgCenterY, "🔒",
+                { fontSize: Math.round(h * 0.25) + "px" }
+            ).setOrigin(0.5);
+        }
+
+        const children = [cardBg, selGlow, nameTxt];
         if (badgeObj)  children.push(badgeObj);
+        if (imgObj)    children.push(imgObj);
         if (lockBadge) children.push(lockBadge);
         container.add(children);
 
-        // Interactive
+        // ── Interactive ───────────────────────────────────────────
         if (!isLocked) {
-            container.setInteractive(
-                new Phaser.Geom.Rectangle(0, 0, w, h),
-                Phaser.Geom.Rectangle.Contains
-            );
+            container.setInteractive(new Phaser.Geom.Rectangle(0, 0, w, h), Phaser.Geom.Rectangle.Contains);
             container.input.cursor = "pointer";
-
-            container.on("pointerover", () => { drawCard(true); this.tweens.add({ targets: container, scaleX: 1.04, scaleY: 1.04, duration: 90 }); });
-            container.on("pointerout",  () => { drawCard(false); this.tweens.add({ targets: container, scaleX: 1, scaleY: 1, duration: 90 }); });
-            container.on("pointerup",   () => {
+            container.on("pointerover", () => {
+                cardBg.setTint(0xffe8cc);
+                this.tweens.add({ targets: container, scaleX: 1.04, scaleY: 1.04, duration: 90 });
+            });
+            container.on("pointerout", () => {
+                cardBg.clearTint();
+                this.tweens.add({ targets: container, scaleX: 1, scaleY: 1, duration: 90 });
+            });
+            container.on("pointerup", () => {
                 if (this._dragMoved) return;
                 this._onSelectItem(item);
             });
@@ -1107,59 +1113,66 @@ export default class BagScene extends Phaser.Scene {
     // ═══════════════════════════════════════════════════════════════
     //  PANEL ĐẸP — copy từ TarotScene
     // ═══════════════════════════════════════════════════════════════
-    createStyledPanel(x, y, w, h, radius) {
+    createStyledPanel(cx, cy, w, h, radius) {
+        const left = cx - w / 2;
+        const top  = cy - h / 2;
         const g    = this.add.graphics().setDepth(2);
-        const left = x - w / 2;
-        const top  = y - h / 2;
 
-        g.fillStyle(0x000000, 0.22);
-        g.fillRoundedRect(left + 5, top + 7, w, h, radius);
+        // Bóng đổ
+        g.fillStyle(0x000000, 0.25);
+        g.fillRoundedRect(left + 6, top + 6, w, h, radius);
 
-        g.fillStyle(0xfff0d0, 1);
+        // Nền gradient vàng kem
+        g.fillGradientStyle(0xf5e8c0, 0xf5e8c0, 0xeedd99, 0xeedd99, 1);
         g.fillRoundedRect(left, top, w, h, radius);
 
-        g.fillStyle(0xffffff, 0.4);
-        g.fillRoundedRect(left + 4, top + 4, w - 8, h * 0.18, radius);
-
-        g.lineStyle(4, 0x8b5e1a, 1);
+        // Viền trắng ngoài
+        g.lineStyle(3, 0xffffff, 1);
         g.strokeRoundedRect(left, top, w, h, radius);
 
-        const inset = 10;
-        const r2    = radius - 4;
-        this.drawDashedBorder(g, left + inset, top + inset, w - inset * 2, h - inset * 2, r2, 0xc8a060, 2);
-        return g;
-    }
+        // Gloss trên cùng
+        g.fillStyle(0xffffff, 0.18);
+        g.fillRoundedRect(left + 6, top + 4, w - 12, 20, 8);
 
-    drawDashedBorder(g, left, top, w, h, r, color, lw) {
-        g.lineStyle(lw, color, 0.75);
-        const dash = 10, skip = 7;
-        const drawSeg = (x1, y1, x2, y2) => {
-            const len = Math.hypot(x2 - x1, y2 - y1);
-            const ax  = (x2 - x1) / len;
-            const ay  = (y2 - y1) / len;
-            for (let d = 0; d < len; d += dash + skip) {
-                const end = Math.min(d + dash, len);
+        // Viền đứt nét bên trong
+        const ins = 10;
+        const cornerR = radius - 4;
+        g.lineStyle(1.5, 0xb8922e, 0.5);
+
+        const drawD = (x1, y1, x2, y2) => {
+            const dist = Phaser.Math.Distance.Between(x1, y1, x2, y2);
+            const ang  = Phaser.Math.Angle.Between(x1, y1, x2, y2);
+            for (let d = 0; d < dist; d += 14) {
                 g.beginPath();
-                g.moveTo(x1 + ax * d,   y1 + ay * d);
-                g.lineTo(x1 + ax * end, y1 + ay * end);
+                g.moveTo(x1 + Math.cos(ang) * d, y1 + Math.sin(ang) * d);
+                g.lineTo(x1 + Math.cos(ang) * Math.min(d + 8, dist), y1 + Math.sin(ang) * Math.min(d + 8, dist));
                 g.strokePath();
             }
         };
-        drawSeg(left + r, top,          left + w - r, top);
-        drawSeg(left + w, top + r,      left + w,     top + h - r);
-        drawSeg(left + w - r, top + h,  left + r,     top + h);
-        drawSeg(left,  top + h - r,     left,         top + r);
-        const corners = [
-            { a: 180, b: 270, cx: left + r,     cy: top + r     },
-            { a: 270, b: 360, cx: left + w - r, cy: top + r     },
-            { a: 0,   b: 90,  cx: left + w - r, cy: top + h - r },
-            { a: 90,  b: 180, cx: left + r,     cy: top + h - r },
-        ];
-        corners.forEach(c => {
-            g.beginPath();
-            g.arc(c.cx, c.cy, r, Phaser.Math.DegToRad(c.a), Phaser.Math.DegToRad(c.b));
-            g.strokePath();
-        });
+
+        const drawArc = (acx, acy, r, startAngle, endAngle) => {
+            const arcLength = r * Math.abs(endAngle - startAngle);
+            const steps = Math.ceil(arcLength / 14);
+            for (let i = 0; i < steps; i++) {
+                const a1 = startAngle + (endAngle - startAngle) * (i / steps);
+                const a2 = startAngle + (endAngle - startAngle) * Math.min((i + 0.57) / steps, 1);
+                g.beginPath();
+                g.arc(acx, acy, r, a1, a2);
+                g.strokePath();
+            }
+        };
+
+        drawD(left+ins+cornerR, top+ins, left+w-ins-cornerR, top+ins);
+        drawD(left+w-ins, top+ins+cornerR, left+w-ins, top+h-ins-cornerR);
+        drawD(left+w-ins-cornerR, top+h-ins, left+ins+cornerR, top+h-ins);
+        drawD(left+ins, top+h-ins-cornerR, left+ins, top+ins+cornerR);
+
+        drawArc(left+ins+cornerR,   top+ins+cornerR,   cornerR, Math.PI,      Math.PI*1.5);
+        drawArc(left+w-ins-cornerR, top+ins+cornerR,   cornerR, Math.PI*1.5,  Math.PI*2);
+        drawArc(left+w-ins-cornerR, top+h-ins-cornerR, cornerR, 0,            Math.PI*0.5);
+        drawArc(left+ins+cornerR,   top+h-ins-cornerR, cornerR, Math.PI*0.5,  Math.PI);
+
+        return g;
     }
 
     // ═══════════════════════════════════════════════════════════════

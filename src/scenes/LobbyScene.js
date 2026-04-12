@@ -16,6 +16,7 @@ export default class LobbyScene extends Phaser.Scene {
     
     // icon top bar
     this.load.image("coin","assets/ui/shared/coin.png");
+    this.load.image("add","assets/ui/shared/add.png");
     this.load.image("border","assets/ui/lobby/border.png");
     this.load.image("bag","assets/ui/lobby/backpack.png");
     this.load.image("shop","assets/ui/lobby/shop.png");
@@ -250,11 +251,11 @@ createTopBar() {
   // 3. Tên người chơi (đặt vào trong khung nền)
   const name = this.add.text(profileX + avatarSize + 15, y, this.playerName, {
     fontFamily: "Signika",
-    fontSize: "22px",
-    fontWeight: 600,
+    fontSize: "26px",
+    fontWeight: "bold",
     color: "#ffffff",
     stroke: "#222222",
-    strokeThickness: 3
+    strokeThickness: 4
   })
   .setOrigin(0, 0.5)
   .setDepth(104);
@@ -288,9 +289,11 @@ createTopBar() {
     EcoinManager.format(ecoinValue),
     {
       fontFamily: "Signika",
-      fontSize: "22px",
-      fontWeight: 600,
+      fontSize: "26px",
+      fontWeight: "bold",
       color: "#ffffff",
+      stroke: "#222222",
+      strokeThickness: 4,
       padding: { left: 15 }
     }
   )
@@ -302,16 +305,12 @@ createTopBar() {
       coinText.setText(EcoinManager.format(newEcoin));
   });
 
-  // Nút cộng (+) - Giống trong ảnh mẫu của bạn
-  const plusBtn = this.add.text(coinX + bgWidth - 25, y, "+", {
-    fontFamily: "Signika",
-    fontSize: "42px",     // tăng kích thước
-    fontWeight: 900,      // đậm hơn
-    color: "#4ee2ff"
-  })
-  .setOrigin(0.5)
-  .setDepth(103)
-  .setInteractive({ cursor: 'pointer' });
+  // Nút cộng (icon add.png) - Giống trong ảnh mẫu của bạn
+  const plusBtn = this.add.image(coinX + bgWidth - 25, y, "add")
+    .setScale(0.7) // Điều chỉnh kích thước cho phù hợp
+    .setOrigin(0.5)
+    .setDepth(103)
+    .setInteractive({ cursor: 'pointer' });
 
 
 // ===== ICON MENU =====

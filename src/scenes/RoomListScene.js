@@ -20,7 +20,9 @@ export default class RoomListScene extends Phaser.Scene {
     this.load.image("coin",        "assets/ui/shared/coin.png");
     this.load.image("user_fill",   "assets/ui/shared/user0.png");
     this.load.image("user_empty",  "assets/ui/shared/user1.png");
-    this.load.image("versus",        "assets/ui/shared/versus2.png");
+    this.load.image("versus",      "assets/ui/shared/versus2.png");
+    this.load.image("arrow",       "assets/ui/shared/arrow.png");
+    this.load.image("close",       "assets/ui/shared/close.png");
   }
 
   create() {
@@ -186,7 +188,7 @@ export default class RoomListScene extends Phaser.Scene {
       fontFamily: "Signika", fontSize: "32px", color: "#ffffff", fontStyle: "bold",
       stroke: "#003388", strokeThickness: 6,
       shadow: { offsetX: 2, offsetY: 3, color: "#001166", blur: 6, fill: true },
-    }).setOrigin(0, 0.5);
+    }).setOrigin(0, 0.5).setPadding(7, 5, 7, 5);
   }
 
   _buildTitle(width, height) {
@@ -200,7 +202,7 @@ export default class RoomListScene extends Phaser.Scene {
     const tabW = 160, tabH = 46, gap = 4;
     const totalW = labels.length * tabW + (labels.length - 1) * gap;
     const startX = width / 2 - totalW / 2 + 160;
-    const tabY   = 80;
+    const tabY   = 70;
     this._tabGraphics = [];
     this._tabTexts    = [];
     labels.forEach((label, i) => {
@@ -210,7 +212,7 @@ export default class RoomListScene extends Phaser.Scene {
       const txt = this.add.text(tx + tabW / 2, tabY + tabH / 2, label, {
         fontFamily: "Signika", fontSize: "18px", color: "#ffffff",
         fontStyle: "bold", stroke: "#3a2000", strokeThickness: 3,
-      }).setOrigin(0.5);
+      }).setOrigin(0.5).setPadding(6, 4, 6, 4);
       this._tabTexts.push(txt);
       this.add.zone(tx + tabW / 2, tabY + tabH / 2, tabW, tabH)
         .setInteractive({ cursor: "pointer" })
@@ -253,7 +255,7 @@ export default class RoomListScene extends Phaser.Scene {
   }
 
   _buildMainPanel(width, height) {
-    const panelX = 45, panelY = 128;
+    const panelX = 45, panelY = 118;
     const panelW = width - 90, panelH = height - 220;
     const g = this.add.graphics();
     g.fillStyle(0x000000, 0.25);
@@ -266,7 +268,7 @@ export default class RoomListScene extends Phaser.Scene {
     g.fillRoundedRect(panelX + 6, panelY + 4, panelW - 12, 20, 8);
     g.lineStyle(1.5, 0xb8922e, 0.5);
     const ins = 10;
-    const cornerR = 16; // radius của góc bo tròn
+    const cornerR = 16;
     
     // Hàm vẽ đường thẳng đứt nét
     const drawD = (x1, y1, x2, y2) => {
@@ -323,7 +325,6 @@ export default class RoomListScene extends Phaser.Scene {
       const cy  = pb.y + padY + row * (cardH + gapY) + cardH / 2;
       this.cardObjects.push(this._buildRoomCard(cx, cy, cardW, cardH, room));
     });
-    this._updatePageLabel(width, height);
   }
 
   _buildRoomCard(cx, cy, cw, ch, room) {
@@ -522,24 +523,50 @@ export default class RoomListScene extends Phaser.Scene {
   }
 
   _buildPaginationArrows(width, height) {
-    const pb = this._panelBounds, midY = pb.y + pb.h / 2;
-    [{ x: pb.x - 10, dir: -1, color: 0x8899aa, label: "◀" },
-     { x: pb.x + pb.w + 10, dir: +1, color: 0xff9900, label: "▶" }]
-    .forEach(({ x, dir, color, label }) => {
-      const g = this.add.graphics();
-      this._drawArrowBtn(g, x, midY, color);
-      this.add.text(x, midY + 1, label, {
-        fontFamily: "Arial", fontSize: "22px", color: "#ffffff", fontStyle: "bold",
-      }).setOrigin(0.5).setDepth(1);
-      this.add.zone(x, midY, 52, 52).setInteractive({ cursor: "pointer" })
-        .on("pointerover",  () => g.setAlpha(0.8))
-        .on("pointerout",   () => g.setAlpha(1))
-        .on("pointerdown",  () => {
-          const total = Math.ceil(this.allRooms.length / this.roomsPerPage);
-          this.currentPage = Phaser.Math.Clamp(this.currentPage + dir, 0, total - 1);
-          this.tweens.add({ targets: g, scaleX: 0.88, scaleY: 0.88, duration: 70, yoyo: true });
-          this._renderRooms(width, height);
-        });
+    // Xóa arrows cũ nếu có
+    if (this._arrowObjs) this._arrowObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
+    this._arrowObjs = [];
+
+    const pb    = this._panelBounds;
+    const midY  = pb.y + pb.h / 2;
+    const total = Math.ceil(this.allRooms.length / this.roomsPerPage);
+
+    [{ x: pb.x - 10, dir: -1, flipX: true },
+     { x: pb.x + pb.w + 10, dir: +1, flipX: false }]
+    .forEach(({ x, dir, flipX }) => {
+      const atLimit = dir === -1 ? this.currentPage <= 0
+                                 : this.currentPage >= total - 1;
+
+      // Vòng tròn nền mờ
+      const circle = this.add.graphics();
+      circle.fillStyle(0xffffff, 0.15);
+      circle.fillCircle(x, midY, 25);
+      circle.lineStyle(1.5, 0xaaddff, 0.5);
+      circle.strokeCircle(x, midY, 25);
+      this._arrowObjs.push(circle);
+
+      // Ảnh mũi tên — tối nếu hết trang
+      const img = this.add.image(x, midY, "arrow")
+        .setDisplaySize(44, 44)
+        .setFlipX(flipX)
+        .setAlpha(atLimit ? 0.25 : 0.9)
+        .setTint(atLimit ? 0x333333 : 0xffffff);
+      this._arrowObjs.push(img);
+
+      if (atLimit) return; // không gắn event nếu hết trang
+
+      const zone = this.add.zone(x, midY, 62, 62).setInteractive({ cursor: "pointer" });
+      this._arrowObjs.push(zone);
+
+      zone.on("pointerover",  () => img.setAlpha(1));
+      zone.on("pointerout",   () => img.setAlpha(0.9));
+      zone.on("pointerdown",  () => {
+        img.setAlpha(0.6);
+        this.time.delayedCall(120, () => img.setAlpha(0.9));
+        this.currentPage = Phaser.Math.Clamp(this.currentPage + dir, 0, Math.max(0, total - 1));
+        this._renderRooms(width, height);
+        this._buildPaginationArrows(width, height); // rebuild để cập nhật trạng thái
+      });
     });
   }
 
@@ -551,26 +578,41 @@ export default class RoomListScene extends Phaser.Scene {
     g.lineStyle(2, 0xffffff, 0.5); g.strokeCircle(x, y, 24);
   }
 
-  _updatePageLabel(width, height) {
-    if (this._pageLabel) this._pageLabel.destroy();
-    const total = Math.ceil(this.allRooms.length / this.roomsPerPage);
-    const dots  = Array.from({ length: total }, (_, i) => i === this.currentPage ? "●" : "○").join("  ");
-    const pb = this._panelBounds;
-    this._pageLabel = this.add.text(width / 2, pb.y + pb.h - 16, dots, {
-      fontFamily: "Arial", fontSize: "14px", color: "#886600",
-    }).setOrigin(0.5);
-  }
-
   _buildBottomButtons(width, height) {
     const by = height - 50;
-    this._buildPillBtn(width / 2 - 160, by, 200, 56, 0xff8800, 0xffaa00, "Tạo Phòng", () => {
-      this._showCreateRoomModal(width, height);
-    });
-    this._buildPillBtn(width / 2 + 80, by, 200, 56, 0x22aa44, 0x44cc66, "Chơi Nhanh", () => {
-      this._showQuickPlayModal(width, height);
-    });
-  }
 
+    const btnW = 200;
+    const btnH = 56;
+    const gap  = 40; // khoảng cách giữa 2 nút
+
+    const totalW = btnW * 2 + gap;
+
+    const startX = width / 2 - totalW / 2;
+
+    // Nút 1
+    this._buildPillBtn(
+      startX + btnW / 2,
+      by,
+      btnW,
+      btnH,
+      0xff8800,
+      0xffaa00,
+      "Tạo Phòng",
+      () => this._showCreateRoomModal(width, height)
+    );
+
+    // Nút 2
+    this._buildPillBtn(
+      startX + btnW + gap + btnW / 2,
+      by,
+      btnW,
+      btnH,
+      0x22aa44,
+      0x44cc66,
+      "Chơi Nhanh",
+      () => this._showQuickPlayModal(width, height)
+    );
+  }
   // ══════════════════════════════════════════════════════════════════════
   // MODAL SHELL
   // DEPTH layers:
@@ -605,7 +647,7 @@ export default class RoomListScene extends Phaser.Scene {
     panel.fillRoundedRect(px + 6, py + 6, modalW - 12, modalH * 0.10, R - 4);
     panel.lineStyle(4, 0x8b5e1a, 1);
     panel.strokeRoundedRect(px, py, modalW, modalH, R);
-    this._modalDash(panel, px + 12, py + 12, modalW - 24, modalH - 24, R - 5, 0xc8a060);
+    this._modalDash(panel, px + 20, py + 20, modalW - 40, modalH - 40, R - 5, 0xc8a060);
 
     // Title pill
     const pillW = 290, pillH = 52, pillR = pillH / 2;
@@ -625,32 +667,21 @@ export default class RoomListScene extends Phaser.Scene {
       fontStyle: "bold", stroke: "#ffffffbb", strokeThickness: 2,
     }).setOrigin(0.5).setDepth(D + 5);
 
-    // Close button
+    // Close button — dùng ảnh close.png
     const closeR = 22;
     const closeX = px + modalW + 4, closeY = py - 4;
-    const closeG = this.add.graphics().setDepth(D + 5);
-    closeG.fillStyle(0x000000, 0.20);
-    closeG.fillCircle(closeX + 2, closeY + 3, closeR);
-    closeG.fillGradientStyle(0xcc1133, 0xcc1133, 0xff4466, 0xff4466, 1);
-    closeG.fillCircle(closeX, closeY, closeR);
-    closeG.fillStyle(0xffffff, 0.28);
-    closeG.fillEllipse(closeX, closeY - 7, closeR * 1.1, closeR * 0.5);
-    closeG.lineStyle(2, 0xff8899, 1);
-    closeG.strokeCircle(closeX, closeY, closeR);
-    const closeXTxt = this.add.text(closeX, closeY, "✕", {
-      fontFamily: "Signika", fontSize: "20px", color: "#ffffff",
-      fontStyle: "bold", stroke: "#880022", strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(D + 6);
+    const closeImg = this.add.image(closeX, closeY, "close")
+      .setDisplaySize(closeR * 2.2, closeR * 2.2)
+      .setDepth(D + 6);
 
     const closeZone = this.add.zone(closeX, closeY, closeR * 2.4, closeR * 2.4)
       .setInteractive({ cursor: "pointer" }).setDepth(D + 7);
-    closeZone.on("pointerover",  () => this.tweens.add({ targets: [closeG, closeXTxt], scaleX: 1.12, scaleY: 1.12, duration: 80 }));
-    closeZone.on("pointerout",   () => this.tweens.add({ targets: [closeG, closeXTxt], scaleX: 1, scaleY: 1, duration: 80 }));
+    closeZone.on("pointerover",  () => closeImg.setAlpha(0.85));
+    closeZone.on("pointerout",   () => closeImg.setAlpha(1));
 
-    const allObjects = [dimmer, panel, titlePill, titleTxt, closeG, closeXTxt, closeZone];
+    const allObjects = [dimmer, panel, titlePill, titleTxt, closeImg, closeZone];
 
     const destroy = () => {
-      // Fade dimmer rồi mới destroy
       this.tweens.add({
         targets: dimmer, alpha: 0, duration: 150,
         onComplete: () => {
@@ -658,7 +689,7 @@ export default class RoomListScene extends Phaser.Scene {
         }
       });
       // Fade panel ngay
-      this.tweens.add({ targets: [panel, titlePill, titleTxt, closeG, closeXTxt],
+      this.tweens.add({ targets: [panel, titlePill, titleTxt, closeImg],
         alpha: 0, scaleX: 0.9, scaleY: 0.9, duration: 120, ease: 'Quad.easeIn' });
     };
 
@@ -700,32 +731,31 @@ export default class RoomListScene extends Phaser.Scene {
   // ══════════════════════════════════════════════════════════════════════
   // OPTION ROW — FIX: buttons căn TRÁI từ sau label, không căn giữa
   // ══════════════════════════════════════════════════════════════════════
-  _buildOptionRow(shell, rowY, labelTxt, options, isMulti, defaultSel) {
+  _buildOptionRow(shell, rowY, labelTxt, options, isMulti, defaultSel, linkedRow = null) {
     const { px, modalW, D } = shell;
-    const PAD    = 24;      // padding trái phải của row
-    const LABEL_W = 110;    // chiều rộng cột label cố định
-    const ROW_H  = 56;      // chiều cao row background
+    const LABEL_W = 110;
+    const ROW_H  = 56;
     const ROW_R  = 10;
+    // Row dịch vào trong 28px mỗi bên để cân với nét đứt
+    const INS = 28;
 
-    // Row background
     const rowBg = this.add.graphics().setDepth(D + 3);
     rowBg.fillStyle(0xd4a030, 0.09);
-    rowBg.fillRoundedRect(px + 12, rowY - ROW_H/2, modalW - 24, ROW_H, ROW_R);
+    rowBg.fillRoundedRect(px + INS, rowY - ROW_H/2, modalW - INS*2, ROW_H, ROW_R);
     rowBg.lineStyle(1.5, 0xc8a060, 0.28);
-    rowBg.strokeRoundedRect(px + 12, rowY - ROW_H/2, modalW - 24, ROW_H, ROW_R);
+    rowBg.strokeRoundedRect(px + INS, rowY - ROW_H/2, modalW - INS*2, ROW_H, ROW_R);
     shell.addObj(rowBg);
 
-    // Label — căn giữa dọc trong row
     if (labelTxt) {
-      const lbl = this.add.text(px + PAD, rowY, labelTxt, {
+      const lbl = this.add.text(px + INS + 8, rowY, labelTxt, {
         fontFamily: "Signika", fontSize: "16px", color: "#5a2d00", fontStyle: "bold",
       }).setOrigin(0, 0.5).setDepth(D + 4);
       shell.addObj(lbl);
     }
 
-    // Buttons bắt đầu từ sau cột label → căn TRÁI, không căn giữa
-    const BTN_START_X = px + PAD + LABEL_W;  // X bắt đầu của button đầu tiên
+    const BTN_START_X = px + INS + 8 + LABEL_W;
     const btnH = 38, btnR = btnH / 2, btnGap = 10;
+    const ICON_SIZE = 25; // default, versus dùng 35
 
     let selected = new Set(
       Array.isArray(defaultSel) ? defaultSel : defaultSel != null ? [defaultSel] : []
@@ -733,7 +763,7 @@ export default class RoomListScene extends Phaser.Scene {
     const btnRefs = [];
 
     const redraw = () => {
-      btnRefs.forEach(({ g, txt, val, bxRef, bw }) => {
+      btnRefs.forEach(({ g, txt, iconImg, val, bxRef, bw }) => {
         const on = selected.has(val);
         g.clear();
         if (on) {
@@ -763,30 +793,59 @@ export default class RoomListScene extends Phaser.Scene {
     let curX = BTN_START_X;
     options.forEach(opt => {
       const bw    = opt.w || 72;
-      const btnCX = curX + bw / 2;  // tâm button = curX + nửa width
-      const g   = this.add.graphics().setDepth(D + 4);
-      const txt = this.add.text(btnCX, rowY, opt.label, {
-        fontFamily: "Signika", fontSize: "14px", color: "#6b3a00", fontStyle: "bold",
-      }).setOrigin(0.5).setDepth(D + 5);
+      const btnCX = curX + bw / 2;
+      const g     = this.add.graphics().setDepth(D + 4);
+
+      let txt, iconImg = null;
+      if (opt.icon) {
+        const iconSize = opt.icon === "versus" ? 35 : 25;
+        // Tạo text tạm để đo width
+        const tmpTxt = this.add.text(0, -9999, opt.label, { fontFamily: "Signika", fontSize: "14px" });
+        const textW  = tmpTxt.width;
+        tmpTxt.destroy();
+        const cw = iconSize + 4 + textW;
+        const startIconX = btnCX - cw / 2 + iconSize / 2;
+        iconImg = this.add.image(startIconX, rowY, opt.icon)
+          .setDisplaySize(iconSize, iconSize).setDepth(D + 5);
+        txt = this.add.text(startIconX + iconSize / 2 + 4, rowY, opt.label, {
+          fontFamily: "Signika", fontSize: "14px", color: "#6b3a00", fontStyle: "bold",
+        }).setOrigin(0, 0.5).setDepth(D + 5);
+        shell.addObj(iconImg);
+      } else {
+        txt = this.add.text(btnCX, rowY, opt.label, {
+          fontFamily: "Signika", fontSize: "14px", color: "#6b3a00", fontStyle: "bold",
+        }).setOrigin(0.5).setDepth(D + 5);
+      }
+
       const zone = this.add.zone(btnCX, rowY, bw, btnH)
         .setInteractive({ cursor: "pointer" }).setDepth(D + 6);
+
+      // Click: chỉ flash sáng nhẹ, không dịch chuyển
       zone.on("pointerdown", () => {
         if (isMulti) {
           if (selected.has(opt.val)) selected.delete(opt.val);
           else selected.add(opt.val);
         } else {
           selected = new Set([opt.val]);
+          // Nếu có linkedRow thì clear selection của row đó
+          if (linkedRow) linkedRow.clearSelection();
         }
         redraw();
-        this.tweens.add({ targets: [g, txt], scaleX: 0.91, scaleY: 0.91, duration: 55, yoyo: true });
+        this.tweens.add({ targets: g, alpha: 0.65, duration: 60, yoyo: true });
       });
-      btnRefs.push({ g, txt, val: opt.val, bxRef: btnCX, bw });
+
+      btnRefs.push({ g, txt, iconImg, val: opt.val, bxRef: btnCX, bw });
       shell.addObj(g); shell.addObj(txt); shell.addObj(zone);
-      curX += bw + btnGap;  // dịch sang phải cho button tiếp theo
+      curX += bw + btnGap;
     });
 
     redraw();
-    return { getValue: () => isMulti ? [...selected] : ([...selected][0] ?? null) };
+    const rowApi = {
+      getValue:       () => isMulti ? [...selected] : ([...selected][0] ?? null),
+      clearSelection: () => { selected = new Set(); redraw(); },
+      setLinked:      (other) => { linkedRow = other; },
+    };
+    return rowApi;
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -811,7 +870,7 @@ export default class RoomListScene extends Phaser.Scene {
     const R3     = R2 + RH;
     const R4     = R3 + R4G;
     const HINT_Y = R4 + HINT_H;
-    const BTN_Y  = py + modalH - BTN_H / 2 - BOTTOM;
+    const BTN_Y  = py + modalH - BTN_H / 2 - BOTTOM - 22;
 
     this._buildOptionRow(shell, R1, "Loại phòng", [
       { label: "Tự do",     val: "free",      w: 130 },
@@ -819,22 +878,22 @@ export default class RoomListScene extends Phaser.Scene {
     ], false, "free");
 
     const modeRow = this._buildOptionRow(shell, R2, "Kiểu chơi", [
-      { label: "2",       val: 2,      w: 68 },
-      { label: "3",       val: 3,      w: 68 },
-      { label: "4",       val: 4,      w: 68 },
-      { label: "👥 Team", val: "team", w: 110 },
+      { label: "2",     val: 2,      w: 68 },
+      { label: "3",     val: 3,      w: 68 },
+      { label: "4",     val: 4,      w: 68 },
+      { label: "Team",  val: "team", w: 110, icon: "versus" },
     ], true, [2, 3, 4]);
 
     const betRow1 = this._buildOptionRow(shell, R3, "Mức cược", [
-      { label: "💰 5K",  val: 5000,  w: 100 },
-      { label: "💰 20K", val: 20000, w: 100 },
-      { label: "💰 50K", val: 50000, w: 100 },
+      { label: "5K",  val: 5000,  w: 100, icon: "coin" },
+      { label: "20K", val: 20000, w: 100, icon: "coin" },
+      { label: "50K", val: 50000, w: 100, icon: "coin" },
     ], true, [5000, 20000]);
 
     const betRow2 = this._buildOptionRow(shell, R4, "", [
-      { label: "💰 200K", val: 200000,  w: 100 },
-      { label: "💰 500K", val: 500000,  w: 100 },
-      { label: "💰 1M",   val: 1000000, w: 100 },
+      { label: "200K", val: 200000,  w: 100, icon: "coin" },
+      { label: "500K", val: 500000,  w: 100, icon: "coin" },
+      { label: "1M",   val: 1000000, w: 100, icon: "coin" },
     ], true, []);
 
     const hint = this.add.text(cx, HINT_Y,
@@ -869,7 +928,7 @@ export default class RoomListScene extends Phaser.Scene {
     const R3   = R2 + RH;
     const R4   = R3 + R4G;
     const PW_Y = R4 + PW_H;
-    const BTN_Y = py + modalH - BTN_H / 2 - BOTTOM;
+    const BTN_Y = py + modalH - BTN_H / 2 - BOTTOM - 22;
 
     const roomRow = this._buildOptionRow(shell, R1, "Loại phòng", [
       { label: "Tự do",  val: "free",    w: 130 },
@@ -877,41 +936,44 @@ export default class RoomListScene extends Phaser.Scene {
     ], false, "free");
 
     const modeRow = this._buildOptionRow(shell, R2, "Kiểu chơi", [
-      { label: "2",       val: 2,      w: 68 },
-      { label: "3",       val: 3,      w: 68 },
-      { label: "4",       val: 4,      w: 68 },
-      { label: "👥 Team", val: "team", w: 110 },
+      { label: "2",     val: 2,      w: 68 },
+      { label: "3",     val: 3,      w: 68 },
+      { label: "4",     val: 4,      w: 68 },
+      { label: "Team",  val: "team", w: 110, icon: "versus" },
     ], false, 4);
 
     const betRow1 = this._buildOptionRow(shell, R3, "Mức cược", [
-      { label: "💰 5K",   val: 5000,   w: 92 },
-      { label: "💰 20K",  val: 20000,  w: 92 },
-      { label: "💰 50K",  val: 50000,  w: 92 },
-      { label: "💰 200K", val: 200000, w: 100 },
+      { label: "5K",   val: 5000,   w: 92, icon: "coin" },
+      { label: "20K",  val: 20000,  w: 92, icon: "coin" },
+      { label: "50K",  val: 50000,  w: 92, icon: "coin" },
+      { label: "200K", val: 200000, w: 100, icon: "coin" },
     ], false, 5000);
 
+    // betRow2 dùng chung selectedBet với betRow1
     const betRow2 = this._buildOptionRow(shell, R4, "", [
-      { label: "💰 500K", val: 500000,  w: 92 },
-      { label: "💰 1M",   val: 1000000, w: 92 },
-      { label: "💰 5M",   val: 5000000, w: 92 },
-    ], false, null);
+      { label: "500K", val: 500000,  w: 92, icon: "coin" },
+      { label: "1M",   val: 1000000, w: 92, icon: "coin" },
+      { label: "5M",   val: 5000000, w: 92, icon: "coin" },
+    ], false, null, betRow1);
+    // Khi chọn ở betRow1 thì clear betRow2 và ngược lại
+    betRow1.setLinked(betRow2);
 
     // ── Mật khẩu ──────────────────────────────────────────────────────
     const PW_ROW_H = 56;
     const pwBg = this.add.graphics().setDepth(D + 3);
     pwBg.fillStyle(0xd4a030, 0.09);
-    pwBg.fillRoundedRect(px + 12, PW_Y - PW_ROW_H/2, modalW - 24, PW_ROW_H, 10);
+    pwBg.fillRoundedRect(px + 28, PW_Y - PW_ROW_H/2, modalW - 56, PW_ROW_H, 10);
     pwBg.lineStyle(1.5, 0xc8a060, 0.28);
-    pwBg.strokeRoundedRect(px + 12, PW_Y - PW_ROW_H/2, modalW - 24, PW_ROW_H, 10);
+    pwBg.strokeRoundedRect(px + 28, PW_Y - PW_ROW_H/2, modalW - 56, PW_ROW_H, 10);
     shell.addObj(pwBg);
 
-    const pwLbl = this.add.text(px + 24, PW_Y, "Mật khẩu", {
+    const pwLbl = this.add.text(px + 36, PW_Y, "Mật khẩu", {
       fontFamily: "Signika", fontSize: "16px", color: "#5a2d00", fontStyle: "bold",
     }).setOrigin(0, 0.5).setDepth(D + 4);
     shell.addObj(pwLbl);
 
-    // Input graphics background
-    const INP_X = px + 134, INP_W = modalW - 158, INP_H = 38;
+    // Input graphics background — thu ngắn khớp với viền ngoài (INS=28)
+    const INP_X = px + 134, INP_W = modalW - 134 - 36, INP_H = 38;
     const INP_Y = PW_Y - INP_H / 2;
     const inpBg = this.add.graphics().setDepth(D + 4);
     inpBg.fillStyle(0xffffff, 1);
@@ -927,8 +989,7 @@ export default class RoomListScene extends Phaser.Scene {
 
     const pwText = this.add.text(INP_X + 12, PW_Y, PLACEHOLDER, {
       fontFamily: "Signika", fontSize: "14px",
-      color: "#b09060",  // placeholder color
-      fixedWidth: INP_W - 16,
+      color: "#b09060",
     }).setOrigin(0, 0.5).setDepth(D + 5);
     shell.addObj(pwText);
 
@@ -1029,7 +1090,7 @@ export default class RoomListScene extends Phaser.Scene {
     const draw = (hover = false) => {
       g.clear();
       g.fillStyle(c1, 0.18);
-      g.fillRoundedRect(bx-bw/2-8, by-bh/2-8, bw+16, bh+16, br+6);
+      g.fillRoundedRect(bx-bw/2-4, by-bh/2-4, bw+8, bh+8, br+3);
       g.fillStyle(0x000000, 0.24);
       g.fillRoundedRect(bx-bw/2+3, by-bh/2+6, bw, bh, br);
       g.fillGradientStyle(c1, c1, c2, c2, 1);
@@ -1048,10 +1109,10 @@ export default class RoomListScene extends Phaser.Scene {
     this.tweens.add({ targets: g, alpha: { from: 1, to: 0.84 }, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
     // Zone ở depth D+7 — cao nhất
     const zone = this.add.zone(bx, by, bw, bh).setInteractive({ cursor: "pointer" }).setDepth(D + 7);
-    zone.on("pointerover",  () => { draw(true);  this.tweens.add({ targets: [g, txt], scaleX: 1.05, scaleY: 1.05, duration: 90 }); });
-    zone.on("pointerout",   () => { draw(false); this.tweens.add({ targets: [g, txt], scaleX: 1,    scaleY: 1,    duration: 90 }); });
+    zone.on("pointerover",  () => { draw(true); });
+    zone.on("pointerout",   () => { draw(false); });
     zone.on("pointerdown",  () => {
-      this.tweens.add({ targets: [g, txt], scaleX: 0.93, scaleY: 0.93, duration: 55, yoyo: true });
+      this.tweens.add({ targets: g, alpha: 0.65, duration: 60, yoyo: true });
       cb();
     });
     shell.addObj(g); shell.addObj(txt); shell.addObj(zone);
@@ -1062,15 +1123,20 @@ export default class RoomListScene extends Phaser.Scene {
     const g  = this.add.graphics();
     const draw = (hover = false) => {
       g.clear();
-      g.fillStyle(c1, 0.25);
-      g.fillRoundedRect(bx-bw/2-8, by-bh/2-8, bw+16, bh+16, br+6);
+      // Viền mờ nhỏ hơn (+4 thay vì +8)
+      g.fillStyle(c1, 0.18);
+      g.fillRoundedRect(bx-bw/2-4, by-bh/2-4, bw+8, bh+8, br+3);
+      // Shadow
       g.fillStyle(0x000000, 0.28);
-      g.fillRoundedRect(bx-bw/2+4, by-bh/2+6, bw, bh, br);
+      g.fillRoundedRect(bx-bw/2+3, by-bh/2+5, bw, bh, br);
+      // Thân nút
       g.fillGradientStyle(c1, c1, c2, c2, 1);
       g.fillRoundedRect(bx-bw/2, by-bh/2, bw, bh, br);
-      g.fillStyle(0xffffff, hover ? 0.35 : 0.22);
+      // Gloss sáng hơn khi hover
+      g.fillStyle(0xffffff, hover ? 0.40 : 0.22);
       g.fillRoundedRect(bx-bw/2+8, by-bh/2+5, bw-16, bh/3, br-4);
-      g.lineStyle(2, 0xffffff, 0.5);
+      // Viền
+      g.lineStyle(2, 0xffffff, hover ? 0.7 : 0.5);
       g.strokeRoundedRect(bx-bw/2, by-bh/2, bw, bh, br);
     };
     draw(false);
@@ -1081,10 +1147,12 @@ export default class RoomListScene extends Phaser.Scene {
     }).setOrigin(0.5);
     this.tweens.add({ targets: g, alpha: { from: 1, to: 0.85 }, duration: 1000, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
     const zone = this.add.zone(bx, by, bw, bh).setInteractive({ cursor: "pointer" });
-    zone.on("pointerover",  () => { draw(true);  this.tweens.add({ targets: [g, txt], scaleX: 1.05, scaleY: 1.05, duration: 100 }); });
-    zone.on("pointerout",   () => { draw(false); this.tweens.add({ targets: [g, txt], scaleX: 1,    scaleY: 1,    duration: 100 }); });
+    // Hover: chỉ redraw sáng hơn, không scale/dịch chuyển
+    zone.on("pointerover",  () => draw(true));
+    zone.on("pointerout",   () => draw(false));
     zone.on("pointerdown",  () => {
-      this.tweens.add({ targets: [g, txt], scaleX: 0.95, scaleY: 0.95, duration: 60, yoyo: true });
+      // Chỉ flash alpha nhẹ, không scale
+      this.tweens.add({ targets: g, alpha: 0.65, duration: 60, yoyo: true, repeat: 0 });
       cb();
     });
   }
