@@ -321,31 +321,30 @@ export default class CreateCharacterScene extends Phaser.Scene {
     this.nameInput.placeholder = "Tên nhân vật...";
     Object.assign(this.nameInput.style, {
       width: "100%", height: "100%",
-      padding: `0 ${14*sx}px`,
+      padding: `0 ${20*sx}px`,
       boxSizing: "border-box",
       borderRadius: `${H/2*sy}px 0 0 ${H/2*sy}px`,
-      border: `${1*sy}px solid #cc22009d`,
+      border: `${2*sy}px solid rgba(255, 101, 50, 0.41)`,
       borderRight: "none",
-      backgroundColor: "rgba(10,40,120,0.88)",
-      background: "linear-gradient(to bottom, #0077bb, #004488)",      fontSize: `${17*sy}px`,
-      color: "#ffffff",
+      background: "rgba(255,255,255,0.82)",
+      fontSize: `${17*sy}px`,
+      color: "#3a1800",
       outline: "none",
       fontFamily: "Signika",
       fontWeight: "bold",
-      caretColor: "#88ccff",
-      boxSizing: "border-box"
+      boxShadow: "inset 0 2px 4px rgba(0,0,0,0.12), 0 4px 0 rgba(150,40,0,0.5), 0 0 0 5px rgba(255,100,50,0.18)"
     });
     this.nameInput.addEventListener("focus", () => {
-      this.nameInput.style.background = "linear-gradient(to bottom, #0099dd, #005599)";
-      this.nameInput.style.borderColor = "#f0c040";
+      this.nameInput.style.background = "rgba(255,255,255,0.96)";
+      this.nameInput.style.borderColor = "rgba(255,80,20,1)";
     });
     this.nameInput.addEventListener("blur", () => {
-      this.nameInput.style.background = "linear-gradient(to bottom, #0077bb, #004488)";
-      this.nameInput.style.borderColor = "#c8a030";
+      this.nameInput.style.background = "rgba(255,255,255,0.82)";
+      this.nameInput.style.borderColor = "rgba(255,100,50,0.7)";
     });
 
     const style = document.createElement("style");
-    style.innerHTML = `input::placeholder { color: rgba(255,255,180,0.55); font-weight:normal; }`;
+    style.innerHTML = `input::placeholder { color: rgba(180,100,60,0.6); font-weight:normal; }`;
     document.head.appendChild(style);
 
     wrapper.appendChild(this.nameInput);
@@ -375,8 +374,7 @@ export default class CreateCharacterScene extends Phaser.Scene {
       g.fillRoundedRect(bx - bw/2 + 6, by - bh/2 + 5, bw - 12, bh / 3,
         { tl: 0, tr: br - 4, bl: 0, br: br - 4 });
       // Viền trái khớp màu input
-      g.lineStyle(2, 0xc8a030, 1);
-      g.beginPath(); g.moveTo(bx - bw/2, by - bh/2); g.lineTo(bx - bw/2, by + bh/2); g.strokePath();
+      g.lineStyle(2, 0xff6432, 0.7);      g.beginPath(); g.moveTo(bx - bw/2, by - bh/2); g.lineTo(bx - bw/2, by + bh/2); g.strokePath();
       g.lineStyle(2, 0xffffff, hover ? 0.7 : 0.5);
       g.strokeRoundedRect(bx - bw/2, by - bh/2, bw, bh,
         { tl: 0, tr: br, bl: 0, br: br });
