@@ -199,7 +199,7 @@ export default class RoomListScene extends Phaser.Scene {
 
   _buildTabs(width, height) {
     const labels = ["PHỔ THÔNG", "TÂN THỦ", "CAO THỦ", "BẬC THẦY"];
-    const tabW = 160, tabH = 46, gap = 4;
+    const tabW = 160, tabH = 46, gap = 8;
     const totalW = labels.length * tabW + (labels.length - 1) * gap;
     const startX = width / 2 - totalW / 2 + 160;
     const tabY   = 70;
@@ -210,8 +210,8 @@ export default class RoomListScene extends Phaser.Scene {
       const g  = this.add.graphics();
       this._tabGraphics.push(g);
       const txt = this.add.text(tx + tabW / 2, tabY + tabH / 2, label, {
-        fontFamily: "Signika", fontSize: "18px", color: "#ffffff",
-        fontStyle: "bold", stroke: "#3a2000", strokeThickness: 2.5,
+        fontFamily: "Signika", fontSize: "18px", color: "#502700",
+        fontStyle: "bold",
       }).setOrigin(0.5).setPadding(6, 4, 6, 4);
       this._tabTexts.push(txt);
       this.add.zone(tx + tabW / 2, tabY + tabH / 2, tabW, tabH)
@@ -235,13 +235,13 @@ export default class RoomListScene extends Phaser.Scene {
       if (active) {
         g.fillStyle(0x000000, 0.2);
         g.fillRoundedRect(tx + 3, tabY - 2, tabW, tabH, { tl: 10, tr: 10, bl: 0, br: 0 });
-        g.fillGradientStyle(0xe8c87a, 0xe8c87a, 0xf5dfa0, 0xf5dfa0, 1);
+        g.fillStyle(0xebe3c0, 1);
         g.fillRoundedRect(tx, tabY - 4, tabW, tabH + 4, { tl: 10, tr: 10, bl: 0, br: 0 });
         g.lineStyle(2, 0xb89040, 1);
         g.strokeRoundedRect(tx, tabY - 4, tabW, tabH + 4, { tl: 10, tr: 10, bl: 0, br: 0 });
         g.fillStyle(0xffffff, 0.28);
         g.fillRoundedRect(tx + 8, tabY, tabW - 16, 10, 4);
-        this._tabTexts[i].setColor("#fffbe8");
+        this._tabTexts[i].setColor("#502700");
       } else {
         g.fillStyle(0x000000, 0.18);
         g.fillRoundedRect(tx + 3, tabY + 2, tabW, tabH, { tl: 8, tr: 8, bl: 0, br: 0 });
@@ -249,7 +249,7 @@ export default class RoomListScene extends Phaser.Scene {
         g.fillRoundedRect(tx, tabY, tabW, tabH, { tl: 8, tr: 8, bl: 0, br: 0 });
         g.lineStyle(1.5, 0x8a6a20, 0.6);
         g.strokeRoundedRect(tx, tabY, tabW, tabH, { tl: 8, tr: 8, bl: 0, br: 0 });
-        this._tabTexts[i].setColor("#f5f5f5");
+        this._tabTexts[i].setColor("#502700");
       }
     });
   }

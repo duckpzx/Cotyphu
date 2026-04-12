@@ -100,12 +100,12 @@ export default class BagScene extends Phaser.Scene {
         // shadow: { offsetX: 2, offsetY: 3, color: "#001166", blur: 6, fill: true },
         // }).setOrigin(0, 0.5).setPadding(7, 5, 7, 5);
 
-        // ── Tabs phía trên panel phải ────────────────────────────────
-        this.buildTabs();
-
         // ── 2 Panel chính ────────────────────────────────────────────
         this.createStyledPanel(leftCX,  panelY, LEFT_W,  PANEL_H, 18);
         this.createStyledPanel(rightCX, panelY, RIGHT_W, PANEL_H, 18);
+
+        // ── Tabs phía trên panel phải ────────────────────────────────
+        this.buildTabs();
 
         // ── Nội dung ─────────────────────────────────────────────────
         this.buildLeftPanel();
@@ -476,11 +476,12 @@ export default class BagScene extends Phaser.Scene {
 
         const tabs   = ["NHÂN VẬT", "TRANG PHỤC", "PHÔNG NỀN"];
         const ids    = ["character", "skin", "background"];
-        const tabW   = Math.floor((RIGHT_W - 8) / tabs.length);
+        const tabW   = 160;
         const tabH   = 46;
-        const gap    = 4;
-        const startX = rightCX - RIGHT_W / 2;
-        const tabY   = PANEL_Y - tabH;
+        const gap    = 8;
+        const totalTabsWidth = tabs.length * tabW + (tabs.length - 1) * gap;
+        const startX = rightCX - totalTabsWidth / 2;
+        const tabY   = PANEL_Y - tabH - 2;
 
         // Khởi tạo graphics và text
         this._tabGraphics = this._tabGraphics || [];
@@ -492,17 +493,17 @@ export default class BagScene extends Phaser.Scene {
 
         tabs.forEach((label, i) => {
             const tx = startX + i * (tabW + gap);
-            const g  = push(this.add.graphics().setDepth(8));
+            const g  = push(this.add.graphics().setDepth(1));
             this._tabGraphics.push(g);
 
             const txt = push(this.add.text(tx + tabW / 2, tabY + tabH / 2, label, {
-                fontFamily: "Signika", fontSize: "17px", color: "#ffffff",
-                fontStyle: "bold", stroke: "#3a2000", strokeThickness: 3,
-            }).setOrigin(0.5).setDepth(9));
+                fontFamily: "Signika", fontSize: "18px", color: "#502700",
+                fontStyle: "bold",
+            }).setOrigin(0.5).setPadding(6, 4, 6, 4).setDepth(16));
             this._tabTexts.push(txt);
 
             push(this.add.zone(tx + tabW / 2, tabY + tabH / 2, tabW, tabH)
-                .setInteractive({ cursor: "pointer" }).setDepth(10))
+                .setInteractive({ cursor: "pointer" }).setDepth(17))
                 .on("pointerdown", async () => {
                     if (this.activeTab === ids[i]) return;
                     this.activeTab = ids[i];
@@ -528,29 +529,23 @@ export default class BagScene extends Phaser.Scene {
             const active = this.activeTab === ids[i];
             g.clear();
             if (active) {
-                // Shadow
-                g.fillStyle(0x000000, 0.25);
-                g.fillRoundedRect(tx + 4, tabY - 1, tabW, tabH, { tl: 12, tr: 12, bl: 0, br: 0 });
-                // Nền vàng đậm nổi bật
-                g.fillGradientStyle(0xf5c842, 0xf5c842, 0xd4960a, 0xd4960a, 1);
-                g.fillRoundedRect(tx, tabY - 5, tabW, tabH + 5, { tl: 12, tr: 12, bl: 0, br: 0 });
-                // Viền
-                g.lineStyle(2.5, 0x8b6010, 1);
-                g.strokeRoundedRect(tx, tabY - 5, tabW, tabH + 5, { tl: 12, tr: 12, bl: 0, br: 0 });
-                // Gloss
-                g.fillStyle(0xffffff, 0.32);
-                g.fillRoundedRect(tx + 8, tabY - 1, tabW - 16, 12, 5);
-                this._tabTexts[i].setColor("#3a1800").setFontSize("17px");
+                g.fillStyle(0x000000, 0.2);
+                g.fillRoundedRect(tx + 3, tabY - 2, tabW, tabH, { tl: 10, tr: 10, bl: 0, br: 0 });
+                g.fillStyle(0xebe3c0, 1);
+                g.fillRoundedRect(tx, tabY - 4, tabW, tabH + 4, { tl: 10, tr: 10, bl: 0, br: 0 });
+                g.lineStyle(2, 0xb89040, 1);
+                g.strokeRoundedRect(tx, tabY - 4, tabW, tabH + 4, { tl: 10, tr: 10, bl: 0, br: 0 });
+                g.fillStyle(0xffffff, 0.28);
+                g.fillRoundedRect(tx + 8, tabY, tabW - 16, 10, 4);
+                this._tabTexts[i].setColor("#502700");
             } else {
-                // Shadow
-                g.fillStyle(0x000000, 0.15);
-                g.fillRoundedRect(tx + 3, tabY + 3, tabW, tabH, { tl: 10, tr: 10, bl: 0, br: 0 });
-                // Nền xỉn hơn
-                g.fillGradientStyle(0xb89848, 0xb89848, 0x9a7c30, 0x9a7c30, 1);
-                g.fillRoundedRect(tx, tabY, tabW, tabH, { tl: 10, tr: 10, bl: 0, br: 0 });
-                g.lineStyle(1.5, 0x7a5a18, 0.7);
-                g.strokeRoundedRect(tx, tabY, tabW, tabH, { tl: 10, tr: 10, bl: 0, br: 0 });
-                this._tabTexts[i].setColor("#f0e8c8").setFontSize("15px");
+                g.fillStyle(0x000000, 0.18);
+                g.fillRoundedRect(tx + 3, tabY + 2, tabW, tabH, { tl: 8, tr: 8, bl: 0, br: 0 });
+                g.fillStyle(0xc4a865, 1);
+                g.fillRoundedRect(tx, tabY, tabW, tabH, { tl: 8, tr: 8, bl: 0, br: 0 });
+                g.lineStyle(1.5, 0x8a6a20, 0.6);
+                g.strokeRoundedRect(tx, tabY, tabW, tabH, { tl: 8, tr: 8, bl: 0, br: 0 });
+                this._tabTexts[i].setColor("#502700");
             }
         });
     }

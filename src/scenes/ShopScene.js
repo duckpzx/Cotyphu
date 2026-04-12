@@ -76,7 +76,7 @@ export default class ShopScene extends Phaser.Scene {
         const TAB_H   = 46;
         const PANEL_Y = 110;
         const GAP     = 16;
-        const LEFT_W  = 360;
+        const LEFT_W  = 340;
         const RIGHT_W = width - LEFT_W - GAP - 40;
         const PANEL_H = height - PANEL_Y - 40;
         const START_X = 20;
@@ -569,205 +569,136 @@ export default class ShopScene extends Phaser.Scene {
     // ═══════════════════════════════════════════════════════════════
 
     buildLeftPanel() {
-        const { leftCX, panelY, LEFT_W, PANEL_H } = this._layout;
+        const { leftCX, panelY, LEFT_W, PANEL_H, PANEL_Y } = this._layout;
         this._previewObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
         this._previewObjs = [];
         const push = o => { this._previewObjs.push(o); return o; };
 
-        const top = panelY - PANEL_H / 2;
-
-        // ── Tiêu đề "CỬA HÀNG" ──
-        const titleBg = push(this.add.graphics().setDepth(5));
-        titleBg.fillStyle(0xd4a030, 1);
-        titleBg.fillRoundedRect(leftCX - 80, top + 14, 160, 34, 17);
-        titleBg.fillStyle(0xfff5b0, 0.40);
-        titleBg.fillRoundedRect(leftCX - 78, top + 15, 156, 14, 12);
-        titleBg.lineStyle(2.5, 0x8b5e1a, 1);
-        titleBg.strokeRoundedRect(leftCX - 80, top + 14, 160, 34, 17);
-
-        push(this.add.text(leftCX, top + 31, "CỬA HÀNG", {
-            fontFamily: "Signika", fontSize: "18px",
-            color: "#4a2000", fontStyle: "bold",
-        }).setOrigin(0.5).setDepth(6));
-
-        const item = this.selectedItem;
-        if (!item) {
-            push(this.add.text(leftCX, panelY, "Chọn một vật phẩm\ntừ bên phải", {
-                fontFamily: "Signika", fontSize: "16px",
-                color: "#9b7040", align: "center",
-            }).setOrigin(0.5).setDepth(5));
-            return;
-        }
+        const top = PANEL_Y || (panelY - PANEL_H / 2);
+        const PAD = 16;
 
         // ── Khung preview ──
-        const PREVIEW_W = LEFT_W - 40;
-        const PREVIEW_H = 220;
+        const PREVIEW_W = LEFT_W - PAD * 2;
+        const PREVIEW_H = Math.round(PANEL_H * 0.52);
         const PREVIEW_X = leftCX - PREVIEW_W / 2;
-        const PREVIEW_Y = top + 62;
+        const PREVIEW_Y = top + PAD;
 
         const prevG = push(this.add.graphics().setDepth(4));
         prevG.fillStyle(0x1a3a6a, 1);
         prevG.fillRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, 14);
-        prevG.fillStyle(0x2a5090, 0.45);
-        prevG.fillRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H * 0.4, 14);
         prevG.lineStyle(3, 0xc8a060, 0.9);
         prevG.strokeRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, 14);
         prevG.lineStyle(1.5, 0xffffff, 0.15);
         prevG.strokeRoundedRect(PREVIEW_X + 3, PREVIEW_Y + 3, PREVIEW_W - 6, PREVIEW_H - 6, 12);
 
-        // ── Sprite preview ──
-        if (item.type === "background") {
-            const bgKey = `bg_${item.id}`;
-            if (this.textures.exists(bgKey)) {
-                const sprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2, bgKey));
-                const wRatio = (PREVIEW_W - 20) / sprite.width;
-                const hRatio = (PREVIEW_H - 20) / sprite.height;
-                sprite.setScale(Math.max(wRatio, hRatio)).setDepth(5);
-                
-                const maskShape = push(this.make.graphics());
-                maskShape.fillRoundedRect(PREVIEW_X + 5, PREVIEW_Y + 5, PREVIEW_W - 10, PREVIEW_H - 10, 10);
-                sprite.setMask(maskShape.createGeometryMask());
+        const item = this.selectedItem;
 
-                // ── Đè nhân vật + Aura lên trên nền ──
-                const activeCharId = Number(
-                    this.playerData?.user?.active_character_id ||
-                    this.playerData?.active_character_id
-                );
-                const activeChar = (this.ownedCharacters || []).find(c =>
-                    Number(c.character_id) === activeCharId
-                ) || (this.ownedCharacters || [])[0];
-
+        if (item) {
+            // ── Sprite preview ──
+            if (item.type === "background") {
+                const bgKey = `bg_${item.id}`;
+                if (this.textures.exists(bgKey)) {
+                    const bgSprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2, bgKey));
+                    const wRatio = (PREVIEW_W - 6) / bgSprite.width;
+                    const hRatio = (PREVIEW_H - 6) / bgSprite.height;
+                    bgSprite.setScale(Math.max(wRatio, hRatio)).setDepth(5);
+                    const maskShape = push(this.make.graphics());
+                    maskShape.fillRoundedRect(PREVIEW_X + 3, PREVIEW_Y + 3, PREVIEW_W - 6, PREVIEW_H - 6, 12);
+                    bgSprite.setMask(maskShape.createGeometryMask());
+                }
+                // Đè nhân vật active lên nền
+                const activeCharId = Number(this.playerData?.user?.active_character_id);
+                const activeChar = (this.ownedCharacters || []).find(c => Number(c.character_id) === activeCharId) || (this.ownedCharacters || [])[0];
                 if (activeChar) {
                     const charName = activeChar.name;
                     const skinNum  = activeChar.active_skin_number || 1;
                     const animKey  = `shop_${charName}_${skinNum}_idle`;
                     const frame0   = `shop_${charName}_${skinNum}_idle_000`;
-
                     if (this.textures.exists(frame0)) {
-                        const srcImg   = this.textures.get(frame0).getSourceImage();
-                        // To hơn (1.1) và sát đáy
-                        const charScale = Math.min(
-                            (PREVIEW_W - 10) / srcImg.width,
-                            (PREVIEW_H - 10) / srcImg.height
-                        ) * 1.0;
-
-                        const charH  = srcImg.height * charScale;
-                        const charCY = PREVIEW_Y + PREVIEW_H - charH / 2 - 2; // sát đáy, chân gần viền
-
-                        // Bóng viền đen nhẹ (drop shadow giả)
-                        const shadow = push(this.add.sprite(leftCX + 3, charCY + 5, frame0));
-                        shadow.setScale(charScale).setTint(0x000000).setAlpha(0.35).setDepth(6);
-                        if (this.anims.exists(animKey)) shadow.play(animKey);
-
-                        // Aura chớp sáng
+                        const src = this.textures.get(frame0).getSourceImage();
+                        const charScale = Math.min((PREVIEW_W - 20) / src.width, (PREVIEW_H - 20) / src.height) * 0.92;
+                        const charCY = PREVIEW_Y + PREVIEW_H / 2 + 10;
                         const aura = push(this.add.sprite(leftCX, charCY, frame0));
-                        aura.setScale(charScale * 1.12).setTint(0xffeeaa).setAlpha(0.5)
-                            .setBlendMode(Phaser.BlendModes.ADD).setDepth(7);
-
-                        // Nhân vật
+                        aura.setScale(charScale * 1.15).setTint(0xffeeaa).setAlpha(0.55).setBlendMode(Phaser.BlendModes.ADD).setDepth(6);
                         const charSprite = push(this.add.sprite(leftCX, charCY, frame0));
-                        charSprite.setScale(charScale).setDepth(8);
-
-                        if (this.anims.exists(animKey)) {
-                            charSprite.play(animKey);
-                            aura.play(animKey);
-                        }
-
-                        this.tweens.add({
-                            targets: [charSprite, aura, shadow],
-                            y: `-=5`, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
-                        });
-                        this.tweens.add({
-                            targets: aura,
-                            scaleX: charScale * 1.22, scaleY: charScale * 1.22,
-                            alpha: { from: 0.5, to: 0.08 },
-                            duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
-                        });
+                        charSprite.setScale(charScale).setDepth(7);
+                        if (this.anims.exists(animKey)) { charSprite.play(animKey); aura.play(animKey); }
+                        this.tweens.add({ targets: [charSprite, aura], y: charCY - 6, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+                        this.tweens.add({ targets: aura, scaleX: charScale * 1.25, scaleY: charScale * 1.25, alpha: { from: 0.55, to: 0.08 }, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
                     }
                 }
             } else {
-                push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H / 2, "🖼", {
-                    fontSize: "56px",
-                }).setOrigin(0.5).setDepth(5));
-            }
-        } else {
-            const charName = item.charName || item.name || "";
-            const skinNum  = item.skinNum || 1;
-            const animKey  = `shop_${charName}_${skinNum}_idle`;
-            const frame0   = `shop_${charName}_${skinNum}_idle_000`;
-
-            if (charName && this.textures.exists(frame0)) {
-                const sprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2, frame0));
-                const scale  = Math.min((PREVIEW_W - 20) / sprite.width, (PREVIEW_H - 20) / sprite.height);
-                sprite.setScale(scale).setDepth(5);
-                if (this.anims.exists(animKey)) sprite.play(animKey);
-
-                this.tweens.add({
-                    targets: sprite, y: sprite.y - 6,
-                    duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
-                });
-            } else {
-                push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H / 2, "👤", {
-                    fontSize: "56px",
-                }).setOrigin(0.5).setDepth(5));
+                const charName = item.charName || item.name || "";
+                const skinNum  = item.skinNum || 1;
+                const animKey  = `shop_${charName}_${skinNum}_idle`;
+                const frame0   = `shop_${charName}_${skinNum}_idle_000`;
+                if (charName && this.textures.exists(frame0)) {
+                    const src = this.textures.get(frame0).getSourceImage();
+                    const charScale = Math.min((PREVIEW_W - 20) / src.width, (PREVIEW_H - 20) / src.height) * 0.92;
+                    const charCY = PREVIEW_Y + PREVIEW_H / 2 + 10;
+                    const aura = push(this.add.sprite(leftCX, charCY, frame0));
+                    aura.setScale(charScale * 1.15).setTint(0xffeeaa).setAlpha(0.55).setBlendMode(Phaser.BlendModes.ADD).setDepth(6);
+                    const charSprite = push(this.add.sprite(leftCX, charCY, frame0));
+                    charSprite.setScale(charScale).setDepth(7);
+                    if (this.anims.exists(animKey)) { charSprite.play(animKey); aura.play(animKey); }
+                    this.tweens.add({ targets: [charSprite, aura], y: charCY - 6, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+                    this.tweens.add({ targets: aura, scaleX: charScale * 1.25, scaleY: charScale * 1.25, alpha: { from: 0.55, to: 0.08 }, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+                }
             }
         }
 
-        // ── Tên item ──
+        // ── Nội dung bên dưới preview ──
+        const infoY = PREVIEW_Y + PREVIEW_H + 12;
+
+        if (!item) {
+            push(this.add.text(leftCX, infoY + 20, "Chọn một vật phẩm\ntừ bên phải", {
+                fontFamily: "Signika", fontSize: "16px", color: "#9b7040", align: "center",
+            }).setOrigin(0.5).setDepth(5));
+            return;
+        }
+
         const displayName = item.label || this._getDisplayName(item.charName || item.name || "");
-        push(this.add.text(leftCX, PREVIEW_Y + PREVIEW_H + 18, displayName, {
-            fontFamily: "Signika", fontSize: "20px",
-            color: "#5c3300", fontStyle: "bold",
+        push(this.add.text(leftCX, infoY, displayName, {
+            fontFamily: "Signika", fontSize: "20px", color: "#5c3300", fontStyle: "bold",
             stroke: "#f5dfa0", strokeThickness: 2,
         }).setOrigin(0.5).setDepth(5));
 
-        // ── Divider ──
-        const divY = PREVIEW_Y + PREVIEW_H + 42;
         const dg = push(this.add.graphics().setDepth(5));
         dg.lineStyle(1.5, 0xc8a060, 0.6);
-        dg.lineBetween(leftCX - LEFT_W / 2 + 20, divY, leftCX + LEFT_W / 2 - 20, divY);
+        dg.lineBetween(leftCX - LEFT_W / 2 + 20, infoY + 28, leftCX + LEFT_W / 2 - 20, infoY + 28);
 
-        // ── Giá tiền ──
-        const infoStartY = divY + 16;
         const isOwned  = this._isItemOwned(item);
         const isActive = this._isItemActive(item);
         const price    = item.price || 0;
+        const infoStartY = infoY + 38;
 
-        // Icon coin + giá
         if (!isOwned && price > 0) {
-            const coinI = push(this.add.image(leftCX - 50, infoStartY + 12, "coin")
-                .setDisplaySize(24, 24).setDepth(5));
+            push(this.add.image(leftCX - 50, infoStartY + 12, "coin").setDisplaySize(24, 24).setDepth(5));
             push(this.add.text(leftCX - 34, infoStartY + 12, this._formatMoney(price), {
-                fontFamily: "Signika", fontSize: "17px",
-                color: "#ffe066", fontStyle: "bold",
+                fontFamily: "Signika", fontSize: "17px", color: "#ffe066", fontStyle: "bold",
                 stroke: "#3a1a00", strokeThickness: 2,
             }).setOrigin(0, 0.5).setDepth(5));
         } else if (!isOwned && price === 0) {
             push(this.add.text(leftCX, infoStartY + 12, "✨ Miễn phí", {
-                fontFamily: "Signika", fontSize: "17px",
-                color: "#44bb44", fontStyle: "bold",
+                fontFamily: "Signika", fontSize: "17px", color: "#44bb44", fontStyle: "bold",
             }).setOrigin(0.5).setDepth(5));
         } else {
-            push(this.add.text(leftCX, infoStartY + 12, "✓ Đã sở hữu", {
-                fontFamily: "Signika", fontSize: "16px",
-                color: "#2a8b2a", fontStyle: "bold",
-            }).setOrigin(0.5).setDepth(5));
+            push(this.add.text(leftCX - LEFT_W / 2 + 20, infoStartY,
+                `✦  Trạng thái: ${isActive ? "Đang sử dụng" : "Đã sở hữu"}`, {
+                fontFamily: "Signika", fontSize: "13px",
+                color: isActive ? "#2a8b2a" : "#8b5e1a", fontStyle: "italic",
+            }).setDepth(5));
         }
 
-        // ── Mô tả ──
         if (item.description) {
-            push(this.add.text(leftCX, infoStartY + 42, item.description, {
-                fontFamily: "Signika", fontSize: "12px",
-                color: "#8b6e3a", fontStyle: "italic",
-                align: "center",
-                wordWrap: { width: LEFT_W - 60 },
-                lineSpacing: 4,
+            push(this.add.text(leftCX, infoStartY + 36, item.description, {
+                fontFamily: "Signika", fontSize: "12px", color: "#8b6e3a", fontStyle: "italic",
+                align: "center", wordWrap: { width: LEFT_W - 60 }, lineSpacing: 4,
             }).setOrigin(0.5, 0).setDepth(5));
         }
 
         // ── Nút hành động ──
-        const btnY = panelY + PANEL_H / 2 - 46;
-
+        const btnY = top + PANEL_H - 36;
         if (isActive) {
             this._buildActionBtn(push, leftCX, btnY, 200, 44, "✓ Đang Sử Dụng", 0x3a8a3a, 0x1a5a1a, null, true);
         } else if (isOwned) {
@@ -781,10 +712,7 @@ export default class ShopScene extends Phaser.Scene {
                 canAfford ? 0xd4a030 : 0x888888,
                 canAfford ? 0x8a5e10 : 0x555555,
                 async () => {
-                    if (!canAfford && price > 0) {
-                        this.showToast("❌ Không đủ Ecoin!");
-                        return;
-                    }
+                    if (!canAfford && price > 0) { this.showToast("❌ Không đủ Ecoin!"); return; }
                     await this._buyItem(item);
                 }
             );
@@ -804,11 +732,12 @@ export default class ShopScene extends Phaser.Scene {
 
         const tabs = ["NHÂN VẬT", "TRANG PHỤC", "PHÔNG NỀN"];
         const ids  = ["character", "skin", "background"];
-        const tabW = Math.floor((RIGHT_W - 8) / tabs.length);
+        const tabW = 160;
         const tabH = 46;
-        const gap  = 4;
-        const startX = rightCX - RIGHT_W / 2;
-        const tabY   = PANEL_Y - tabH;
+        const gap  = 8;
+        const totalW = tabs.length * tabW + (tabs.length - 1) * gap;
+        const startX = rightCX - totalW / 2;
+        const tabY   = PANEL_Y - tabH - 2;
 
         this._tabGraphics = this._tabGraphics || [];
         this._tabTexts    = this._tabTexts    || [];
@@ -819,17 +748,17 @@ export default class ShopScene extends Phaser.Scene {
 
         tabs.forEach((label, i) => {
             const tx = startX + i * (tabW + gap);
-            const g  = push(this.add.graphics().setDepth(8));
+            const g  = push(this.add.graphics().setDepth(1));
             this._tabGraphics.push(g);
 
             const txt = push(this.add.text(tx + tabW / 2, tabY + tabH / 2, label, {
-                fontFamily: "Signika", fontSize: "17px", color: "#ffffff",
-                fontStyle: "bold", stroke: "#3a2000", strokeThickness: 3,
-            }).setOrigin(0.5).setDepth(9));
+                fontFamily: "Signika", fontSize: "18px", color: "#502700",
+                fontStyle: "bold",
+            }).setOrigin(0.5).setPadding(6, 4, 6, 4).setDepth(16));
             this._tabTexts.push(txt);
 
             push(this.add.zone(tx + tabW / 2, tabY + tabH / 2, tabW, tabH)
-                .setInteractive({ cursor: "pointer" }).setDepth(10))
+                .setInteractive({ cursor: "pointer" }).setDepth(17))
                 .on("pointerdown", () => {
                     if (this.activeTab === ids[i]) return;
                     this.activeTab = ids[i];
@@ -851,23 +780,23 @@ export default class ShopScene extends Phaser.Scene {
             const active = this.activeTab === ids[i];
             g.clear();
             if (active) {
-                g.fillStyle(0x000000, 0.25);
-                g.fillRoundedRect(tx + 4, tabY - 1, tabW, tabH, { tl: 12, tr: 12, bl: 0, br: 0 });
-                g.fillGradientStyle(0xf5c842, 0xf5c842, 0xd4960a, 0xd4960a, 1);
-                g.fillRoundedRect(tx, tabY - 5, tabW, tabH + 5, { tl: 12, tr: 12, bl: 0, br: 0 });
-                g.lineStyle(2.5, 0x8b6010, 1);
-                g.strokeRoundedRect(tx, tabY - 5, tabW, tabH + 5, { tl: 12, tr: 12, bl: 0, br: 0 });
-                g.fillStyle(0xffffff, 0.32);
-                g.fillRoundedRect(tx + 8, tabY - 1, tabW - 16, 12, 5);
-                this._tabTexts[i].setColor("#3a1800").setFontSize("17px");
+                g.fillStyle(0x000000, 0.2);
+                g.fillRoundedRect(tx + 3, tabY - 2, tabW, tabH, { tl: 10, tr: 10, bl: 0, br: 0 });
+                g.fillStyle(0xebe3c0, 1);
+                g.fillRoundedRect(tx, tabY - 4, tabW, tabH + 4, { tl: 10, tr: 10, bl: 0, br: 0 });
+                g.lineStyle(2, 0xb89040, 1);
+                g.strokeRoundedRect(tx, tabY - 4, tabW, tabH + 4, { tl: 10, tr: 10, bl: 0, br: 0 });
+                g.fillStyle(0xffffff, 0.28);
+                g.fillRoundedRect(tx + 8, tabY, tabW - 16, 10, 4);
+                this._tabTexts[i].setColor("#502700");
             } else {
-                g.fillStyle(0x000000, 0.15);
-                g.fillRoundedRect(tx + 3, tabY + 3, tabW, tabH, { tl: 10, tr: 10, bl: 0, br: 0 });
-                g.fillGradientStyle(0xb89848, 0xb89848, 0x9a7c30, 0x9a7c30, 1);
-                g.fillRoundedRect(tx, tabY, tabW, tabH, { tl: 10, tr: 10, bl: 0, br: 0 });
-                g.lineStyle(1.5, 0x7a5a18, 0.7);
-                g.strokeRoundedRect(tx, tabY, tabW, tabH, { tl: 10, tr: 10, bl: 0, br: 0 });
-                this._tabTexts[i].setColor("#f0e8c8").setFontSize("15px");
+                g.fillStyle(0x000000, 0.18);
+                g.fillRoundedRect(tx + 3, tabY + 2, tabW, tabH, { tl: 8, tr: 8, bl: 0, br: 0 });
+                g.fillStyle(0xc4a865, 1);
+                g.fillRoundedRect(tx, tabY, tabW, tabH, { tl: 8, tr: 8, bl: 0, br: 0 });
+                g.lineStyle(1.5, 0x8a6a20, 0.6);
+                g.strokeRoundedRect(tx, tabY, tabW, tabH, { tl: 8, tr: 8, bl: 0, br: 0 });
+                this._tabTexts[i].setColor("#502700");
             }
         });
     }
@@ -1508,53 +1437,59 @@ export default class ShopScene extends Phaser.Scene {
     // ═══════════════════════════════════════════════════════════════
 
     createStyledPanel(x, y, w, h, radius) {
-        const g    = this.add.graphics().setDepth(2);
         const left = x - w / 2;
         const top  = y - h / 2;
+        const g    = this.add.graphics().setDepth(2);
 
-        g.fillStyle(0x000000, 0.22);
-        g.fillRoundedRect(left + 5, top + 7, w, h, radius);
-        g.fillStyle(0xfff0d0, 1);
+        g.fillStyle(0x000000, 0.25);
+        g.fillRoundedRect(left + 6, top + 6, w, h, radius);
+
+        g.fillGradientStyle(0xf5e8c0, 0xf5e8c0, 0xeedd99, 0xeedd99, 1);
         g.fillRoundedRect(left, top, w, h, radius);
-        g.fillStyle(0xffffff, 0.4);
-        g.fillRoundedRect(left + 4, top + 4, w - 8, h * 0.18, radius);
-        g.lineStyle(4, 0x8b5e1a, 1);
+
+        g.lineStyle(3, 0xffffff, 1);
         g.strokeRoundedRect(left, top, w, h, radius);
 
-        const inset = 10;
-        const r2    = radius - 4;
-        this._drawDashedBorder(g, left + inset, top + inset, w - inset * 2, h - inset * 2, r2, 0xc8a060, 2);
-        return g;
-    }
+        g.fillStyle(0xffffff, 0.18);
+        g.fillRoundedRect(left + 6, top + 4, w - 12, 20, 8);
 
-    _drawDashedBorder(g, left, top, w, h, r, color, lw) {
-        g.lineStyle(lw, color, 0.75);
-        const dash = 10, skip = 7;
-        const drawSeg = (x1, y1, x2, y2) => {
-            const len = Math.hypot(x2 - x1, y2 - y1);
-            if (len <= 0) return;
-            const ax = (x2 - x1) / len, ay = (y2 - y1) / len;
-            for (let d = 0; d < len; d += dash + skip) {
-                const end = Math.min(d + dash, len);
+        const ins = 10;
+        const cornerR = radius - 4;
+        g.lineStyle(1.5, 0xb8922e, 0.5);
+
+        const drawD = (x1, y1, x2, y2) => {
+            const dist = Phaser.Math.Distance.Between(x1, y1, x2, y2);
+            const ang  = Phaser.Math.Angle.Between(x1, y1, x2, y2);
+            for (let d = 0; d < dist; d += 14) {
                 g.beginPath();
-                g.moveTo(x1 + ax * d, y1 + ay * d);
-                g.lineTo(x1 + ax * end, y1 + ay * end);
+                g.moveTo(x1 + Math.cos(ang) * d, y1 + Math.sin(ang) * d);
+                g.lineTo(x1 + Math.cos(ang) * Math.min(d + 8, dist), y1 + Math.sin(ang) * Math.min(d + 8, dist));
                 g.strokePath();
             }
         };
-        drawSeg(left + r, top, left + w - r, top);
-        drawSeg(left + w, top + r, left + w, top + h - r);
-        drawSeg(left + w - r, top + h, left + r, top + h);
-        drawSeg(left, top + h - r, left, top + r);
 
-        [{ a:180, b:270, cx:left+r, cy:top+r },
-         { a:270, b:360, cx:left+w-r, cy:top+r },
-         { a:0,   b:90,  cx:left+w-r, cy:top+h-r },
-         { a:90,  b:180, cx:left+r, cy:top+h-r }
-        ].forEach(c => {
-            g.beginPath();
-            g.arc(c.cx, c.cy, r, Phaser.Math.DegToRad(c.a), Phaser.Math.DegToRad(c.b));
-            g.strokePath();
-        });
+        const drawArc = (acx, acy, r, startAngle, endAngle) => {
+            const arcLength = r * Math.abs(endAngle - startAngle);
+            const steps = Math.ceil(arcLength / 14);
+            for (let i = 0; i < steps; i++) {
+                const a1 = startAngle + (endAngle - startAngle) * (i / steps);
+                const a2 = startAngle + (endAngle - startAngle) * Math.min((i + 0.57) / steps, 1);
+                g.beginPath();
+                g.arc(acx, acy, r, a1, a2);
+                g.strokePath();
+            }
+        };
+
+        drawD(left+ins+cornerR, top+ins, left+w-ins-cornerR, top+ins);
+        drawD(left+w-ins, top+ins+cornerR, left+w-ins, top+h-ins-cornerR);
+        drawD(left+w-ins-cornerR, top+h-ins, left+ins+cornerR, top+h-ins);
+        drawD(left+ins, top+h-ins-cornerR, left+ins, top+ins+cornerR);
+
+        drawArc(left+ins+cornerR,   top+ins+cornerR,   cornerR, Math.PI,     Math.PI*1.5);
+        drawArc(left+w-ins-cornerR, top+ins+cornerR,   cornerR, Math.PI*1.5, Math.PI*2);
+        drawArc(left+w-ins-cornerR, top+h-ins-cornerR, cornerR, 0,           Math.PI*0.5);
+        drawArc(left+ins+cornerR,   top+h-ins-cornerR, cornerR, Math.PI*0.5, Math.PI);
+
+        return g;
     }
 }
