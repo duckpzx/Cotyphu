@@ -128,7 +128,7 @@ export default class LoginScene extends Phaser.Scene {
     const regZone = this.add.zone(regX, regY, regBtnW, regBtnH).setInteractive({ cursor: "pointer" }).setDepth(8);
     regZone.on("pointerdown", () => {
       if (this.form) this.form.remove();
-      this.scene.start("RegisterScene");
+      this._goTo("RegisterScene");
     });
   }
 
@@ -172,11 +172,8 @@ export default class LoginScene extends Phaser.Scene {
         this._playSuccessEffect();
         setTimeout(() => {
           if (this.form) this.form.remove();
-          this.cameras.main.fadeOut(300);
-          this.cameras.main.once("camerafadeoutcomplete", () => {
-            this.scene.start(data.user.is_new_player ? "CreateCharacterScene" : "LobbyScene");
-          });
-        }, 900);
+          this._goTo(data.user.is_new_player ? "CreateCharacterScene" : "LobbyScene");
+        }, 600);
       } else {
         this.showAlert(data.message);
         if (btn) { btn.disabled = false; btn.textContent = "Đăng nhập"; }
@@ -186,6 +183,22 @@ export default class LoginScene extends Phaser.Scene {
       this.showAlert("Không thể kết nối server");
       if (btn) { btn.disabled = false; btn.textContent = "Đăng nhập"; }
     }
+  }
+
+  _goTo(sceneName, data = {}) {
+    if (this.form) this.form.remove();
+    // Flash trắng rồi fade đen
+    const { width, height } = this.scale;
+    const flash = this.add.rectangle(width/2, height/2, width, height, 0xffffff, 0).setDepth(500);
+    this.tweens.add({
+      targets: flash, alpha: 0.6, duration: 120, ease: "Quad.easeOut",
+      onComplete: () => {
+        this.cameras.main.fadeOut(280, 0, 0, 0);
+        this.cameras.main.once("camerafadeoutcomplete", () => {
+          this.scene.start(sceneName, data);
+        });
+      }
+    });
   }
 
   // ── Panel style TarotScene ───────────────────────────────────────
@@ -339,7 +352,7 @@ export default class LoginScene extends Phaser.Scene {
         onComplete: () => dot.destroy()
       });
     }
-    this.showAlert("✅ Đăng nhập thành công!", "#44ff88", 800);
+    this.showAlert("Đăng nhập thành công!", "#44ff88", 800);
   }
 
   // ── Shake form khi sai ───────────────────────────────────────────

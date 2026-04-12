@@ -119,7 +119,7 @@ export default class RegisterScene extends Phaser.Scene {
     const loginZone = this.add.zone(loginBtnX, linkY, loginBtnW, loginBtnH).setInteractive({ cursor: "pointer" }).setDepth(8);
     loginZone.on("pointerdown", () => {
       if (this.form) this.form.remove();
-      this.scene.start("LoginScene");
+      this._goTo("LoginScene");
     });
   }
 
@@ -142,12 +142,14 @@ export default class RegisterScene extends Phaser.Scene {
         body: JSON.stringify({ username, email, password }),
       });
       const data = await res.json();
-      this.showAlert(data.message, data.success ? "#44ff88" : "#fff6d7");
       if (data.success) {
-        this.time.delayedCall(1200, () => {
-          if (this.form) this.form.remove();
-          this.scene.start("LoginScene");
+        this._playSuccessEffect();
+        this.showAlert("Đăng ký thành công!", "#44ff88", 1000);
+        this.time.delayedCall(1000, () => {
+          this._goTo("LoginScene");
         });
+      } else {
+        this.showAlert(data.message || "Đăng ký thất bại");
       }
     } catch {
       this.showAlert("Không thể kết nối server");
@@ -158,7 +160,7 @@ export default class RegisterScene extends Phaser.Scene {
     const { width, height } = this.scale;
     const t = this.add.text(width / 2, height - 80, message, {
       fontFamily: "Signika", fontSize: "17px", color,
-      fontStyle: "bold", stroke: "#000000", strokeThickness: 3,
+      fontStyle: "bold", stroke: "#000000", strokeThickness: 2,
       backgroundColor: "#00000099", padding: { x: 16, y: 9 },
     }).setOrigin(0.5).setDepth(300).setAlpha(0);
     this.tweens.add({
@@ -166,6 +168,39 @@ export default class RegisterScene extends Phaser.Scene {
       onComplete: () => {
         this.time.delayedCall(duration, () => {
           this.tweens.add({ targets: t, alpha: 0, duration: 300, onComplete: () => t.destroy() });
+        });
+      }
+    });
+  }
+
+  _playSuccessEffect() {
+    const { width, height } = this.scale;
+    for (let i = 0; i < 20; i++) {
+      const colors = [0xffd700, 0xffffff, 0xff8800, 0x00ff88];
+      const dot = this.add.circle(
+        Phaser.Math.Between(width * 0.2, width * 0.8),
+        Phaser.Math.Between(height * 0.2, height * 0.8),
+        Phaser.Math.Between(3, 8), colors[i % colors.length], 0.9
+      ).setDepth(200);
+      this.tweens.add({
+        targets: dot, y: dot.y - Phaser.Math.Between(60, 160),
+        alpha: 0, duration: Phaser.Math.Between(600, 1000),
+        delay: Phaser.Math.Between(0, 400), ease: "Quad.easeOut",
+        onComplete: () => dot.destroy()
+      });
+    }
+  }
+
+  _goTo(sceneName, data = {}) {
+    if (this.form) this.form.remove();
+    const { width, height } = this.scale;
+    const flash = this.add.rectangle(width/2, height/2, width, height, 0xffffff, 0).setDepth(500);
+    this.tweens.add({
+      targets: flash, alpha: 0.6, duration: 120, ease: "Quad.easeOut",
+      onComplete: () => {
+        this.cameras.main.fadeOut(280, 0, 0, 0);
+        this.cameras.main.once("camerafadeoutcomplete", () => {
+          this.scene.start(sceneName, data);
         });
       }
     });
