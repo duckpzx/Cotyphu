@@ -125,6 +125,42 @@ export default class CreateCharacterScene extends Phaser.Scene {
   // Load characters from server
   // ────────────────────────────────────────────────────────────────────────────
   async loadCharacters() {
+    // ── Loading indicator ─────────────────────────────────────────
+    const { width, height } = this.scale;
+    const loadGroup = [];
+
+    // Vòng tròn xoay
+    const spinG = this.add.graphics().setDepth(50);
+    const spinCX = width / 2, spinCY = height / 2 - 20;
+    let angle = 0;
+    const spinTimer = this.time.addEvent({
+      delay: 16, loop: true, callback: () => {
+        spinG.clear();
+        for (let i = 0; i < 8; i++) {
+          const a = angle + i * (Math.PI * 2 / 8);
+          const r = 28, dotR = 4;
+          const alpha = (i / 8) * 0.9 + 0.1;
+          spinG.fillStyle(0xffafafff, alpha);
+          spinG.fillCircle(spinCX + Math.cos(a) * r, spinCY + Math.sin(a) * r, dotR);
+        }
+        angle += 0.08;
+      }
+    });
+
+    const loadTxt = this.add.text(spinCX, spinCY + 52, "Đang tải nhân vật...", {
+      fontFamily: "Signika", fontSize: "18px", color: "#ffffff",
+      fontStyle: "bold", stroke: "#003388", strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(50);
+
+    // Pulse text
+    this.tweens.add({ targets: loadTxt, alpha: { from: 1, to: 0.4 }, duration: 700, yoyo: true, repeat: -1 });
+
+    const destroyLoader = () => {
+      spinTimer.destroy();
+      spinG.destroy();
+      loadTxt.destroy();
+    };
+
     try {
       const res = await fetch(`${SERVER_URL}/characters`);
       const data = await res.json();
@@ -135,11 +171,13 @@ export default class CreateCharacterScene extends Phaser.Scene {
       this.characters.forEach(char => this.loadIdleFrames(char));
 
       this.load.once("complete", () => {
+        destroyLoader();
         this.createAnimations();
         this.renderCharacters();
       });
       this.load.start();
     } catch (err) {
+      destroyLoader();
       console.error("Load characters lỗi:", err);
     }
   }
