@@ -1444,7 +1444,7 @@ export default class ShopScene extends Phaser.Scene {
         g.fillStyle(0x000000, 0.25);
         g.fillRoundedRect(left + 6, top + 6, w, h, radius);
 
-        g.fillGradientStyle(0xf5e8c0, 0xf5e8c0, 0xeedd99, 0xeedd99, 1);
+        g.fillGradientStyle(0xfaeec3, 0xfaeec3, 0xfaeec3, 0xfaeec3, 1);
         g.fillRoundedRect(left, top, w, h, radius);
 
         g.lineStyle(3, 0xffffff, 1);

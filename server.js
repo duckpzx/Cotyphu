@@ -2538,7 +2538,6 @@ app.get("/shop/backgrounds", async (req, res) => {
       if (r.image_path) {
         const parts = r.image_path.replace(/\\/g, "/").split("/");
         r.image_path = "assets/ui/bg/" + parts[parts.length - 1];
-        console.log(`[Shop API] ID ${r.id} -> ${r.image_path}`);
       }
       return r;
     });
@@ -2608,7 +2607,6 @@ app.get("/users/:userId/backgrounds/bag", async (req, res) => {
       if (r.image_path) {
         const parts = r.image_path.replace(/\\/g, "/").split("/");
         r.image_path = "assets/ui/bg/" + parts[parts.length - 1];
-        console.log(`[Bag API] User ${req.params.userId} ID ${r.id} -> ${r.image_path}`);
       }
       return r;
     });
