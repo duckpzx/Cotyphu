@@ -1398,7 +1398,6 @@ export default class ShopScene extends Phaser.Scene {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ character_id: item.id }),
                 });
-                // Cập nhật local
                 if (this.playerData?.user) {
                     this.playerData.user.active_character_id = item.id;
                     setPlayerData(this, this.playerData);
@@ -1409,6 +1408,41 @@ export default class ShopScene extends Phaser.Scene {
             } catch(e) {
                 console.warn("Equip error:", e);
                 this.showToast("❌ Lỗi trang bị!");
+            }
+
+        } else if (item.type === "skin") {
+            try {
+                await fetch(`${SERVER_URL}/users/${this.playerUserId}/skins/active`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ skin_id: item.id, character_id: item.charId }),
+                });
+                this.showToast("✅ Đã trang bị trang phục!");
+                await this._loadShopData();
+                this.buildLeftPanel();
+                this.renderRightPanel();
+            } catch(e) {
+                console.warn("Equip skin error:", e);
+                this.showToast("❌ Lỗi trang bị trang phục!");
+            }
+
+        } else if (item.type === "background") {
+            try {
+                await fetch(`${SERVER_URL}/users/${this.playerUserId}/backgrounds/active`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ background_id: item.id }),
+                });
+                if (this.playerData?.user) {
+                    this.playerData.user.active_bg_id = item.id;
+                    setPlayerData(this, this.playerData);
+                }
+                this.showToast("✅ Đã áp dụng phông nền!");
+                this.buildLeftPanel();
+                this.renderRightPanel();
+            } catch(e) {
+                console.warn("Equip bg error:", e);
+                this.showToast("❌ Lỗi áp dụng phông nền!");
             }
         }
     }
