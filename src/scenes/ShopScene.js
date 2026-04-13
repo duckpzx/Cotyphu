@@ -64,7 +64,9 @@ export default class ShopScene extends Phaser.Scene {
         EcoinManager.onChange(this, (newEcoin) => {
             this.playerEcoin = newEcoin;
             if (this._ecoinText) {
-                this._ecoinText.setText(EcoinManager.format(newEcoin));
+                const s = this._formatMoney(newEcoin);
+                this._ecoinText.setText(s);
+                if (this._drawEcoinBg) this._drawEcoinBg(s);
             }
         });
 
@@ -383,39 +385,40 @@ export default class ShopScene extends Phaser.Scene {
         this._headerObjs = [];
         const push = o => { this._headerObjs.push(o); return o; };
 
-        const badgeW = 180, badgeH = 36;
-        const bx = width - 30 - badgeW / 2;
-        const by = 28;
+        const badgeH = 46;
+        const iconSize = 30;
+        const PAD_L = 10, PAD_R = 10;
+        const by = 36;
 
-        let isTransparent = false;
+        const calcW = (str) => PAD_L + iconSize + 6 + str.length * 10 + PAD_R;
 
-        const hg = push(this.add.graphics().setDepth(100));
-        const drawBadge = (transparent = false) => {
-            hg.clear();
-            if (!transparent) {
-                hg.fillStyle(0x1a0e00, 0.75);
-                hg.fillRoundedRect(bx - badgeW / 2, by - badgeH / 2, badgeW, badgeH, badgeH / 2);
-            }
-            hg.lineStyle(2, 0xd4a030, 0.9);
-            hg.strokeRoundedRect(bx - badgeW / 2, by - badgeH / 2, badgeW, badgeH, badgeH / 2);
+        const bg = push(this.add.graphics().setDepth(100));
+        const drawBg = (str) => {
+            const tw = calcW(str);
+            const bx = width - tw;
+            bg.clear();
+            bg.fillStyle(0xf6eac6, 0.97);
+            bg.fillRoundedRect(bx, by - badgeH / 2, tw, badgeH, { tl: badgeH / 2, tr: 0, bl: badgeH / 2, br: 0 });
+            bg.lineStyle(2, 0xb8922e, 0.9);
+            bg.strokeRoundedRect(bx, by - badgeH / 2, tw, badgeH, { tl: badgeH / 2, tr: 0, bl: badgeH / 2, br: 0 });
         };
-        drawBadge(false);
 
-        push(this.add.image(bx - badgeW / 2 + 22, by, "coin")
-            .setDisplaySize(28, 28).setDepth(101));
+        const priceStr = this._formatMoney(this.playerEcoin);
+        drawBg(priceStr);
 
-        this._ecoinText = push(this.add.text(bx + 10, by, this._formatMoney(this.playerEcoin), {
-            fontFamily: "Signika", fontSize: "16px",
-            color: "#ffe066", fontStyle: "bold",
-            stroke: "#000000", strokeThickness: 2,
-        }).setOrigin(0.5).setDepth(101));
+        const tw0 = calcW(priceStr);
+        const bx0 = width - tw0;
 
-        const zone = push(this.add.zone(bx, by, badgeW, badgeH)
-            .setInteractive({ useHandCursor: true }).setDepth(102));
-        zone.on("pointerup", () => {
-            isTransparent = !isTransparent;
-            drawBadge(isTransparent);
-        });
+        push(this.add.image(bx0 + PAD_L + iconSize / 2, by, "coin")
+            .setDisplaySize(iconSize, iconSize).setDepth(101));
+
+        this._ecoinText = push(this.add.text(bx0 + PAD_L + iconSize + 6, by, priceStr, {
+            fontFamily: "Signika", fontSize: "18px",
+            color: "#502700", fontStyle: "bold",
+            stroke: "#f5dfa0", strokeThickness: 2,
+        }).setOrigin(0, 0.5).setDepth(101));
+
+        this._drawEcoinBg = drawBg;
     }
 
     _showEcoinModal() {
@@ -1202,7 +1205,14 @@ export default class ShopScene extends Phaser.Scene {
         container.on("pointerover", () => { cardBg.setTint(0xffe8cc); });
         container.on("pointerout",  () => { cardBg.clearTint(); });
         container.on("pointerup",   async () => {
-            if (this._dragMoved) return;
+            if (this._wasDragged) return;
+            // Check card có nằm trong visible area không
+            const worldX = container.parentContainer ? container.parentContainer.x + container.x : container.x;
+            const { rightCX, RIGHT_W } = this._layout;
+            const visLeft  = rightCX - RIGHT_W / 2 + 10;
+            const visRight = rightCX + RIGHT_W / 2 - 10;
+            if (worldX + w < visLeft || worldX > visRight) return;
+
             this.selectedItem = item;
             if (item.type === "skin" && item.charName) {
                 await this._loadSkinSprites(item.charName, item.skinNum);
@@ -1425,12 +1435,12 @@ export default class ShopScene extends Phaser.Scene {
         this._onPDown = (p) => {
             if (p.x > panelLeft && p.x < panelRight) {
                 this._isDragging = true; this._dragX = p.x;
-                this._dragMoved = false;  this._velocityX = 0;
+                this._dragMoved = false; this._wasDragged = false; this._velocityX = 0;
             }
         };
         this._onPMove = (p) => {
             if (!this._isDragging) return;
-            if (Math.abs(p.x - this._dragX) > 8) this._dragMoved = true;
+            if (Math.abs(p.x - this._dragX) > 8) { this._dragMoved = true; this._wasDragged = true; }
             if (this._dragMoved && this._gridContainer) {
                 const delta = p.x - this._dragX;
                 this._gridContainer.x += delta;
@@ -1438,8 +1448,12 @@ export default class ShopScene extends Phaser.Scene {
                 this._velocityX = delta;
             }
         };
-        this._onPUp  = () => { this._isDragging = false; };
-        this._onPOut = () => { this._isDragging = false; };
+        this._onPUp  = () => { 
+            this._isDragging = false;
+            // Reset sau 1 frame để card pointerup chạy trước
+            this.time.delayedCall(50, () => { this._wasDragged = false; });
+        };
+        this._onPOut = () => { this._isDragging = false; this._wasDragged = false; };
 
         this.input.on("pointerdown", this._onPDown, this);
         this.input.on("pointermove", this._onPMove, this);
