@@ -32,36 +32,54 @@ export default class TarotScene extends Phaser.Scene {
         } catch (e) {
             this.playerData = null;
         }
-
         this.playerUserId = this.playerData?.user_id || this.playerData?.user?.id || null;
 
-        // 0. Fetch danh sách tarot từ server rồi load ảnh qua Phaser loader
         await this.loadTarotAssetsFromServer();
 
-        // 1. BACKGROUND
+        // ── Background ───────────────────────────────────────────────
         const bg = this.add.image(width / 2, height / 2, "tarot-bg");
         bg.setScale(Math.max(width / bg.width, height / bg.height));
 
-        // 2. THÔNG SỐ LAYOUT
-        const gap = 25;
-        const leftWidth = 400;
-        const rightWidth = 650;
-        const panelHeight = 520;
-        const totalUIWidth = leftWidth + rightWidth + gap;
+        // ── Layout giống BagScene/ShopScene ──────────────────────────
+        const PANEL_Y = 110;
+        const PANEL_H = height - PANEL_Y - 40;
+        const GAP     = 16;
+        const LEFT_W  = 340;
+        const RIGHT_W = width - LEFT_W - GAP - 40;
+        const START_X = 20;
 
-        const startX = (width - totalUIWidth) / 2;
-        const leftPanelX = startX + leftWidth / 2;
-        const rightPanelX = startX + leftWidth + gap + rightWidth / 2;
-        const panelsY = height * 0.5;
+        const leftCX  = START_X + LEFT_W / 2;
+        const rightCX = START_X + LEFT_W + GAP + RIGHT_W / 2;
+        const panelY  = PANEL_Y + PANEL_H / 2;
 
-        // 3. VẼ 2 PANEL
-        this.createStyledPanel(leftPanelX,  panelsY, leftWidth,  panelHeight, 22);
-        this.createStyledPanel(rightPanelX, panelsY, rightWidth, panelHeight, 22);
+        this._layout = { leftCX, rightCX, panelY, LEFT_W, RIGHT_W, PANEL_H, PANEL_Y };
 
-        // 4. PANEL TRÁI: ô slot và tác dụng
-        this.buildLeftContent(leftPanelX, panelsY, leftWidth, panelHeight);
+        // ── 2 Panel chính ────────────────────────────────────────────
+        this.createStyledPanel(leftCX,  panelY, LEFT_W,  PANEL_H, 18);
+        this.createStyledPanel(rightCX, panelY, RIGHT_W, PANEL_H, 18);
 
-        // 5. Load active tarots nếu user đã đăng nhập (có _slots)
+        // ── Header: Back + "THẺ BÀI" ─────────────────────────────────
+        const backBtn = this.add.image(48, 48, "out").setScale(1).setDepth(200).setInteractive({ cursor: "pointer" });
+        backBtn.on("pointerdown", () => {
+            this.tweens.add({ targets: backBtn, scale: 0.7, duration: 80, yoyo: true });
+            this.time.delayedCall(160, () => {
+                this.cameras.main.fadeOut(200);
+                this.cameras.main.once("camerafadeoutcomplete", () => this.scene.start("LobbyScene"));
+            });
+        });
+        this.add.text(105, 55, "THẺ BÀI", {
+            fontFamily: "Signika", fontSize: "32px", color: "#ffffff", fontStyle: "bold",
+            stroke: "#003388", strokeThickness: 6,
+            shadow: { offsetX: 2, offsetY: 3, color: "#001166", blur: 6, fill: true },
+        }).setOrigin(0, 0.5).setPadding(8, 6, 8, 6).setDepth(200);
+        [[220, 30], [295, 22], [335, 38]].forEach(([sx, sy]) => {
+            this.add.text(sx, sy, "✦", { fontSize: "14px", color: "#ffffff" }).setOrigin(0.5).setAlpha(0.6);
+        });
+
+        // ── Panel trái: slots + effects ───────────────────────────────
+        this.buildLeftContent(leftCX, panelY, LEFT_W, PANEL_H);
+
+        // ── Load active tarots ────────────────────────────────────────
         if (this.playerUserId) {
             try {
                 const activeIds = await this.fetchActiveTarots(this.playerUserId);
@@ -78,10 +96,10 @@ export default class TarotScene extends Phaser.Scene {
             }
         }
 
-        // 6. PANEL PHẢI: render danh sách thẻ
+        // ── Panel phải: lưới thẻ ─────────────────────────────────────
         const cardKeys = this.tarotList.map(t => `tarot_${t.id}`);
         if (cardKeys.length === 0) {
-            this.add.text(rightPanelX, panelsY, "Chưa có thẻ tarot.", {
+            this.add.text(rightCX, panelY, "Chưa có thẻ tarot.", {
                 fontFamily: "Signika", fontSize: "18px", color: "#8b5e1a"
             }).setOrigin(0.5);
             return;
@@ -89,88 +107,69 @@ export default class TarotScene extends Phaser.Scene {
 
         const rows     = 2;
         const cols     = Math.ceil(cardKeys.length / rows);
-        const padding  = 22;
-        const cardGapX = 14;
-        const cardGapY = 14;
+        const PAD      = 18;
+        const cardGapX = 12;
+        const cardGapY = 12;
 
-        const availW   = rightWidth - padding * 2 - cardGapX * (cols - 1);
-        const cardWidth  = availW / cols;
-        const cardHeight = cardWidth / 0.68;
+        const VISIBLE_COLS = 3;
+        const CARD_W = Math.floor((RIGHT_W - PAD * 2 - cardGapX * (VISIBLE_COLS - 1)) / VISIBLE_COLS * 0.82);
+        const CARD_H = Math.floor((PANEL_H - PAD * 2 - cardGapY) / 2);
 
-        const availH    = panelHeight - padding * 2 - cardGapY * (rows - 1);
-        const cardHeightFinal = Math.min(cardHeight, availH / rows);
-        const cardWidthFinal  = cardHeightFinal * 0.68;
+        const totalGridW = cols * CARD_W + (cols - 1) * cardGapX;
+        const gridStartX = rightCX - RIGHT_W / 2 + PAD;
+        const gridStartY = panelY - PANEL_H / 2 + PAD;
 
-        const totalGridW = cardWidthFinal * cols + cardGapX * (cols - 1);
-        const totalGridH = cardHeightFinal * rows + cardGapY * (rows - 1);
-        const gridStartX = rightPanelX - totalGridW / 2;
-        const gridStartY = panelsY - totalGridH / 2;
-
-        this.cardContainer = this.add.container(gridStartX, gridStartY);
-        this.cardContainer.setDepth(20);
+        this.cardContainer = this.add.container(gridStartX, gridStartY).setDepth(12);
 
         for (let col = 0; col < cols; col++) {
             for (let row = 0; row < rows; row++) {
                 const idx = col * rows + row;
                 if (idx >= cardKeys.length) continue;
                 const key = cardKeys[idx];
-                const cx  = col * (cardWidthFinal + cardGapX);
-                const cy  = row * (cardHeightFinal + cardGapY);
-                const card = this.createStyledCard(cx, cy, key, cardHeightFinal);
+                const cx  = col * (CARD_W + cardGapX);
+                const cy  = row * (CARD_H + cardGapY);
+                const card = this.createStyledCard(cx, cy, key, CARD_W, CARD_H);
                 this.cardContainer.add(card);
             }
         }
 
         this.minX = gridStartX;
-        this.maxX = gridStartX;
+        this.maxX = Math.min(gridStartX, gridStartX - (totalGridW - (RIGHT_W - PAD * 2)));
+        this.velocityX = 0;
 
-        const maskInset = 12;
         const maskShape = this.make.graphics();
         maskShape.fillRoundedRect(
-            rightPanelX - rightWidth / 2 + maskInset,
-            panelsY - panelHeight / 2 + maskInset,
-            rightWidth - maskInset * 2,
-            panelHeight - maskInset * 2,
-            22
+            rightCX - RIGHT_W / 2 + 16, panelY - PANEL_H / 2 + 8,
+            RIGHT_W - 32, PANEL_H - 16, 12
         );
         this.cardContainer.setMask(maskShape.createGeometryMask());
 
-        // 7. DRAG EVENTS
-        this._pDownX    = 0;
+        // ── Drag ─────────────────────────────────────────────────────
+        this._pDownX = 0;
         this._dragMoved = false;
+        const panelLeft = rightCX - RIGHT_W / 2;
 
         this.input.on("pointerdown", (p) => {
-            if (p.x > rightPanelX - rightWidth / 2) {
+            this._dragMoved = false;
+            if (p.x > panelLeft) {
                 this.isDragging = true;
-                this.dragX      = p.x;
-                this._pDownX    = p.x;
-                this._dragMoved = false;
-                this.velocityX  = 0;
+                this.dragX = p.x;
+                this._pDownX = p.x;
+                this.velocityX = 0;
             }
         });
         this.input.on("pointermove", (p) => {
             if (!this.isDragging) return;
             if (Math.abs(p.x - this._pDownX) > 8) this._dragMoved = true;
-            if (this._dragMoved) {
+            if (this._dragMoved && this.cardContainer) {
                 const delta = p.x - this.dragX;
                 this.cardContainer.x += delta;
-                this.dragX     = p.x;
+                this.dragX = p.x;
                 this.velocityX = delta;
             }
         });
         this.input.on("pointerup",  () => { this.isDragging = false; });
         this.input.on("pointerout", () => { this.isDragging = false; });
-
-        // 8. NÚT BACK
-        const backBtn = this.add.image(32, 32, "out")
-            .setScale(0.9).setDepth(200)
-            .setInteractive({ cursor: "pointer" });
-        backBtn.on("pointerover", () => backBtn.setTint(0xdddddd));
-        backBtn.on("pointerout",  () => backBtn.clearTint());
-        backBtn.on("pointerup",   () => {
-            this.cameras.main.fadeOut(200);
-            this.cameras.main.once("camerafadeoutcomplete", () => this.scene.start("LobbyScene"));
-        });
     }
 
     update() {
@@ -188,76 +187,69 @@ export default class TarotScene extends Phaser.Scene {
     }
 
     // =========================================================================
-    // PANEL ĐẸP — thay thế createDashedPanel cũ
+    // PANEL — giống BagScene/ShopScene
     // =========================================================================
     createStyledPanel(x, y, w, h, radius) {
-        const g = this.add.graphics().setDepth(2);
         const left = x - w / 2;
         const top  = y - h / 2;
+        const g    = this.add.graphics().setDepth(2);
 
         // Bóng đổ
-        g.fillStyle(0x000000, 0.22);
-        g.fillRoundedRect(left + 5, top + 7, w, h, radius);
+        g.fillStyle(0x000000, 0.25);
+        g.fillRoundedRect(left + 6, top + 6, w, h, radius);
 
-        // Nền kem ấm
-        g.fillStyle(0xfff0d0, 1);
+        // Nền gradient vàng kem
+        g.fillGradientStyle(0xf6eac6, 0xf6eac6, 0xf6eac6, 0xf6eac6, 1);
         g.fillRoundedRect(left, top, w, h, radius);
 
-        // Highlight trên (giả gradient sáng)
-        g.fillStyle(0xffffff, 0.4);
-        g.fillRoundedRect(left + 4, top + 4, w - 8, h * 0.18, radius);
-
-        // Viền nâu đậm ngoài
-        g.lineStyle(4, 0x8b5e1a, 1);
+        // Viền trắng ngoài
+        g.lineStyle(3, 0xffffff, 1);
         g.strokeRoundedRect(left, top, w, h, radius);
 
-        // Viền nét đứt vàng bên trong
-        const inset = 10;
-        const r2 = radius - 4;
-        this.drawDashedBorder(
-            g,
-            left + inset, top + inset,
-            w - inset * 2, h - inset * 2,
-            r2, 0xc8a060, 2
-        );
-    }
+        // Gloss trên cùng
+        g.fillStyle(0xffffff, 0.18);
+        g.fillRoundedRect(left + 6, top + 4, w - 12, 20, 8);
 
-    drawDashedBorder(g, left, top, w, h, r, color, lw) {
-        g.lineStyle(lw, color, 0.75);
-        const dash = 10, skip = 7;
+        // Viền đứt nét bên trong
+        const ins = 10;
+        const cornerR = radius - 4;
+        g.lineStyle(1.5, 0xb8922e, 0.5);
 
-        const drawSeg = (x1, y1, x2, y2) => {
-            const len = Math.hypot(x2 - x1, y2 - y1);
-            const ax  = (x2 - x1) / len;
-            const ay  = (y2 - y1) / len;
-            for (let d = 0; d < len; d += dash + skip) {
-                const end = Math.min(d + dash, len);
+        const drawD = (x1, y1, x2, y2) => {
+            const dist = Phaser.Math.Distance.Between(x1, y1, x2, y2);
+            const ang  = Phaser.Math.Angle.Between(x1, y1, x2, y2);
+            for (let d = 0; d < dist; d += 14) {
                 g.beginPath();
-                g.moveTo(x1 + ax * d,   y1 + ay * d);
-                g.lineTo(x1 + ax * end, y1 + ay * end);
+                g.moveTo(x1 + Math.cos(ang) * d, y1 + Math.sin(ang) * d);
+                g.lineTo(x1 + Math.cos(ang) * Math.min(d + 8, dist), y1 + Math.sin(ang) * Math.min(d + 8, dist));
+                g.strokePath();
+            }
+        };
+        const drawArc = (acx, acy, r, startAngle, endAngle) => {
+            const arcLength = r * Math.abs(endAngle - startAngle);
+            const steps = Math.ceil(arcLength / 14);
+            for (let i = 0; i < steps; i++) {
+                const a1 = startAngle + (endAngle - startAngle) * (i / steps);
+                const a2 = startAngle + (endAngle - startAngle) * Math.min((i + 0.57) / steps, 1);
+                g.beginPath();
+                g.arc(acx, acy, r, a1, a2);
                 g.strokePath();
             }
         };
 
-        // Cạnh — chừa chỗ cho góc bo
-        drawSeg(left + r, top,          left + w - r, top);
-        drawSeg(left + w, top + r,      left + w,     top + h - r);
-        drawSeg(left + w - r, top + h,  left + r,     top + h);
-        drawSeg(left,  top + h - r,     left,         top + r);
+        drawD(left+ins+cornerR, top+ins, left+w-ins-cornerR, top+ins);
+        drawD(left+w-ins, top+ins+cornerR, left+w-ins, top+h-ins-cornerR);
+        drawD(left+w-ins-cornerR, top+h-ins, left+ins+cornerR, top+h-ins);
+        drawD(left+ins, top+h-ins-cornerR, left+ins, top+ins+cornerR);
 
-        // Góc bo
-        const corners = [
-            { a: 180, b: 270, cx: left + r,     cy: top + r },
-            { a: 270, b: 360, cx: left + w - r, cy: top + r },
-            { a: 0,   b: 90,  cx: left + w - r, cy: top + h - r },
-            { a: 90,  b: 180, cx: left + r,     cy: top + h - r },
-        ];
-        corners.forEach(c => {
-            g.beginPath();
-            g.arc(c.cx, c.cy, r, Phaser.Math.DegToRad(c.a), Phaser.Math.DegToRad(c.b));
-            g.strokePath();
-        });
+        drawArc(left+ins+cornerR,   top+ins+cornerR,   cornerR, Math.PI,      Math.PI*1.5);
+        drawArc(left+w-ins-cornerR, top+ins+cornerR,   cornerR, Math.PI*1.5,  Math.PI*2);
+        drawArc(left+w-ins-cornerR, top+h-ins-cornerR, cornerR, 0,            Math.PI*0.5);
+        drawArc(left+ins+cornerR,   top+h-ins-cornerR, cornerR, Math.PI*0.5,  Math.PI);
+
+        return g;
     }
+
 
     // =========================================================================
     // PANEL TRÁI — 2 slot + hiển thị ý nghĩa thẻ
@@ -266,26 +258,45 @@ export default class TarotScene extends Phaser.Scene {
         const top    = cy - h / 2;
         const padX   = 30;
 
-        // ── Tiêu đề ──────────────────────────────────────────────────────────
-        const titleBg = this.add.graphics().setDepth(5);
-        titleBg.fillStyle(0xd4a030, 1);
-        titleBg.fillRoundedRect(cx - 90, top + 14, 180, 30, 15);
-        titleBg.fillStyle(0xfff0a0, 0.45);
-        titleBg.fillRoundedRect(cx - 88, top + 15, 176, 13, 10);
-        titleBg.lineStyle(2, 0x8b5e1a, 1);
-        titleBg.strokeRoundedRect(cx - 90, top + 14, 180, 30, 15);
+        // ── Nền xanh chứa 2 slot ─────────────────────────────────────────────
+        const OUTER_PAD = 22; 
+        const gap     = 12;
+        const PAD     = 14; 
+        const boxW    = w - OUTER_PAD * 2;
+        const slotW   = Math.floor((boxW - PAD * 2 - gap) / 2);
+        const slotH   = Math.round(slotW * 1.45);
+        const boxH    = slotH + PAD * 2 + 10;
+        const boxX    = cx - w / 2 + OUTER_PAD;
+        const boxY    = top + 22;
+        const boxR    = 16;
 
-        this.add.text(cx, top + 29, "Thẻ Đã Chọn", {
-            fontFamily: "Signika", fontSize: "16px",
-            color: "#5a2d00", fontStyle: "bold",
-        }).setOrigin(0.5).setDepth(6);
+        const boxG = this.add.graphics().setDepth(3);
+
+        // Bóng đổ
+        boxG.fillStyle(0x000000, 0.3);
+        boxG.fillRoundedRect(boxX + 4, boxY + 6, boxW, boxH, boxR);
+
+        // Nền xanh gradient
+        boxG.fillGradientStyle(0x1a8fc0, 0x1a8fc0, 0x0a4a7a, 0x0a4a7a, 1);
+        boxG.fillRoundedRect(boxX, boxY, boxW, boxH, boxR);
+
+        // Gloss trên
+        boxG.fillStyle(0xffffff, 0.18);
+        boxG.fillRoundedRect(boxX + 6, boxY + 5, boxW - 12, boxH * 0.18, boxR - 3);
+
+        // Viền xanh sáng ngoài
+        boxG.lineStyle(3, 0x44ccff, 0.9);
+        boxG.strokeRoundedRect(boxX, boxY, boxW, boxH, boxR);
+
+        // Viền đứt nét trắng bên trong
+        boxG.lineStyle(1.5, 0xffffff, 0.35);
+        const ins = 6;
+        boxG.strokeRoundedRect(boxX + ins, boxY + ins, boxW - ins * 2, boxH - ins * 2, boxR - 3);
 
         // ── 2 Slot thẻ ───────────────────────────────────────────────────────
-        const slotW  = 130;
-        const slotH  = 180;
-        const slotY  = top + 60 + slotH / 2;
-        const slot1X = cx - slotW / 2 - 12;
-        const slot2X = cx + slotW / 2 + 12;
+        const slotY  = boxY + PAD + slotH / 2;
+        const slot1X = boxX + PAD + slotW / 2;
+        const slot2X = slot1X + slotW + gap;
 
         this._slots = [];
         [slot1X, slot2X].forEach((sx, i) => {
@@ -294,7 +305,7 @@ export default class TarotScene extends Phaser.Scene {
         });
 
         // ── Divider ───────────────────────────────────────────────────────────
-        const divY = slotY + slotH / 2 + 16;
+        const divY = boxY + boxH + 14;
         const dg = this.add.graphics().setDepth(5);
         dg.lineStyle(1.5, 0xc8a060, 0.8);
         dg.beginPath();
@@ -321,114 +332,148 @@ export default class TarotScene extends Phaser.Scene {
 
 buildSlot(cx, cy, w, h, idx) {
     const g = this.add.graphics().setDepth(4);
-    const r = 12;
-
-    const drawFrameBase = () => {
-        g.clear();
-        g.fillStyle(0x000000, 0.30);
-        g.fillRoundedRect(cx - w/2 + 4, cy - h/2 + 5, w, h, r);
-        g.fillStyle(0x803000, 1);
-        g.fillRoundedRect(cx - w/2, cy - h/2, w, h, r);
-        g.fillStyle(0xf08010, 0.9);
-        g.fillRoundedRect(cx - w/2, cy - h/2, w, h * 0.7, r);
-        g.fillStyle(0xffd040, 0.7);
-        g.fillRoundedRect(cx - w/2, cy - h/2, w, h * 0.30, r);
-        g.lineStyle(5, 0xffe060, 1);
-        g.strokeRoundedRect(cx - w/2, cy - h/2, w, h, r);
-        g.lineStyle(1.5, 0xffd030, 0.7);
-        g.strokeRoundedRect(cx - w/2 + 7, cy - h/2 + 7, w - 14, h - 14, r - 3);
-    };
+    const r = 14;
 
     const drawEmpty = () => {
-        drawFrameBase();
-        // Sheen
-        for (let i = 0; i < 6; i++) {
-            const alpha = 0.25 * (1 - i / 6);
-            g.fillStyle(0xffffff, alpha);
-            g.fillRect(cx - w/2 + 4, cy - h/2 + 4 + i * (h * 0.5 / 6), w * 0.33, h * 0.5 / 6);
+        g.clear();
+        // Bóng đổ nhỏ
+        g.fillStyle(0x000000, 0.35);
+        g.fillRoundedRect(cx - w/2 + 3, cy - h/2 + 4, w, h, r);
+
+        // Nền xanh gradient đậm
+        g.fillGradientStyle(0x1a7ab8, 0x1a7ab8, 0x0a3a6a, 0x0a3a6a, 1);
+        g.fillRoundedRect(cx - w/2, cy - h/2, w, h, r);
+
+        // Gloss trên trái
+        g.fillStyle(0xffffff, 0.22);
+        g.fillRoundedRect(cx - w/2 + 5, cy - h/2 + 5, w * 0.45, h * 0.18, r - 4);
+
+        // Viền xanh sáng ngoài
+        g.lineStyle(3, 0x44ccff, 1);
+        g.strokeRoundedRect(cx - w/2, cy - h/2, w, h, r);
+
+        // Nét đứt trắng bên trong
+        const ins = 6;
+        g.lineStyle(1.2, 0xffffff, 0.45);
+        const dash = 8, skip = 5;
+        const lx = cx - w/2 + ins, ly = cy - h/2 + ins;
+        const lw = w - ins*2, lh = h - ins*2;
+        const lr = r - 4;
+        // vẽ 4 cạnh đứt nét
+        for (let d = lr; d < lw - lr; d += dash + skip) {
+            const e = Math.min(d + dash, lw - lr);
+            g.beginPath(); g.moveTo(lx + d, ly); g.lineTo(lx + e, ly); g.strokePath();
+            g.beginPath(); g.moveTo(lx + d, ly + lh); g.lineTo(lx + e, ly + lh); g.strokePath();
+        }
+        for (let d = lr; d < lh - lr; d += dash + skip) {
+            const e = Math.min(d + dash, lh - lr);
+            g.beginPath(); g.moveTo(lx, ly + d); g.lineTo(lx, ly + e); g.strokePath();
+            g.beginPath(); g.moveTo(lx + lw, ly + d); g.lineTo(lx + lw, ly + e); g.strokePath();
         }
     };
 
     const drawActive = () => {
-        drawFrameBase();
-        g.lineStyle(6, 0xffee00, 0.7);
+        drawEmpty();
+        // Glow vàng ngoài khi active
+        g.lineStyle(4, 0xffee44, 0.75);
         g.strokeRoundedRect(cx - w/2 - 3, cy - h/2 - 3, w + 6, h + 6, r + 3);
-        for (let i = 0; i < 6; i++) {
-            const alpha = 0.25 * (1 - i / 6);
-            g.fillStyle(0xffffff, alpha);
-            g.fillRect(cx - w/2 + 4, cy - h/2 + 4 + i * (h * 0.5 / 6), w * 0.33, h * 0.5 / 6);
-        }
+    };
+
+    const drawHasCard = () => {
+        g.clear();
+        g.fillStyle(0x000000, 0.35);
+        g.fillRoundedRect(cx - w/2 + 3, cy - h/2 + 4, w, h, r);
+        g.fillGradientStyle(0x1a7ab8, 0x1a7ab8, 0x0a3a6a, 0x0a3a6a, 1);
+        g.fillRoundedRect(cx - w/2, cy - h/2, w, h, r);
+        // Viền xanh lá khi có thẻ
+        g.lineStyle(3, 0x44ffcc, 1);
+        g.strokeRoundedRect(cx - w/2, cy - h/2, w, h, r);
     };
 
     drawEmpty();
 
     const hintTxt = this.add.text(cx, cy, "Chọn\nthẻ bài", {
         fontFamily: "Signika", fontSize: "13px",
-        color: "#ffe090", align: "center",
-    }).setOrigin(0.5).setDepth(5);
-
-    // Số thứ tự slot
-    this.add.text(cx - w/2 + 10, cy - h/2 + 8, `${idx + 1}`, {
-        fontFamily: "Signika", fontSize: "11px",
-        color: "#ffe090", fontStyle: "bold",
-    }).setOrigin(0, 0).setDepth(6);
+        color: "#88ccff", fontStyle: "bold",
+        stroke: "#0a2a4a", strokeThickness: 2,
+        align: "center",
+    }).setOrigin(0.5).setDepth(5).setAlpha(0.7);
 
     let imgObj = null;
+    let sheenG = null;
+    let nameLbl = null;
+
+    const clearCard = () => {
+        if (imgObj)  { imgObj.destroy();  imgObj  = null; }
+        if (sheenG)  { sheenG.destroy();  sheenG  = null; }
+        if (nameLbl) { nameLbl.destroy(); nameLbl = null; }
+        ref.hasCard = false;
+        ref.imgObj  = null;
+        hintTxt.setVisible(true);
+        drawEmpty();
+    };
 
     const zone = this.add.zone(cx, cy, w, h)
-        .setInteractive({ cursor: "pointer" }).setDepth(6);
+        .setInteractive({ cursor: "pointer" }).setDepth(8);
+
     zone.on("pointerup", () => {
-        this.activeSlot = idx;
-        this._slots.forEach((s, i) => {
-            if (i === idx) s.drawActive();
-            else if (!s.hasCard) s.drawEmpty();
-        });
+        if (ref.hasCard) {
+            // Bỏ thẻ ra
+            this.selectedSlots[idx] = null;
+            clearCard();
+            this.renderEffects();
+            if (this.playerUserId) {
+                const ids = this.selectedSlots.filter(Boolean).map(k => parseInt(k.split('_')[1]));
+                this.saveActiveTarots(this.playerUserId, ids).catch(() => {});
+            }
+        } else {
+            // Chọn slot này để nhận thẻ
+            this.activeSlot = idx;
+            this._slots.forEach((s, i) => {
+                if (i === idx) s.drawActive();
+                else if (!s.hasCard) s.drawEmpty();
+            });
+        }
     });
 
     const ref = {
-        g, hintTxt, imgObj, cx, cy, w, h, r,
-        hasCard: false, drawEmpty, drawActive,
+        g, hintTxt, cx, cy, w, h, r,
+        hasCard: false, imgObj: null,
+        drawEmpty, drawActive, drawHasCard,
         setCard(scene, key) {
-            if (imgObj) { imgObj.destroy(); imgObj = null; }
+            clearCard();
             hintTxt.setVisible(false);
+            drawHasCard();
 
-            drawFrameBase();
-
-            // Ảnh thẻ
             const img = scene.add.image(cx, cy, key);
-            const scale = Math.min((w - 14) / img.width, (h - 14) / img.height);
+            const scale = Math.min((w - 10) / img.width, (h - 10) / img.height);
             img.setScale(scale).setDepth(5);
             imgObj = img;
             ref.imgObj = img;
             ref.hasCard = true;
 
-            // Sheen đè lên ảnh
-            const sheenG = scene.add.graphics().setDepth(7);
-            for (let i = 0; i < 6; i++) {
-                const alpha = 0.22 * (1 - i / 6);
-                sheenG.fillStyle(0xffffff, alpha);
-                sheenG.fillRect(cx - w/2 + 4, cy - h/2 + 4 + i * (h * 0.5 / 6), w * 0.33, h * 0.5 / 6);
-            }
+            // Mask bo góc cho ảnh
             const maskG = scene.make.graphics();
             maskG.fillStyle(0xffffff);
-            maskG.fillRoundedRect(cx - w/2, cy - h/2, w, h, r);
+            maskG.fillRoundedRect(cx - w/2 + 2, cy - h/2 + 2, w - 4, h - 4, r - 2);
+            img.setMask(maskG.createGeometryMask());
+
+            // Sheen
+            sheenG = scene.add.graphics().setDepth(7);
+            for (let i = 0; i < 5; i++) {
+                sheenG.fillStyle(0xffffff, 0.18 * (1 - i / 5));
+                sheenG.fillRect(cx - w/2 + 4, cy - h/2 + 4 + i * (h * 0.4 / 5), w * 0.35, h * 0.4 / 5);
+            }
             sheenG.setMask(maskG.createGeometryMask());
 
-            // Viền glow xanh khi có thẻ
-            g.lineStyle(4, 0x88ffcc, 0.9);
-            g.strokeRoundedRect(cx - w/2, cy - h/2, w, h, r);
-
-            // Tên thẻ nhỏ ở dưới slot
+            // Tên thẻ
             const data = scene.cardData[key];
             if (data) {
-                const nameLbl = scene.add.text(cx, cy + h/2 - 14, data.name, {
+                nameLbl = scene.add.text(cx, cy + h/2 - 12, data.name, {
                     fontFamily: "Signika", fontSize: "10px",
-                    color: "#ffe090", fontStyle: "bold",
-                    stroke: "#3a1a00", strokeThickness: 2,
+                    color: "#ffffff", fontStyle: "bold",
+                    stroke: "#0a2a4a", strokeThickness: 2,
                 }).setOrigin(0.5, 1).setDepth(8);
-                // Lưu để destroy sau
-                if (ref._nameLbl) ref._nameLbl.destroy();
-                ref._nameLbl = nameLbl;
             }
         }
     };
@@ -546,86 +591,77 @@ buildSlot(cx, cy, w, h, idx) {
     // =========================================================================
     // THẺ BÀI — click chọn slot + hiệu ứng đẹp
     // =========================================================================
-    createStyledCard(x, y, key, targetHeight) {
+    createStyledCard(x, y, key, cardW, cardH) {
         const container   = this.add.container(x, y);
-        const radius      = 8;
-        const borderColor = 0xf4e538;
+        const radius      = 10;
 
-        const img = this.add.image(0, 0, key).setOrigin(0);
-        const scale = targetHeight / img.height;
+        // Nền card dùng card_item1 nếu có, fallback gradient
+        let cardBg;
+        if (this.textures.exists("card_item1")) {
+            cardBg = this.add.image(cardW / 2, cardH / 2, "card_item1").setDisplaySize(cardW, cardH);
+        } else {
+            cardBg = this.add.graphics();
+            cardBg.fillGradientStyle(0xfff8f0, 0xfff8f0, 0xffeedd, 0xffeedd, 1);
+            cardBg.fillRoundedRect(0, 0, cardW, cardH, radius);
+            cardBg.lineStyle(2.5, 0xcc8822, 0.9);
+            cardBg.strokeRoundedRect(0, 0, cardW, cardH, radius);
+        }
+
+        // Ảnh thẻ
+        const img = this.add.image(cardW / 2, cardH / 2 - 8, key);
+        const scale = Math.min((cardW - 16) / img.width, (cardH - 30) / img.height);
         img.setScale(scale);
-        const targetWidth = img.width * scale;
 
-        // Viền ngoài
-        const border = this.add.graphics();
-        border.lineStyle(3, borderColor, 1);
-        border.strokeRoundedRect(0, 0, targetWidth, targetHeight, radius);
-
-        // Lớp hover/flash
-        const hover = this.add.graphics();
-
-        // Nhãn tên thẻ nhỏ ở dưới
+        // Tên thẻ
         const data = this.cardData[key];
-        const label = this.add.text(targetWidth / 2, targetHeight + 6, data?.name || "", {
-            fontFamily: "Signika", fontSize: "10px",
-            color: "#ffe090", align: "center",
-            stroke: "#3a1a00", strokeThickness: 2,
-        }).setOrigin(0.5, 0);
+        const HDR_H = Math.round(cardH * 0.26);
+        const nameTxt = this.add.text(cardW / 2, HDR_H / 2, data?.name || "", {
+            fontFamily: "Signika", fontSize: Math.max(11, Math.round(cardW * 0.12)) + "px",
+            color: "#ffffff", fontStyle: "bold",
+            stroke: "#0b0a2b", strokeThickness: 3,
+            align: "center",
+        }).setOrigin(0.5);
 
-        container.add([img, border, hover, label]);
+        // Viền selected
+        const selOverlay = this.add.graphics();
+
+        container.add([cardBg, img, nameTxt, selOverlay]);
 
         container.setInteractive(
-            new Phaser.Geom.Rectangle(0, 0, targetWidth, targetHeight),
+            new Phaser.Geom.Rectangle(0, 0, cardW, cardH),
             Phaser.Geom.Rectangle.Contains
         );
         container.input.cursor = "pointer";
 
-        // Glow particles khi hover
         container.on("pointerover", () => {
-            hover.clear();
-            hover.fillStyle(0xffffff, 0.15);
-            hover.fillRoundedRect(0, 0, targetWidth, targetHeight, radius);
-            border.clear();
-            border.lineStyle(3, 0xffffff, 1);
-            border.strokeRoundedRect(0, 0, targetWidth, targetHeight, radius);
-            this.tweens.add({ targets: container, scaleX: 1.06, scaleY: 1.06, duration: 120, ease: "Back.easeOut" });
-            label.setStyle({ color: "#ffffff" });
+            if (cardBg.setTint) cardBg.setTint(0xffe8cc);
         });
         container.on("pointerout", () => {
-            hover.clear();
-            border.clear();
-            border.lineStyle(3, borderColor, 1);
-            border.strokeRoundedRect(0, 0, targetWidth, targetHeight, radius);
-            this.tweens.add({ targets: container, scaleX: 1, scaleY: 1, duration: 120, ease: "Sine.easeOut" });
-            label.setStyle({ color: "#ffe090" });
+            if (cardBg.clearTint) cardBg.clearTint();
         });
 
         container.on("pointerup", () => {
             if (this._dragMoved) return;
 
-            const cardKey = key;
-            if (this.isCardAlreadySelected(cardKey, this.activeSlot)) {
+            if (this.isCardAlreadySelected(key, this.activeSlot)) {
                 this.showToast("Bạn đã chọn thẻ này ở slot khác!");
                 return;
             }
 
-            // Hiệu ứng flash xác nhận
-            hover.clear();
-            hover.fillStyle(0xffff88, 0.55);
-            hover.fillRoundedRect(0, 0, targetWidth, targetHeight, radius);
-
-            // Hiệu ứng scale bounce
+            // Flash confirm
+            const flash = this.add.graphics().setDepth(50);
+            flash.fillStyle(0xffff88, 0.45);
+            flash.fillRoundedRect(0, 0, cardW, cardH, radius);
+            container.add(flash);
             this.tweens.add({
-                targets: container,
-                scaleX: 1.15, scaleY: 1.15,
-                duration: 100, ease: "Back.easeOut",
-                yoyo: true,
-                onComplete: () => { hover.clear(); }
+                targets: container, scaleX: 1.1, scaleY: 1.1,
+                duration: 90, ease: "Back.easeOut", yoyo: true,
+                onComplete: () => { flash.destroy(); }
             });
 
-            // Hiệu ứng tia sáng bay lên slot
-            const worldX = (this.cardContainer?.x || 0) + x + (this.cardContainer?.parentContainer?.x || 0);
-            const worldY = (this.cardContainer?.y || 0) + y;
+            // Hiệu ứng tia sáng bay đến slot
+            const worldX = (this.cardContainer?.x || 0) + x + cardW / 2;
+            const worldY = (this.cardContainer?.y || 0) + y + cardH / 2;
             this._playEquipEffect(worldX, worldY, this._slots[this.activeSlot]);
 
             this._slots[this.activeSlot].setCard(this, key);
@@ -634,10 +670,9 @@ buildSlot(cx, cy, w, h, idx) {
 
             if (this.playerUserId) {
                 const selectedIds = this.selectedSlots.filter(Boolean).map(k => parseInt(k.split('_')[1]));
-                this.saveActiveTarots(this.playerUserId, selectedIds).catch(e => console.warn("Failed to save active tarots:", e));
+                this.saveActiveTarots(this.playerUserId, selectedIds).catch(e => console.warn("Failed to save:", e));
             }
 
-            // Tự động chuyển sang slot còn trống
             if (this.activeSlot === 0 && !this._slots[1].hasCard) {
                 this.activeSlot = 1;
                 this._slots[1].drawActive();
