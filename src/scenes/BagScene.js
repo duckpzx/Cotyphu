@@ -315,21 +315,44 @@ export default class BagScene extends Phaser.Scene {
         const push = o => { this._previewObjs.push(o); return o; };
 
         const top     = PANEL_Y || (panelY - PANEL_H / 2);
-        const PAD     = 16;
+        const PAD     = 22;
 
-        // ── Khung preview — to, sát trên ─────────────────────────────
+        // ── Khung preview — viền gradient trắng-xanh dương nhẹ ───────
         const PREVIEW_W = LEFT_W - PAD * 2;
         const PREVIEW_H = Math.round(PANEL_H * 0.52);
         const PREVIEW_X = leftCX - PREVIEW_W / 2;
         const PREVIEW_Y = top + PAD;
+        const r = 16;
 
         const prevG = push(this.add.graphics().setDepth(4));
-        prevG.fillStyle(0x1a3a6a, 1);
-        prevG.fillRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, 14);
-        prevG.lineStyle(3, 0xc8a060, 0.9);
-        prevG.strokeRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, 14);
-        prevG.lineStyle(1.5, 0xffffff, 0.15);
-        prevG.strokeRoundedRect(PREVIEW_X + 3, PREVIEW_Y + 3, PREVIEW_W - 6, PREVIEW_H - 6, 12);
+
+        // Lớp bóng mờ ngoài cùng (shadow)
+        prevG.fillRoundedRect(PREVIEW_X + 4, PREVIEW_Y + 6, PREVIEW_W, PREVIEW_H, r + 2);
+
+        // Viền ngoài gradient trắng → xanh dương nhẹ (dày 7px)
+        const borderThick = 1.5;
+        const bx = PREVIEW_X - borderThick, by = PREVIEW_Y - borderThick;
+        const bw = PREVIEW_W + borderThick * 2, bh = PREVIEW_H + borderThick * 2;
+        const br = r + borderThick;
+        // Top-left trắng, top-right xanh nhạt, bottom-left xanh nhạt, bottom-right xanh dương
+        prevG.fillGradientStyle(0xffffff, 0xebfcff, 0xffffff, 0xebfcff, 1);
+        prevG.fillRoundedRect(bx, by, bw, bh, br);
+
+        // Viền giữa mỏng (separator) xanh dương trong suốt
+        prevG.lineStyle(1.5, 0xebfcff, 0.55);
+        prevG.strokeRoundedRect(bx + 2, by + 2, bw - 4, bh - 4, br - 1);
+
+        // Nền xanh gradient bên trong
+        prevG.fillGradientStyle(0xebfcff, 0xebfcff, 0x1a8fc0, 0x1a8fc0, 1);
+        prevG.fillRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, r);
+
+        // Gloss trên
+        prevG.fillStyle(0xffffff, 0.22);
+        prevG.fillRoundedRect(PREVIEW_X + 8, PREVIEW_Y + 6, PREVIEW_W - 16, PREVIEW_H * 0.22, r - 2);
+
+        // Viền trong trắng mỏng
+        prevG.lineStyle(1.5, 0xffffff, 0.7);
+        prevG.strokeRoundedRect(PREVIEW_X + 2, PREVIEW_Y + 2, PREVIEW_W - 4, PREVIEW_H - 4, r - 2);
 
         // ── Luôn hiển thị phông nền đang dùng (hoặc đang chọn) ──────
         const activeBgId = Number(this.playerData?.user?.active_bg_id || this.playerData?.active_bg_id);
@@ -384,88 +407,115 @@ export default class BagScene extends Phaser.Scene {
         }
 
         // ── Nội dung bên dưới preview ────────────────────────────────
-        const infoY = PREVIEW_Y + PREVIEW_H + 12;
+        const infoY    = PREVIEW_Y + PREVIEW_H + 12;
+        const infoBot  = top + PANEL_H - 16;
+        const infoH    = infoBot - infoY;
+        const infoCY   = infoY + infoH / 2 - 12;
 
         if (this.activeTab === "background") {
             const currentBg = this.myBackgrounds.find(b => Number(b.background_id || b.id) === Number(this.selectedBgId));
             const isCurrentActive = currentBg && Number(currentBg.background_id || currentBg.id) === activeBgId;
             const displayName = currentBg?.name || `Phông nền ${this.selectedBgId || ""}`;
 
-            push(this.add.text(leftCX, infoY, displayName, {
+            // tên(~28) + divider(21) + trạng thái(~18) = ~67
+            const blockH   = 67;
+            const blockTop = infoCY - blockH / 2;
+
+            push(this.add.text(leftCX, blockTop, displayName, {
                 fontFamily: "Signika", fontSize: "20px", color: "#5c3300", fontStyle: "bold",
                 stroke: "#f5dfa0", strokeThickness: 2,
-            }).setOrigin(0.5).setDepth(5));
+            }).setOrigin(0.5, 0).setDepth(5));
 
             const dg = push(this.add.graphics().setDepth(5));
             dg.lineStyle(1.5, 0xc8a060, 0.6);
-            dg.lineBetween(leftCX - LEFT_W / 2 + 20, infoY + 28, leftCX + LEFT_W / 2 - 20, infoY + 28);
+            dg.lineBetween(leftCX - LEFT_W / 2 + 20, blockTop + 38, leftCX + LEFT_W / 2 - 20, blockTop + 38);
 
-            push(this.add.text(leftCX - LEFT_W / 2 + 20, infoY + 38,
+            push(this.add.text(leftCX, blockTop + 40,
                 `✦  Trạng thái: ${isCurrentActive ? "Đang sử dụng" : "Chưa trang bị"}`, {
                 fontFamily: "Signika", fontSize: "13px",
                 color: isCurrentActive ? "#2a8b2a" : "#8b5e1a", fontStyle: "italic",
-            }).setDepth(5));
+            }).setOrigin(0.5, 0).setDepth(5));
         } else {
             const displayName = currentChar?.name || "Chưa chọn";
-            push(this.add.text(leftCX, infoY, displayName, {
+            const desc = currentChar?.description || currentChar?.desc || null;
+            const isCurrentActive = currentChar && Number(currentChar.is_active_character) === 1;
+
+            // Tính tổng chiều cao khối nội dung để căn giữa dọc
+            // tên(~28) + divider(10+1+10) + label(~18) + skinName(~22) + [desc: divider+text] + [btn: 44]
+            const hasDesc = !!desc;
+            const hasBtn  = !isCurrentActive;
+            let blockH = 28 + 21 + 18 + 22; // tên + divider + label + skinName
+            if (hasDesc) blockH += 10 + 1 + 10 + 40; // divider + desc (~2 dòng)
+            if (hasBtn)  blockH += 16 + 44; // gap + btn
+            const blockTop = infoCY - blockH / 2;
+
+            let cy = blockTop;
+
+            push(this.add.text(leftCX, cy, displayName, {
                 fontFamily: "Signika", fontSize: "20px", color: "#5c3300", fontStyle: "bold",
                 stroke: "#f5dfa0", strokeThickness: 2,
-            }).setOrigin(0.5).setDepth(5));
+            }).setOrigin(0.5, 0).setDepth(5));
+            cy += 28;
 
             const dg = push(this.add.graphics().setDepth(5));
             dg.lineStyle(1.5, 0xc8a060, 0.6);
-            dg.lineBetween(leftCX - LEFT_W / 2 + 20, infoY + 28, leftCX + LEFT_W / 2 - 20, infoY + 28);
+            dg.lineBetween(leftCX - LEFT_W / 2 + 20, cy + 10, leftCX + LEFT_W / 2 - 20, cy + 10);
+            cy += 21;
 
             const activeSkinNum = this.selectedSkinNum || currentChar?.active_skin_number || 1;
             const skinLabelMap  = { 1: "Sơ cấp", 2: "Trung cấp", 3: "Cao cấp" };
 
-            push(this.add.text(leftCX - LEFT_W / 2 + 20, infoY + 38,
-                "✦  Trang phục đang dùng:", {
+            push(this.add.text(leftCX, cy, "✦  Trang phục đang mặc:", {
                 fontFamily: "Signika", fontSize: "13px", color: "#8b5e1a", fontStyle: "italic",
-            }).setDepth(5));
-            push(this.add.text(leftCX - LEFT_W / 2 + 20, infoY + 56,
-                skinLabelMap[activeSkinNum] || `Skin ${activeSkinNum}`, {
-                fontFamily: "Signika", fontSize: "15px", color: "#4a2000", fontStyle: "bold",
-            }).setDepth(5));
+            }).setOrigin(0.5, 0).setDepth(5));
+            cy += 18;
 
-            if (currentChar) {
-                const isActive = Number(currentChar.is_active_character) === 1;
-                push(this.add.text(leftCX - LEFT_W / 2 + 20, infoY + 78,
-                    `✦  Trạng thái: ${isActive ? "Đang sử dụng" : "Chưa trang bị"}`, {
-                    fontFamily: "Signika", fontSize: "13px",
-                    color: isActive ? "#2a8b2a" : "#8b5e1a", fontStyle: "italic",
-                }).setDepth(5));
+            push(this.add.text(leftCX, cy, skinLabelMap[activeSkinNum] || `Skin ${activeSkinNum}`, {
+                fontFamily: "Signika", fontSize: "15px", color: "#4a2000", fontStyle: "bold",
+            }).setOrigin(0.5, 0).setDepth(5));
+            cy += 22;
+
+            if (hasDesc) {
+                const dg2 = push(this.add.graphics().setDepth(5));
+                dg2.lineStyle(1, 0xc8a060, 0.35);
+                dg2.lineBetween(leftCX - LEFT_W / 2 + 28, cy + 10, leftCX + LEFT_W / 2 - 28, cy + 10);
+                cy += 21;
+
+                push(this.add.text(leftCX, cy, desc, {
+                    fontFamily: "Signika", fontSize: "12px", color: "#6b4a1a",
+                    fontStyle: "italic", align: "center",
+                    wordWrap: { width: LEFT_W - 52 },
+                }).setOrigin(0.5, 0).setDepth(5));
+                cy += 40;
             }
 
-            const btnY = top + PANEL_H - 36;
-            const isCurrentActive = currentChar && Number(currentChar.is_active_character) === 1;
-            this._buildActionBtn(leftCX, btnY, 200, 44,
-                isCurrentActive ? "✓ Đang Trang Bị" : "⚔️ Trang Bị",
-                isCurrentActive ? 0x3a8a3a : 0xd4a030,
-                isCurrentActive ? 0x1a5a1a : 0x8a5e10,
-                async () => {
-                    if (isCurrentActive) { this.showToast("Nhân vật đã được trang bị rồi!"); return; }
-                    if (this.playerUserId && this.selectedCharId) {
-                        try {
-                            await fetch(`${SERVER_URL}/users/${this.playerUserId}/characters/active`, {
-                                method: "POST", headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ character_id: this.selectedCharId }),
-                            });
-                            this.myCharacters.forEach(c => c.is_active_character = (Number(c.character_id) === Number(this.selectedCharId)) ? 1 : 0);
-                            if (this.playerData?.user) {
-                                this.playerData.user.active_character_id = this.selectedCharId;
-                                setPlayerData(this, this.playerData);
+            if (hasBtn) {
+                cy += 16;
+                this._buildActionBtn(leftCX, cy + 22, 200, 44,
+                    "⚔️ Trang Bị", 0xd4a030, 0x8a5e10,
+                    async () => {
+                        if (this.playerUserId && this.selectedCharId) {
+                            try {
+                                await fetch(`${SERVER_URL}/users/${this.playerUserId}/characters/active`, {
+                                    method: "POST", headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ character_id: this.selectedCharId }),
+                                });
+                                this.myCharacters.forEach(c => c.is_active_character = (Number(c.character_id) === Number(this.selectedCharId)) ? 1 : 0);
+                                if (this.playerData?.user) {
+                                    this.playerData.user.active_character_id = this.selectedCharId;
+                                    setPlayerData(this, this.playerData);
+                                }
+                                this.showToast("✅ Đã trang bị nhân vật!");
+                                this.buildLeftPanel();
+                                this.renderRightPanel();
+                            } catch (e) {
+                                console.warn("Save character failed", e);
+                                this.showToast("❌ Lỗi khi trang bị!");
                             }
-                            this.showToast("✅ Đã trang bị nhân vật!");
-                            this.buildLeftPanel();
-                            this.renderRightPanel();
-                        } catch (e) {
-                            console.warn("Save character failed", e);
-                            this.showToast("❌ Lỗi khi trang bị!");
                         }
                     }
-                }
-            );
+                );
+            }
         }
     }
 
@@ -782,13 +832,19 @@ export default class BagScene extends Phaser.Scene {
         // Chiếm toàn bộ phần thân (dưới header)
         const imgAreaY   = HDR_H + 4;
         const imgAreaH   = h - HDR_H - 8;
-        const imgCenterY = imgAreaY + imgAreaH / 2 - 16;
+        const imgCenterY = imgAreaY + imgAreaH / 2 - 11;
 
         let imgObj = null;
         if (item.imgKey && this.textures.exists(item.imgKey)) {
             imgObj = this.add.image(w / 2, imgCenterY, item.imgKey).setOrigin(0.5, 0.5);
-            const scale = Math.min((w - 5) / imgObj.width, (imgAreaH - 8) / imgObj.height) * 1.3;
-            imgObj.setScale(scale);
+            if (item.type === "background") {
+                // Fill vừa khít vùng thân, không tràn ra ngoài
+                const scale = Math.min((w - 10) / imgObj.width, (imgAreaH - 8) / imgObj.height);
+                imgObj.setScale(scale);
+            } else {
+                const scale = Math.min((w - 28) / imgObj.width, (imgAreaH - 20) / imgObj.height) * 1.3;
+                imgObj.setScale(scale);
+            }
             if (isLocked) imgObj.setAlpha(0.35);
         } else if (!isLocked) {
             imgObj = this.add.text(w / 2, imgCenterY,
@@ -806,9 +862,9 @@ export default class BagScene extends Phaser.Scene {
         }
 
         const children = [cardBg, selGlow, nameTxt];
-        if (badgeObj)  children.push(badgeObj);
         if (imgObj)    children.push(imgObj);
         if (lockBadge) children.push(lockBadge);
+        if (badgeObj)  children.push(badgeObj);  // ribbon luôn trên cùng
         container.add(children);
 
         // ── Interactive ───────────────────────────────────────────
