@@ -578,7 +578,7 @@ export default class ShopScene extends Phaser.Scene {
         const push = o => { this._previewObjs.push(o); return o; };
 
         const top = PANEL_Y || (panelY - PANEL_H / 2);
-        const PAD = 16;
+        const PAD = 22;
 
         // ── Khung preview — phong cách BagScene ──────────────────
         const PREVIEW_W = LEFT_W - PAD * 2;
@@ -603,14 +603,7 @@ export default class ShopScene extends Phaser.Scene {
         prevG.lineStyle(1.5, 0xebfcff, 0.55);
         prevG.strokeRoundedRect(bx + 2, by + 2, bw - 4, bh - 4, br - 1);
 
-        // Nền gradient bên trong
-        prevG.fillGradientStyle(0xebfcff, 0xebfcff, 0x1a8fc0, 0x1a8fc0, 1);
-        prevG.fillRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, r);
-
-        // Gloss trên
-        prevG.fillStyle(0xffffff, 0.22);
-        prevG.fillRoundedRect(PREVIEW_X + 8, PREVIEW_Y + 6, PREVIEW_W - 16, PREVIEW_H * 0.22, r - 2);
-
+        // Nền trong suốt (transparent) — không fill
         // Viền trong trắng mỏng
         prevG.lineStyle(1.5, 0xffffff, 0.7);
         prevG.strokeRoundedRect(PREVIEW_X + 2, PREVIEW_Y + 2, PREVIEW_W - 4, PREVIEW_H - 4, r - 2);
@@ -705,76 +698,134 @@ export default class ShopScene extends Phaser.Scene {
         }
 
         // ── Nội dung bên dưới preview ──
-        const infoY = PREVIEW_Y + PREVIEW_H + 12;
+        const infoY   = PREVIEW_Y + PREVIEW_H + 12;
+        const infoBot = top + PANEL_H - 16;
+        const infoH   = infoBot - infoY;
+        const infoCY  = infoY + infoH / 2 - 12;
 
         if (!item) {
-            push(this.add.text(leftCX, infoY + 20, "Chọn một vật phẩm\ntừ bên phải", {
+            push(this.add.text(leftCX, infoCY, "Chọn một vật phẩm\ntừ bên phải", {
                 fontFamily: "Signika", fontSize: "16px", color: "#9b7040", align: "center",
             }).setOrigin(0.5).setDepth(5));
             return;
         }
 
         const displayName = item.label || this._getDisplayName(item.charName || item.name || "");
-        push(this.add.text(leftCX, infoY, displayName, {
-            fontFamily: "Signika", fontSize: "20px", color: "#5c3300", fontStyle: "bold",
-            stroke: "#f5dfa0", strokeThickness: 2,
-        }).setOrigin(0.5).setDepth(5));
-
-        const dg = push(this.add.graphics().setDepth(5));
-        dg.lineStyle(1.5, 0xc8a060, 0.6);
-        dg.lineBetween(leftCX - LEFT_W / 2 + 20, infoY + 28, leftCX + LEFT_W / 2 - 20, infoY + 28);
-
         const isOwned  = this._isItemOwned(item);
         const isActive = this._isItemActive(item);
         const price    = item.price || 0;
-        const infoStartY = infoY + 38;
+        const hasDesc  = false; // đã xóa description
+        const hasBtn   = true;
 
+        // tên(28) + divider(21) + trạng thái/giá(24) + gap(20) + btn(48)
+        let blockH = 28 + 21 + 24 + 20 + 48;
+        const blockTop = infoCY - blockH / 2;
+        let cy = blockTop;
+
+        // Tên
+        push(this.add.text(leftCX, cy, displayName, {
+            fontFamily: "Signika", fontSize: "20px", color: "#5c3300", fontStyle: "bold",
+            stroke: "#f5dfa0", strokeThickness: 2,
+        }).setOrigin(0.5, 0).setDepth(5));
+        cy += 28;
+
+        // Divider
+        const dg = push(this.add.graphics().setDepth(5));
+        dg.lineStyle(1.5, 0xc8a060, 0.6);
+        dg.lineBetween(leftCX - LEFT_W / 2 + 20, cy + 10, leftCX + LEFT_W / 2 - 20, cy + 10);
+        cy += 21;
+
+        // Trạng thái / giá
         if (!isOwned && price > 0) {
-            push(this.add.image(leftCX - 50, infoStartY + 12, "coin").setDisplaySize(24, 24).setDepth(5));
-            push(this.add.text(leftCX - 34, infoStartY + 12, this._formatMoney(price), {
+            const coinX = leftCX - 44;
+            push(this.add.image(coinX, cy + 12, "coin").setDisplaySize(22, 22).setDepth(5));
+            push(this.add.text(coinX + 16, cy + 12, this._formatMoney(price), {
                 fontFamily: "Signika", fontSize: "17px", color: "#ffe066", fontStyle: "bold",
                 stroke: "#3a1a00", strokeThickness: 2,
             }).setOrigin(0, 0.5).setDepth(5));
         } else if (!isOwned && price === 0) {
-            push(this.add.text(leftCX, infoStartY + 12, "✨ Miễn phí", {
+            push(this.add.text(leftCX, cy + 12, "✨ Miễn phí", {
                 fontFamily: "Signika", fontSize: "17px", color: "#44bb44", fontStyle: "bold",
-            }).setOrigin(0.5).setDepth(5));
+            }).setOrigin(0.5, 0.5).setDepth(5));
         } else {
-            push(this.add.text(leftCX - LEFT_W / 2 + 20, infoStartY,
-                `✦  Trạng thái: ${isActive ? "Đang sử dụng" : "Đã sở hữu"}`, {
-                fontFamily: "Signika", fontSize: "13px",
-                color: isActive ? "#2a8b2a" : "#8b5e1a", fontStyle: "italic",
-            }).setDepth(5));
+            push(this.add.text(leftCX, cy + 12,
+                `✦  ${isActive ? "Đang sử dụng" : "Đã sở hữu"}`, {
+                fontFamily: "Signika", fontSize: "14px",
+                color: isActive ? "#2a8b2a" : "#8b5e1a",
+            }).setOrigin(0.5, 0.5).setDepth(5));
         }
+        cy += 24;
 
-        if (item.description) {
-            push(this.add.text(leftCX, infoStartY + 36, item.description, {
-                fontFamily: "Signika", fontSize: "12px", color: "#8b6e3a", fontStyle: "italic",
-                align: "center", wordWrap: { width: LEFT_W - 60 }, lineSpacing: 4,
-            }).setOrigin(0.5, 0).setDepth(5));
-        }
+        // Nút pill
+        cy += 20;
+        const btnW = 220, btnH = 48;
+        const btnBY = cy + btnH / 2;
+        this._buildShopPillBtn(push, leftCX, btnBY, btnW, btnH, item, isOwned, isActive, price);
+    }
 
-        // ── Nút hành động ──
-        const btnY = top + PANEL_H - 36;
+    _buildShopPillBtn(push, bx, by, bw, bh, item, isOwned, isActive, price) {
+        const br = bh / 2;
+        let c1, c2, label, cb, disabled = false;
+
         if (isActive) {
-            this._buildActionBtn(push, leftCX, btnY, 200, 44, "✓ Đang Sử Dụng", 0x3a8a3a, 0x1a5a1a, null, true);
+            c1 = 0x3a8a3a; c2 = 0x1a5a1a;
+            label = "✓ Đang Sử Dụng"; disabled = true; cb = null;
         } else if (isOwned) {
-            this._buildActionBtn(push, leftCX, btnY, 200, 44, "🎮 Sử Dụng", 0x2266cc, 0x1a3a8a, async () => {
-                await this._equipItem(item);
-            });
+            c1 = 0x2277dd; c2 = 0x1144aa;
+            label = "🎮 Sử Dụng";
+            cb = async () => { await this._equipItem(item); };
         } else {
             const canAfford = this.playerEcoin >= price;
-            const btnLabel = price === 0 ? "🎁 Nhận Miễn Phí" : `💰 Mua — ${this._formatMoney(price)}`;
-            this._buildActionBtn(push, leftCX, btnY, 220, 44, btnLabel,
-                canAfford ? 0xd4a030 : 0x888888,
-                canAfford ? 0x8a5e10 : 0x555555,
-                async () => {
-                    if (!canAfford && price > 0) { this.showToast("❌ Không đủ Ecoin!"); return; }
-                    await this._buyItem(item);
-                }
-            );
+            c1 = canAfford ? 0xff8800 : 0x888888;
+            c2 = canAfford ? 0xffaa00 : 0x555555;
+            label = price === 0 ? "🎁 Nhận Miễn Phí" : `💰 Mua — ${this._formatMoney(price)}`;
+            cb = async () => {
+                if (!canAfford && price > 0) { this.showToast("❌ Không đủ Ecoin!"); return; }
+                await this._buyItem(item);
+            };
+        }
+
+        const g = push(this.add.graphics().setDepth(6));
+        const draw = (hover = false) => {
+            g.clear();
+            if (disabled) {
+                g.fillStyle(c1, 0.5);
+                g.fillRoundedRect(bx - bw / 2, by - bh / 2, bw, bh, br);
+                g.lineStyle(2, 0xffffff, 0.3);
+                g.strokeRoundedRect(bx - bw / 2, by - bh / 2, bw, bh, br);
+                return;
+            }
+            g.fillStyle(c1, 0.18);
+            g.fillRoundedRect(bx - bw / 2 - 4, by - bh / 2 - 4, bw + 8, bh + 8, br + 3);
+            g.fillStyle(0x000000, 0.28);
+            g.fillRoundedRect(bx - bw / 2 + 3, by - bh / 2 + 5, bw, bh, br);
+            g.fillGradientStyle(c1, c1, c2, c2, 1);
+            g.fillRoundedRect(bx - bw / 2, by - bh / 2, bw, bh, br);
+            g.fillStyle(0xffffff, hover ? 0.40 : 0.22);
+            g.fillRoundedRect(bx - bw / 2 + 8, by - bh / 2 + 5, bw - 16, bh / 3, br - 4);
+            g.lineStyle(2, 0xffffff, hover ? 0.7 : 0.5);
+            g.strokeRoundedRect(bx - bw / 2, by - bh / 2, bw, bh, br);
+        };
+        draw(false);
+
+        const txt = push(this.add.text(bx, by, label, {
+            fontFamily: "Signika", fontSize: "20px", color: "#ffffff",
+            fontStyle: "bold", stroke: "#000000", strokeThickness: 3,
+            shadow: { offsetX: 1, offsetY: 2, color: "#000", blur: 3, fill: true },
+        }).setOrigin(0.5).setDepth(7));
+
+        if (!disabled) {
+            this.tweens.add({ targets: g, alpha: { from: 1, to: 0.85 }, duration: 1000, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+            const zone = push(this.add.zone(bx, by, bw, bh).setInteractive({ cursor: "pointer" }).setDepth(8));
+            zone.on("pointerover",  () => draw(true));
+            zone.on("pointerout",   () => draw(false));
+            zone.on("pointerdown",  () => {
+                this.tweens.add({ targets: g, alpha: 0.65, duration: 60, yoyo: true });
+                cb();
+            });
         }
     }
+
 
     // ═══════════════════════════════════════════════════════════════
     //  TABS
@@ -1097,14 +1148,13 @@ export default class ShopScene extends Phaser.Scene {
             }
         }
 
-        // Selected: highlight viền xanh
+        // Selected: viền trắng + xanh dương pha nhau, mỏng
         const selOverlay = this.add.graphics();
         if (isSelected) {
-            selOverlay.lineStyle(3.5, 0x33aaff, 1);
+            selOverlay.lineStyle(1.5, 0xc49856, 0.9);
             selOverlay.strokeRoundedRect(0, 0, w, h, r);
-            selOverlay.lineStyle(1.5, 0xffffff, 0.5);
-            selOverlay.strokeRoundedRect(3, 3, w - 6, h - 6, r - 2);
-            this.tweens.add({ targets: cardBg, alpha: { from: 1, to: 0.85 }, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+            selOverlay.lineStyle(1, 0xc49856, 0.5);
+            selOverlay.strokeRoundedRect(1.5, 1.5, w - 3, h - 3, r - 1);
         }
 
         const children = [cardBg, nameTxt, selOverlay];
@@ -1115,8 +1165,8 @@ export default class ShopScene extends Phaser.Scene {
 
         container.setInteractive(new Phaser.Geom.Rectangle(0, 0, w, h), Phaser.Geom.Rectangle.Contains);
         container.input.cursor = "pointer";
-        container.on("pointerover", () => { cardBg.setTint(0xffe8cc); this.tweens.add({ targets: container, scaleX: 1.06, scaleY: 1.06, duration: 100, ease: "Back.easeOut" }); });
-        container.on("pointerout",  () => { cardBg.clearTint();       this.tweens.add({ targets: container, scaleX: 1,    scaleY: 1,    duration: 100, ease: "Sine.easeOut" }); });
+        container.on("pointerover", () => { cardBg.setTint(0xffe8cc); });
+        container.on("pointerout",  () => { cardBg.clearTint(); });
         container.on("pointerup",   async () => {
             if (this._dragMoved) return;
             this.selectedItem = item;

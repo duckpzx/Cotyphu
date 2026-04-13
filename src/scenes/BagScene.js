@@ -881,13 +881,11 @@ export default class BagScene extends Phaser.Scene {
             .setDisplaySize(w, h);
         if (isLocked) cardBg.setAlpha(0.55);
 
-        // ── Hiệu ứng selected: viền xanh ────────────────────────
+        // ── Hiệu ứng selected: làm tối card ─────────────────────
         const selGlow = this.add.graphics();
         if (isSelected) {
-            selGlow.lineStyle(3.5, 0x33aaff, 1);
-            selGlow.strokeRoundedRect(0, 0, w, h, 16);
-            selGlow.lineStyle(1.5, 0xffffff, 0.5);
-            selGlow.strokeRoundedRect(3, 3, w - 6, h - 6, 14);
+            // selGlow.fillStyle(0x000000, 0.22);
+            // selGlow.fillRoundedRect(0, 0, w, h, 16);
         }
 
         // ── Tên trên header cam ───────────────────────────────────
@@ -960,11 +958,9 @@ export default class BagScene extends Phaser.Scene {
             container.input.cursor = "pointer";
             container.on("pointerover", () => {
                 cardBg.setTint(0xffe8cc);
-                this.tweens.add({ targets: container, scaleX: 1.06, scaleY: 1.06, duration: 100, ease: "Back.easeOut" });
             });
             container.on("pointerout", () => {
                 cardBg.clearTint();
-                this.tweens.add({ targets: container, scaleX: 1, scaleY: 1, duration: 100, ease: "Sine.easeOut" });
             });
             container.on("pointerup", () => {
                 if (this._dragMoved) return;
