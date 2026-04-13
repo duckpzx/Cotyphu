@@ -304,26 +304,11 @@ export default class TarotScene extends Phaser.Scene {
             this._slots.push(slot);
         });
 
-        // ── Divider ───────────────────────────────────────────────────────────
-        const divY = boxY + boxH + 14;
-        const dg = this.add.graphics().setDepth(5);
-        dg.lineStyle(1.5, 0xc8a060, 0.8);
-        dg.beginPath();
-        dg.moveTo(cx - w / 2 + padX, divY);
-        dg.lineTo(cx + w / 2 - padX, divY);
-        dg.strokePath();
-
-        // Nhãn "Tác dụng"
-        const lblBg = this.add.graphics().setDepth(5);
-        lblBg.fillStyle(0xfff0d0, 1);
-        lblBg.fillRect(cx - 40, divY - 8, 80, 16);
-        this.add.text(cx, divY, "✦  Tác Dụng  ✦", {
-            fontFamily: "Signika", fontSize: "12px",
-            color: "#8b5e1a", fontStyle: "italic",
-        }).setOrigin(0.5).setDepth(6);
-
-        // ── Vùng ý nghĩa ─────────────────────────────────────────────────────
-        this._effectY    = divY + 20;
+        // ── Vùng ý nghĩa — căn giữa dọc trong phần còn lại ─────────────────
+        const effectAreaTop = boxY + boxH + 10;
+        const effectAreaBot = cy + h / 2 - 16;
+        this._effectAreaTop = effectAreaTop;
+        this._effectAreaBot = effectAreaBot;
         this._effectCX   = cx;
         this._effectW    = w - padX * 2;
         this._effectObjs = [];
@@ -374,9 +359,12 @@ buildSlot(cx, cy, w, h, idx) {
 
     const drawActive = () => {
         drawEmpty();
-        // Glow vàng ngoài khi active
-        g.lineStyle(4, 0xffee44, 0.75);
-        g.strokeRoundedRect(cx - w/2 - 3, cy - h/2 - 3, w + 6, h + 6, r + 3);
+        // Tối nhẹ overlay khi đang active/selected
+        g.fillStyle(0x000000, 0.22);
+        g.fillRoundedRect(cx - w/2, cy - h/2, w, h, r);
+        // Viền cyan sáng hơn
+        g.lineStyle(3, 0x00eeff, 1);
+        g.strokeRoundedRect(cx - w/2, cy - h/2, w, h, r);
     };
 
     const drawHasCard = () => {
@@ -385,8 +373,8 @@ buildSlot(cx, cy, w, h, idx) {
         g.fillRoundedRect(cx - w/2 + 3, cy - h/2 + 4, w, h, r);
         g.fillGradientStyle(0x1a7ab8, 0x1a7ab8, 0x0a3a6a, 0x0a3a6a, 1);
         g.fillRoundedRect(cx - w/2, cy - h/2, w, h, r);
-        // Viền xanh lá khi có thẻ
-        g.lineStyle(3, 0x44ffcc, 1);
+        // Viền cyan
+        g.lineStyle(2.5, 0x44ccff, 1);
         g.strokeRoundedRect(cx - w/2, cy - h/2, w, h, r);
     };
 
@@ -485,22 +473,16 @@ buildSlot(cx, cy, w, h, idx) {
         this._effectObjs.forEach(o => o.destroy());
         this._effectObjs = [];
 
-        const cx = this._effectCX;
-        const w  = this._effectW;
-        let   yy = this._effectY;
+        const cx  = this._effectCX;
+        const w   = this._effectW;
+        const areaTop = this._effectAreaTop || 0;
+        const areaBot = this._effectAreaBot || areaTop + 200;
+        const areaH   = areaBot - areaTop;
 
         const selected = this.selectedSlots.filter(Boolean);
 
         if (selected.length === 0) {
-            // Placeholder đẹp hơn
-            const ph = this.add.graphics().setDepth(5);
-            ph.fillStyle(0x000000, 0.06);
-            ph.fillRoundedRect(cx - w / 2, yy + 10, w, 80, 10);
-            ph.lineStyle(1.5, 0xc8a060, 0.3);
-            ph.strokeRoundedRect(cx - w / 2, yy + 10, w, 80, 10);
-            this._effectObjs.push(ph);
-
-            const t = this.add.text(cx, yy + 50, "← Chọn thẻ bài để xem tác dụng", {
+            const t = this.add.text(cx, areaTop + areaH / 2, "← Chọn thẻ bài để xem tác dụng", {
                 fontFamily: "Signika", fontSize: "13px",
                 color: "#b08850", fontStyle: "italic",
             }).setOrigin(0.5).setDepth(6);
@@ -508,73 +490,54 @@ buildSlot(cx, cy, w, h, idx) {
             return;
         }
 
+        // Tính tổng chiều cao để căn giữa dọc
+        const BOX_H = 82, BOX_GAP = 10;
+        const totalH = selected.length * BOX_H + (selected.length - 1) * BOX_GAP;
+        let yy = areaTop + (areaH - totalH) / 2;
+
         selected.forEach((key) => {
             const data = this.cardData[key];
             if (!data) return;
 
-            const boxH = 88;
             const boxX = cx - w / 2;
             const box  = this.add.graphics().setDepth(5);
 
-            // Nền hộp
             box.fillStyle(0xffffff, 0.55);
-            box.fillRoundedRect(boxX, yy, w, boxH, 10);
-
-            // Dải màu trái
+            box.fillRoundedRect(boxX, yy, w, BOX_H, 10);
             box.fillStyle(data.color, 1);
-            box.fillRoundedRect(boxX, yy + 5, 3, boxH - 14, 3);
-
-            // Viền màu nhạt
+            box.fillRoundedRect(boxX, yy + 5, 3, BOX_H - 14, 3);
             box.lineStyle(1.5, data.color, 0.5);
-            box.strokeRoundedRect(boxX, yy, w, boxH, 10);
-
-            // Highlight trên
+            box.strokeRoundedRect(boxX, yy, w, BOX_H, 10);
             box.fillStyle(0xffffff, 0.4);
             box.fillRoundedRect(boxX + 6, yy + 4, w - 12, 14, 6);
-
             this._effectObjs.push(box);
 
-            // Icon màu nhỏ bên trái
             const dot = this.add.graphics().setDepth(6);
             dot.fillStyle(data.color, 1);
-            dot.fillCircle(boxX + 18, yy + 18, 5);
+            dot.fillCircle(boxX + 18, yy + 17, 5);
             this._effectObjs.push(dot);
 
-            // Tên thẻ
-            const nameT = this.add.text(boxX + 28, yy + 10, data.name, {
-                fontFamily: "Signika", fontSize: "14px",
-                color: "#3a1a00", fontStyle: "bold",
-            }).setOrigin(0, 0).setDepth(6);
-            this._effectObjs.push(nameT);
+            this._effectObjs.push(this.add.text(boxX + 28, yy + 9, data.name, {
+                fontFamily: "Signika", fontSize: "14px", color: "#3a1a00", fontStyle: "bold",
+            }).setOrigin(0, 0).setDepth(6));
 
-            // Cooldown badge
             if (data.cooldown_seconds) {
-                const cdT = this.add.text(cx + w / 2 - 8, yy + 10, `⏱ ${data.cooldown_seconds}s`, {
-                    fontFamily: "Signika", fontSize: "11px",
-                    color: "#8b5e1a", fontStyle: "italic",
-                }).setOrigin(1, 0).setDepth(6);
-                this._effectObjs.push(cdT);
+                this._effectObjs.push(this.add.text(cx + w / 2 - 8, yy + 9, `⏱ ${data.cooldown_seconds}s`, {
+                    fontFamily: "Signika", fontSize: "11px", color: "#8b5e1a", fontStyle: "italic",
+                }).setOrigin(1, 0).setDepth(6));
             }
 
-            // Divider nhỏ
             const dg = this.add.graphics().setDepth(6);
             dg.lineStyle(1, data.color, 0.3);
-            dg.beginPath();
-            dg.moveTo(boxX + 10, yy + 30);
-            dg.lineTo(boxX + w - 10, yy + 30);
-            dg.strokePath();
+            dg.beginPath(); dg.moveTo(boxX + 10, yy + 28); dg.lineTo(boxX + w - 10, yy + 28); dg.strokePath();
             this._effectObjs.push(dg);
 
-            // Mô tả
-            const effT = this.add.text(boxX + 12, yy + 36, data.effect, {
-                fontFamily: "Signika", fontSize: "12px",
-                color: "#5a3010",
-                lineSpacing: 3,
-                wordWrap: { width: w - 22 },
-            }).setOrigin(0, 0).setDepth(6);
-            this._effectObjs.push(effT);
+            this._effectObjs.push(this.add.text(boxX + 12, yy + 33, data.effect, {
+                fontFamily: "Signika", fontSize: "12px", color: "#5a3010",
+                lineSpacing: 3, wordWrap: { width: w - 22 },
+            }).setOrigin(0, 0).setDepth(6));
 
-            yy += boxH + 10;
+            yy += BOX_H + BOX_GAP;
         });
     }
 
@@ -648,15 +611,20 @@ buildSlot(cx, cy, w, h, idx) {
                 return;
             }
 
-            // Flash confirm
+            // Flash trắng xanh nhẹ + zoom in mượt
             const flash = this.add.graphics().setDepth(50);
-            flash.fillStyle(0xffff88, 0.45);
+            flash.fillStyle(0xeeffff, 0.28);
             flash.fillRoundedRect(0, 0, cardW, cardH, radius);
             container.add(flash);
+            container.setScale(0.94);
             this.tweens.add({
-                targets: container, scaleX: 1.1, scaleY: 1.1,
-                duration: 90, ease: "Back.easeOut", yoyo: true,
-                onComplete: () => { flash.destroy(); }
+                targets: container, scaleX: 1, scaleY: 1,
+                duration: 220, ease: "Back.easeOut"
+            });
+            this.tweens.add({
+                targets: flash, alpha: 0,
+                duration: 350, ease: "Sine.easeOut",
+                onComplete: () => flash.destroy()
             });
 
             // Hiệu ứng tia sáng bay đến slot
@@ -689,41 +657,40 @@ buildSlot(cx, cy, w, h, idx) {
     _playEquipEffect(fromX, fromY, slot) {
         const toX = slot.cx;
         const toY = slot.cy;
+        const sw  = slot.w;
+        const sh  = slot.h;
 
-        // Tia sáng chạy từ thẻ đến slot
-        const star = this.add.text(fromX, fromY, "✨", {
-            fontSize: "20px"
-        }).setOrigin(0.5).setDepth(50);
-
+        // Chấm sáng bay từ card đến slot
+        const dot = this.add.graphics().setDepth(50);
+        dot.fillStyle(0xeeffff, 0.9);
+        dot.fillCircle(0, 0, 6);
+        dot.x = fromX; dot.y = fromY;
         this.tweens.add({
-            targets: star,
-            x: toX, y: toY,
-            scaleX: 0.3, scaleY: 0.3,
-            alpha: 0,
-            duration: 350,
-            ease: "Quad.easeIn",
+            targets: dot, x: toX, y: toY,
+            scaleX: 0.2, scaleY: 0.2, alpha: 0,
+            duration: 280, ease: "Quad.easeIn",
             onComplete: () => {
-                star.destroy();
-                // Flash vàng ở slot khi nhận thẻ
-                const flash = this.add.graphics().setDepth(50);
-                flash.fillStyle(0xffee44, 0.7);
-                flash.fillRoundedRect(toX - slot.w / 2 - 4, toY - slot.h / 2 - 4, slot.w + 8, slot.h + 8, 14);
-                this.tweens.add({
-                    targets: flash, alpha: 0, scaleX: 1.2, scaleY: 1.2,
-                    duration: 300, ease: "Quad.easeOut",
-                    onComplete: () => flash.destroy()
-                });
-                // Particles nhỏ tỏa ra
-                for (let i = 0; i < 6; i++) {
-                    const angle = (i / 6) * Math.PI * 2;
-                    const p = this.add.text(toX, toY, "⭐", { fontSize: "12px" }).setOrigin(0.5).setDepth(51);
+                dot.destroy();
+
+                // Ripple xanh trắng zoom in tại slot
+                for (let i = 0; i < 3; i++) {
+                    const rg = this.add.graphics().setDepth(50);
+                    const delay = i * 80;
+                    const startScale = 0.6 + i * 0.1;
+                    rg.fillStyle(0xeeffff, 0.22 - i * 0.06);
+                    rg.fillRoundedRect(-sw / 2, -sh / 2, sw, sh, 14);
+                    rg.lineStyle(1.5, 0x88eeff, 0.5 - i * 0.12);
+                    rg.strokeRoundedRect(-sw / 2, -sh / 2, sw, sh, 14);
+                    rg.x = toX; rg.y = toY;
+                    rg.setScale(startScale);
                     this.tweens.add({
-                        targets: p,
-                        x: toX + Math.cos(angle) * 50,
-                        y: toY + Math.sin(angle) * 50,
-                        alpha: 0, scaleX: 0, scaleY: 0,
-                        duration: 400, ease: "Quad.easeOut",
-                        onComplete: () => p.destroy()
+                        targets: rg,
+                        scaleX: 1.15, scaleY: 1.15,
+                        alpha: 0,
+                        duration: 380,
+                        delay,
+                        ease: "Sine.easeOut",
+                        onComplete: () => rg.destroy()
                     });
                 }
             }
