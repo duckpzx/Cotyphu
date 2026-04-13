@@ -51,6 +51,7 @@ export default class ShopScene extends Phaser.Scene {
         this.load.image("card_item1", "assets/ui/shared/item_card2.png");
         this.load.image("use_badge",  "assets/ui/shared/use.png");
         this.load.image("own_badge",  "assets/ui/shared/own.png");
+        this.load.image("default_bg", "assets/ui/bg/0-ngocphumedia_0.png");
     }
 
     async create() {
@@ -385,9 +386,9 @@ export default class ShopScene extends Phaser.Scene {
         this._headerObjs = [];
         const push = o => { this._headerObjs.push(o); return o; };
 
-        const badgeH = 46;
+        const badgeH = 42;
         const iconSize = 30;
-        const PAD_L = 10, PAD_R = 10;
+        const PAD_L = 8, PAD_R = 8;
         const by = 36;
 
         const calcW = (str) => PAD_L + iconSize + 6 + str.length * 10 + PAD_R;
@@ -606,9 +607,19 @@ export default class ShopScene extends Phaser.Scene {
         prevG.lineStyle(1.5, 0xebfcff, 0.55);
         prevG.strokeRoundedRect(bx + 2, by + 2, bw - 4, bh - 4, br - 1);
 
-        // Nền xanh dương đậm + gloss góc trên phải
-        prevG.fillGradientStyle(0x29b6f6, 0x29b6f6, 0x0d7fc0, 0x0d7fc0, 1);
-        prevG.fillRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, r);
+        // Nền mặc định từ ảnh
+        if (this.textures.exists("default_bg")) {
+            const defBg = push(this.add.image(leftCX, PREVIEW_Y + PREVIEW_H / 2, "default_bg").setDepth(4));
+            const wRatio = PREVIEW_W / defBg.width;
+            const hRatio = PREVIEW_H / defBg.height;
+            defBg.setScale(Math.max(wRatio, hRatio));
+            const maskDef = push(this.make.graphics());
+            maskDef.fillRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, r);
+            defBg.setMask(maskDef.createGeometryMask());
+        } else {
+            prevG.fillGradientStyle(0x1a9fd4, 0x1a9fd4, 0x0a5e96, 0x0a5e96, 1);
+            prevG.fillRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, r);
+        }
 
         // Gloss tam giác góc trên phải
         prevG.fillStyle(0xffffff, 0.28);
@@ -835,7 +846,7 @@ export default class ShopScene extends Phaser.Scene {
 
         if (!disabled) {
             this.tweens.add({ targets: g, alpha: { from: 1, to: 0.85 }, duration: 1000, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
-            const zone = push(this.add.zone(bx, by, bw, bh).setInteractive({ cursor: "pointer" }).setDepth(8));
+            const zone = push(this.add.zone(bx, by, bw, bh).setInteractive({ cursor: "pointer" }).setDepth(50));
             zone.on("pointerover",  () => draw(true));
             zone.on("pointerout",   () => draw(false));
             zone.on("pointerdown",  () => {
@@ -1433,9 +1444,11 @@ export default class ShopScene extends Phaser.Scene {
         const panelRight = rightCX + RIGHT_W / 2;
 
         this._onPDown = (p) => {
+            // Reset wasDragged khi bắt đầu bất kỳ click mới nào
+            this._wasDragged = false;
             if (p.x > panelLeft && p.x < panelRight) {
                 this._isDragging = true; this._dragX = p.x;
-                this._dragMoved = false; this._wasDragged = false; this._velocityX = 0;
+                this._dragMoved = false; this._velocityX = 0;
             }
         };
         this._onPMove = (p) => {
@@ -1450,10 +1463,9 @@ export default class ShopScene extends Phaser.Scene {
         };
         this._onPUp  = () => { 
             this._isDragging = false;
-            // Reset sau 1 frame để card pointerup chạy trước
             this.time.delayedCall(50, () => { this._wasDragged = false; });
         };
-        this._onPOut = () => { this._isDragging = false; this._wasDragged = false; };
+        this._onPOut = () => { this._isDragging = false; };
 
         this.input.on("pointerdown", this._onPDown, this);
         this.input.on("pointermove", this._onPMove, this);

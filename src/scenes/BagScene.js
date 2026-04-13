@@ -44,6 +44,7 @@ export default class BagScene extends Phaser.Scene {
         this.load.image("card_item1","assets/ui/shared/item_card2.png");
         this.load.image("use_badge",  "assets/ui/shared/use.png");
         this.load.image("own_badge",  "assets/ui/shared/own.png");
+        this.load.image("default_bg", "assets/ui/bg/0-ngocphumedia_0.png");
     }
 
     async create() {
@@ -343,9 +344,17 @@ export default class BagScene extends Phaser.Scene {
         prevG.lineStyle(1.5, 0xebfcff, 0.55);
         prevG.strokeRoundedRect(bx + 2, by + 2, bw - 4, bh - 4, br - 1);
 
-        // Nền xanh dương đậm + gloss góc trên phải
-        prevG.fillGradientStyle(0x29b6f6, 0x29b6f6, 0x0d7fc0, 0x0d7fc0, 1);
-        prevG.fillRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, r);
+        // Nền mặc định từ ảnh
+        if (this.textures.exists("default_bg")) {
+            const defBg = push(this.add.image(leftCX, PREVIEW_Y + PREVIEW_H / 2, "default_bg").setDepth(4));
+            defBg.setScale(Math.max(PREVIEW_W / defBg.width, PREVIEW_H / defBg.height));
+            const maskDef = push(this.make.graphics());
+            maskDef.fillRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, r);
+            defBg.setMask(maskDef.createGeometryMask());
+        } else {
+            prevG.fillGradientStyle(0x1a9fd4, 0x1a9fd4, 0x0a5e96, 0x0a5e96, 1);
+            prevG.fillRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, r);
+        }
 
         // Gloss tam giác góc trên phải
         prevG.fillStyle(0xffffff, 0.28);
