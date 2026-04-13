@@ -42,7 +42,8 @@ export default class BagScene extends Phaser.Scene {
         this.load.image("bag-bg",    "assets/ui/nen_chung.png");
         this.load.image("out",       "assets/ui/shared/return.png");
         this.load.image("card_item1","assets/ui/shared/item_card2.png");
-        this.load.image("use_badge", "assets/ui/shared/use.png");
+        this.load.image("use_badge",  "assets/ui/shared/use.png");
+        this.load.image("own_badge",  "assets/ui/shared/own.png");
     }
 
     async create() {
@@ -390,19 +391,108 @@ export default class BagScene extends Phaser.Scene {
                     (PREVIEW_W - 20) / src.width,
                     (PREVIEW_H - 20) / src.height
                 ) * 0.92;
-                const charCY = PREVIEW_Y + PREVIEW_H / 2 + 10;
+                const charCY = PREVIEW_Y + PREVIEW_H / 2 + 26;
 
-                const aura = push(this.add.sprite(leftCX, charCY, frame0));
-                aura.setScale(charScale * 1.15).setTint(0xffeeaa).setAlpha(0.55)
-                    .setBlendMode(Phaser.BlendModes.ADD).setDepth(6);
+                // ── AURA EFFECT ──────────────────────────────────────────
+                const groundY = PREVIEW_Y + PREVIEW_H - 18;
 
+                // ring radius dùng cho particles
+                const ringRX = PREVIEW_W * 0.38, ringRY = PREVIEW_W * 0.09;
+
+
+
+                // 4. Nhân vật chính
                 const charSprite = push(this.add.sprite(leftCX, charCY, frame0));
                 charSprite.setScale(charScale).setDepth(7);
 
-                if (this.anims.exists(animKey)) { charSprite.play(animKey); aura.play(animKey); }
+                if (this.anims.exists(animKey)) {
+                    charSprite.play(animKey);
+                }
 
-                this.tweens.add({ targets: [charSprite, aura], y: charCY - 6, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
-                this.tweens.add({ targets: aura, scaleX: charScale * 1.25, scaleY: charScale * 1.25, alpha: { from: 0.55, to: 0.08 }, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+                // Float animation
+                this.tweens.add({ targets: charSprite, y: charCY - 6, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+
+                // 5. Ngôi sao lấp lánh ngẫu nhiên xung quanh nhân vật
+                const STAR_COUNT = 12;
+                const spreadX = (src.width  * charScale) * 0.85;
+                const spreadY = (src.height * charScale) * 0.75;
+                const starPalette = [0xffffff, 0xddbbff, 0xffddff, 0xaaddff, 0xffeeaa];
+
+                for (let i = 0; i < STAR_COUNT; i++) {
+                    const sg = push(this.add.graphics().setBlendMode(Phaser.BlendModes.ADD).setDepth(8));
+                    const col = starPalette[i % starPalette.length];
+                    const sz  = Phaser.Math.Between(2, 5);
+
+                    // vị trí ngẫu nhiên quanh nhân vật (hình ellipse)
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist  = 0.5 + Math.random() * 0.5; // 50%–100% bán kính
+                    const baseX = leftCX + Math.cos(angle) * spreadX * dist;
+                    const baseY = charCY  + Math.sin(angle) * spreadY * dist;
+                    sg.x = baseX; sg.y = baseY;
+
+                    const drawStar = (size, alpha) => {
+                        sg.clear();
+                        sg.fillStyle(col, alpha);
+                        sg.fillCircle(0, 0, size * 0.55);
+                        sg.fillTriangle(0, -size * 1.7,  -size * 0.3, 0,  size * 0.3, 0);
+                        sg.fillTriangle(0,  size * 1.7,  -size * 0.3, 0,  size * 0.3, 0);
+                        sg.fillTriangle(-size * 1.7, 0,  0, -size * 0.3,  0, size * 0.3);
+                        sg.fillTriangle( size * 1.7, 0,  0, -size * 0.3,  0, size * 0.3);
+                    };
+                    drawStar(sz, 0.05);
+
+                    // lấp lánh: alpha dao động ngẫu nhiên, delay lệch nhau
+                    const twinkleDur  = Phaser.Math.Between(600, 1800);
+                    const twinkleDelay = Phaser.Math.Between(0, 2000);
+                    const peakAlpha   = 0.5 + Math.random() * 0.5;
+
+                    const alphaState = { v: 0.05 };
+                    this.tweens.add({
+                        targets: alphaState,
+                        v: peakAlpha,
+                        duration: twinkleDur,
+                        delay: twinkleDelay,
+                        yoyo: true,
+                        repeat: -1,
+                        ease: "Sine.easeInOut",
+                        onUpdate: () => drawStar(sz, alphaState.v)
+                    });
+
+                    // drift nhẹ lên xuống / trái phải
+                    this.tweens.add({
+                        targets: sg,
+                        x: baseX + Phaser.Math.Between(-8, 8),
+                        y: baseY + Phaser.Math.Between(-10, 10),
+                        duration: Phaser.Math.Between(1200, 2400),
+                        delay: twinkleDelay,
+                        yoyo: true, repeat: -1,
+                        ease: "Sine.easeInOut"
+                    });
+
+                    // scale pulse nhẹ
+                    this.tweens.add({
+                        targets: sg,
+                        scaleX: { from: 0.8, to: 1.4 },
+                        scaleY: { from: 0.8, to: 1.4 },
+                        duration: twinkleDur * 1.1,
+                        delay: twinkleDelay,
+                        yoyo: true, repeat: -1,
+                        ease: "Sine.easeInOut"
+                    });
+                }
+
+                // 7. Tia sáng dọc (energy beam) từ dưới lên
+                const beamG = push(this.add.graphics().setDepth(5).setBlendMode(Phaser.BlendModes.ADD));
+                const drawBeam = (alpha) => {
+                    beamG.clear();
+                    beamG.fillStyle(0xcc44ff, alpha);
+                    beamG.fillRect(leftCX - 3, groundY - 90, 6, 90);
+                    beamG.fillStyle(0xffffff, alpha * 0.5);
+                    beamG.fillRect(leftCX - 1, groundY - 90, 2, 90);
+                };
+                drawBeam(0.18);
+                this.tweens.add({ targets: { v: 0.18 }, v: 0.04, duration: 800, yoyo: true, repeat: -1, ease: "Sine.easeInOut",
+                    onUpdate: (tw) => drawBeam(tw.targets[0].v) });
             }
         }
 
@@ -430,11 +520,6 @@ export default class BagScene extends Phaser.Scene {
             dg.lineStyle(1.5, 0xc8a060, 0.6);
             dg.lineBetween(leftCX - LEFT_W / 2 + 20, blockTop + 38, leftCX + LEFT_W / 2 - 20, blockTop + 38);
 
-            push(this.add.text(leftCX, blockTop + 40,
-                `✦  Trạng thái: ${isCurrentActive ? "Đang sử dụng" : "Chưa trang bị"}`, {
-                fontFamily: "Signika", fontSize: "13px",
-                color: isCurrentActive ? "#2a8b2a" : "#8b5e1a", fontStyle: "italic",
-            }).setOrigin(0.5, 0).setDepth(5));
         } else {
             const displayName = currentChar?.name || "Chưa chọn";
             const desc = currentChar?.description || currentChar?.desc || null;
@@ -466,12 +551,12 @@ export default class BagScene extends Phaser.Scene {
             const skinLabelMap  = { 1: "Sơ cấp", 2: "Trung cấp", 3: "Cao cấp" };
 
             push(this.add.text(leftCX, cy, "✦  Trang phục đang mặc:", {
-                fontFamily: "Signika", fontSize: "13px", color: "#8b5e1a", fontStyle: "italic",
+                fontFamily: "Signika", fontSize: "13px", color: "#8b5e1a",
             }).setOrigin(0.5, 0).setDepth(5));
             cy += 18;
 
             push(this.add.text(leftCX, cy, skinLabelMap[activeSkinNum] || `Skin ${activeSkinNum}`, {
-                fontFamily: "Signika", fontSize: "15px", color: "#4a2000", fontStyle: "bold",
+                fontFamily: "Signika", fontSize: "17px", color: "#4a2000", fontStyle: "bold",
             }).setOrigin(0.5, 0).setDepth(5));
             cy += 22;
 
@@ -483,7 +568,7 @@ export default class BagScene extends Phaser.Scene {
 
                 push(this.add.text(leftCX, cy, desc, {
                     fontFamily: "Signika", fontSize: "12px", color: "#6b4a1a",
-                    fontStyle: "italic", align: "center",
+                    align: "center",
                     wordWrap: { width: LEFT_W - 52 },
                 }).setOrigin(0.5, 0).setDepth(5));
                 cy += 40;
@@ -505,12 +590,12 @@ export default class BagScene extends Phaser.Scene {
                                     this.playerData.user.active_character_id = this.selectedCharId;
                                     setPlayerData(this, this.playerData);
                                 }
-                                this.showToast("✅ Đã trang bị nhân vật!");
+                                this.showToast("Đã trang bị nhân vật!");
                                 this.buildLeftPanel();
                                 this.renderRightPanel();
                             } catch (e) {
                                 console.warn("Save character failed", e);
-                                this.showToast("❌ Lỗi khi trang bị!");
+                                this.showToast("Lỗi khi trang bị!");
                             }
                         }
                     }
@@ -796,11 +881,13 @@ export default class BagScene extends Phaser.Scene {
             .setDisplaySize(w, h);
         if (isLocked) cardBg.setAlpha(0.55);
 
-        // ── Hiệu ứng selected: làm tối card ─────────────────────
+        // ── Hiệu ứng selected: viền xanh ────────────────────────
         const selGlow = this.add.graphics();
         if (isSelected) {
-            // selGlow.fillStyle(0x000000, 0.22);
-            // selGlow.fillRoundedRect(0, 0, w, h, 16);
+            selGlow.lineStyle(3.5, 0x33aaff, 1);
+            selGlow.strokeRoundedRect(0, 0, w, h, 16);
+            selGlow.lineStyle(1.5, 0xffffff, 0.5);
+            selGlow.strokeRoundedRect(3, 3, w - 6, h - 6, 14);
         }
 
         // ── Tên trên header cam ───────────────────────────────────
@@ -873,9 +960,11 @@ export default class BagScene extends Phaser.Scene {
             container.input.cursor = "pointer";
             container.on("pointerover", () => {
                 cardBg.setTint(0xffe8cc);
+                this.tweens.add({ targets: container, scaleX: 1.06, scaleY: 1.06, duration: 100, ease: "Back.easeOut" });
             });
             container.on("pointerout", () => {
                 cardBg.clearTint();
+                this.tweens.add({ targets: container, scaleX: 1, scaleY: 1, duration: 100, ease: "Sine.easeOut" });
             });
             container.on("pointerup", () => {
                 if (this._dragMoved) return;
