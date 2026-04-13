@@ -343,16 +343,20 @@ export default class BagScene extends Phaser.Scene {
         prevG.lineStyle(1.5, 0xebfcff, 0.55);
         prevG.strokeRoundedRect(bx + 2, by + 2, bw - 4, bh - 4, br - 1);
 
-        // Nền xanh gradient bên trong
-        prevG.fillGradientStyle(0xebfcff, 0xebfcff, 0x1a8fc0, 0x1a8fc0, 1);
+        // Nền xanh dương đậm + gloss góc trên phải
+        prevG.fillGradientStyle(0x29b6f6, 0x29b6f6, 0x0d7fc0, 0x0d7fc0, 1);
         prevG.fillRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, r);
 
-        // Gloss trên
-        prevG.fillStyle(0xffffff, 0.22);
-        prevG.fillRoundedRect(PREVIEW_X + 8, PREVIEW_Y + 6, PREVIEW_W - 16, PREVIEW_H * 0.22, r - 2);
+        // Gloss tam giác góc trên phải
+        prevG.fillStyle(0xffffff, 0.28);
+        prevG.fillTriangle(
+            PREVIEW_X + PREVIEW_W * 0.45, PREVIEW_Y,
+            PREVIEW_X + PREVIEW_W,        PREVIEW_Y,
+            PREVIEW_X + PREVIEW_W,        PREVIEW_Y + PREVIEW_H * 0.55
+        );
 
         // Viền trong trắng mỏng
-        prevG.lineStyle(1.5, 0xffffff, 0.7);
+        prevG.lineStyle(1.5, 0xffffff, 0.55);
         prevG.strokeRoundedRect(PREVIEW_X + 2, PREVIEW_Y + 2, PREVIEW_W - 4, PREVIEW_H - 4, r - 2);
 
         // ── Luôn hiển thị phông nền đang dùng (hoặc đang chọn) ──────

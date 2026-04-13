@@ -370,7 +370,7 @@ export default class ShopScene extends Phaser.Scene {
     }
 
     _formatMoney(v) {
-        return Number(v || 0).toLocaleString("vi-VN");
+        return Number(v || 0).toLocaleString("vi-VN").replace(/\./g, ",");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -603,9 +603,20 @@ export default class ShopScene extends Phaser.Scene {
         prevG.lineStyle(1.5, 0xebfcff, 0.55);
         prevG.strokeRoundedRect(bx + 2, by + 2, bw - 4, bh - 4, br - 1);
 
-        // Nền trong suốt (transparent) — không fill
+        // Nền xanh dương đậm + gloss góc trên phải
+        prevG.fillGradientStyle(0x29b6f6, 0x29b6f6, 0x0d7fc0, 0x0d7fc0, 1);
+        prevG.fillRoundedRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, r);
+
+        // Gloss tam giác góc trên phải
+        prevG.fillStyle(0xffffff, 0.28);
+        prevG.fillTriangle(
+            PREVIEW_X + PREVIEW_W * 0.45, PREVIEW_Y,
+            PREVIEW_X + PREVIEW_W,        PREVIEW_Y,
+            PREVIEW_X + PREVIEW_W,        PREVIEW_Y + PREVIEW_H * 0.55
+        );
+
         // Viền trong trắng mỏng
-        prevG.lineStyle(1.5, 0xffffff, 0.7);
+        prevG.lineStyle(1.5, 0xffffff, 0.55);
         prevG.strokeRoundedRect(PREVIEW_X + 2, PREVIEW_Y + 2, PREVIEW_W - 4, PREVIEW_H - 4, r - 2);
 
         const item = this.selectedItem;
@@ -737,14 +748,19 @@ export default class ShopScene extends Phaser.Scene {
 
         // Trạng thái / giá
         if (!isOwned && price > 0) {
-            const coinX = leftCX - 44;
-            push(this.add.image(coinX, cy + 12, "coin").setDisplaySize(22, 22).setDepth(5));
-            push(this.add.text(coinX + 16, cy + 12, this._formatMoney(price), {
-                fontFamily: "Signika", fontSize: "17px", color: "#ffe066", fontStyle: "bold",
-                stroke: "#3a1a00", strokeThickness: 2,
+            const priceStr = this._formatMoney(price);
+            const iconSize = 32, gap = 8, fontSize = 21;
+            // ước tính width chữ (~12px/char ở 21px)
+            const textW = priceStr.length * 12.5;
+            const totalW = iconSize + gap + textW;
+            const startX = leftCX - totalW / 2;
+            push(this.add.image(startX + iconSize / 2, cy + 12, "coin").setDisplaySize(iconSize, iconSize).setDepth(5));
+            push(this.add.text(startX + iconSize + gap, cy + 12, priceStr, {
+                fontFamily: "Signika", fontSize: fontSize + "px", color: "#f5c842", fontStyle: "bold",
+                stroke: "#5a3000", strokeThickness: 2,
             }).setOrigin(0, 0.5).setDepth(5));
         } else if (!isOwned && price === 0) {
-            push(this.add.text(leftCX, cy + 12, "✨ Miễn phí", {
+            push(this.add.text(leftCX, cy + 12, "Miễn phí", {
                 fontFamily: "Signika", fontSize: "17px", color: "#44bb44", fontStyle: "bold",
             }).setOrigin(0.5, 0.5).setDepth(5));
         } else {
@@ -768,19 +784,19 @@ export default class ShopScene extends Phaser.Scene {
         let c1, c2, label, cb, disabled = false;
 
         if (isActive) {
-            c1 = 0x3a8a3a; c2 = 0x1a5a1a;
-            label = "✓ Đang Sử Dụng"; disabled = true; cb = null;
+            c1 = 0x3a8a3a11; c2 = 0x1a5a1a11;
+            label = "Đang Sử Dụng"; disabled = true; cb = null;
         } else if (isOwned) {
             c1 = 0x2277dd; c2 = 0x1144aa;
-            label = "🎮 Sử Dụng";
+            label = "Sử Dụng";
             cb = async () => { await this._equipItem(item); };
         } else {
             const canAfford = this.playerEcoin >= price;
             c1 = canAfford ? 0xff8800 : 0x888888;
             c2 = canAfford ? 0xffaa00 : 0x555555;
-            label = price === 0 ? "🎁 Nhận Miễn Phí" : `💰 Mua — ${this._formatMoney(price)}`;
+            label = price === 0 ? "Nhận Miễn Phí" : `Mua Ngay`;
             cb = async () => {
-                if (!canAfford && price > 0) { this.showToast("❌ Không đủ Ecoin!"); return; }
+                if (!canAfford && price > 0) { this.showToast("Không đủ Ecoin!"); return; }
                 await this._buyItem(item);
             };
         }
@@ -1133,18 +1149,36 @@ export default class ShopScene extends Phaser.Scene {
         const price = item.price || 0;
         if (!item.isOwned) {
             if (price === 0) {
-                priceObj = this.add.text(w / 2, h - 14, "Miễn phí", {
-                    fontFamily: "Signika", fontSize: "11px", color: "#44aa44", fontStyle: "bold",
+                // nền mờ bám góc trái dưới
+                const label = "Miễn phí";
+                const tagH = 22, tagPadR = 10, iconSz = 0;
+                const tagW = 70;
+                const tagG = this.add.graphics();
+                tagG.fillStyle(0x000000, 0.42);
+                tagG.fillRoundedRect(0, h - tagH, tagW, tagH, { tl: 0, tr: tagH / 2, bl: 0, br: tagH / 2 });
+                const tagTxt = this.add.text(tagW / 2, h - tagH / 2, label, {
+                    fontFamily: "Signika", fontSize: "11px", color: "#44ee44", fontStyle: "bold",
                 }).setOrigin(0.5);
+                priceObj = this.add.container(0, 0, [tagG, tagTxt]);
             } else {
-                const priceC = this.add.container(0, 0);
-                const ci = this.add.image(w / 2 - 28, h - 14, "coin").setDisplaySize(18, 18);
-                const pt = this.add.text(w / 2 - 14, h - 14, this._formatMoney(price), {
-                    fontFamily: "Signika", fontSize: "12px", color: "#d4a030", fontStyle: "bold",
-                    stroke: "#ffffff", strokeThickness: 1,
+                const priceStr = this._formatMoney(price);
+                const iconSz = 22, gap = 5, fontSize = 14;
+                const textW = priceStr.length * 8.5;
+                const tagW = iconSz + gap + textW + 14;
+                const tagH = 28;
+                const tagY = h - tagH - 16;
+
+                const tagG = this.add.graphics();
+                tagG.fillStyle(0xc59653, 0.92);
+                tagG.fillRoundedRect(0, tagY, tagW, tagH, { tl: 0, tr: tagH / 2, bl: 0, br: tagH / 2 });
+
+                const ci = this.add.image(iconSz / 2 + 4, tagY + tagH / 2, "coin").setDisplaySize(iconSz, iconSz);
+                const pt = this.add.text(iconSz + gap + 4, tagY + tagH / 2, priceStr, {
+                    fontFamily: "Signika", fontSize: fontSize + "px", color: "#f5c842", fontStyle: "bold",
+                    stroke: "#3a1a00", strokeThickness: 1.5,
                 }).setOrigin(0, 0.5);
-                priceC.add([ci, pt]);
-                priceObj = priceC;
+
+                priceObj = this.add.container(4, 0, [tagG, ci, pt]);
             }
         }
 
