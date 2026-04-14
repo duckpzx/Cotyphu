@@ -174,15 +174,33 @@ export default class RoomScene extends Phaser.Scene {
 
     this.socket.on("room:error", (data) => {
       console.error("❌ room:error from server:", data.message);
-      // Nếu chưa join được (chưa có players) → quay về danh sách phòng
-      if (!this._hasJoined) {
-        this._showAlert(data.message || "Có lỗi xảy ra", () => {
-          this.socket.disconnect();
-          this.scene.start("RoomListScene");
-        });
-      } else {
-        this._showAlert(data.message || "Có lỗi xảy ra");
-      }
+      const msg = data.message || "Có lỗi xảy ra";
+      const { width, height } = this.scale;
+      const toast = this.add.text(width / 2, height - 80, msg, {
+        fontFamily: "Signika", fontSize: "17px",
+        color: "#ff4444", fontStyle: "bold",
+        stroke: "#000000", strokeThickness: 3,
+        backgroundColor: "#00000099",
+        padding: { x: 16, y: 9 },
+      }).setOrigin(0.5).setDepth(300).setAlpha(0);
+      this.tweens.add({
+        targets: toast, alpha: 1, y: height - 100,
+        duration: 200, ease: "Back.easeOut",
+        onComplete: () => {
+          this.time.delayedCall(2200, () => {
+            this.tweens.add({
+              targets: toast, alpha: 0, duration: 300,
+              onComplete: () => {
+                toast.destroy();
+                if (!this._hasJoined) {
+                  this.socket.disconnect();
+                  this.scene.start("RoomListScene");
+                }
+              }
+            });
+          });
+        }
+      });
     });
 
     // ── Nhận danh sách phòng đầy đủ khi mới vào ──────────────────────

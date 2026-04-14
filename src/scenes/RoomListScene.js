@@ -1276,13 +1276,13 @@ export default class RoomListScene extends Phaser.Scene {
     allObjs.push(panel);
 
     // Title
-    const titleTxt = this.add.text(width / 2, py + 28, "🔒  Nhập Mật Khẩu Phòng", {
+    const titleTxt = this.add.text(width / 2, py + 28, "Nhập Mật Khẩu Phòng", {
       fontFamily: "Signika", fontSize: "18px", color: "#5a2d00", fontStyle: "bold",
     }).setOrigin(0.5).setDepth(D + 2);
     allObjs.push(titleTxt);
 
     // Input box
-    const INP_X = px + 20, INP_Y = py + 60, INP_W = mW - 40, INP_H = 42;
+    const INP_X = px + 50, INP_Y = py + 60, INP_W = mW - 100, INP_H = 42;
     const inpBg = this.add.graphics().setDepth(D + 2);
     const drawInpBg = (active) => {
       inpBg.clear();
@@ -1353,47 +1353,92 @@ export default class RoomListScene extends Phaser.Scene {
     window.addEventListener("keydown", onKey);
     allObjs.push({ destroy: () => window.removeEventListener("keydown", onKey) });
 
-    // Nút Vào Phòng
-    const btnY  = py + mH - 30;
-    const btnW  = 160, btnH2 = 44;
+    // Nút Vào Phòng + Huỷ — căn giữa cả hai
+    const btnY   = py + mH - 58;
+    const btnW   = 140, btnH2 = 42;
+    const canW   = 60; // ước tính width chữ Huỷ
+    const gap    = 35;
+    const totalW = btnW + gap + canW;
+    const groupX = width / 2 - totalW / 2; // điểm bắt đầu nhóm
+    const btnCX  = groupX + btnW / 2;
+    const canX   = groupX + btnW + gap;
     const btnG  = this.add.graphics().setDepth(D + 3);
-    const drawBtn = (h) => {
+    const drawBtn = (hover) => {
       btnG.clear();
-      btnG.fillStyle(0x000000, 0.22);
-      btnG.fillRoundedRect(width/2 - btnW/2 + 2, btnY - btnH2/2 + 4, btnW, btnH2, btnH2/2);
+      btnG.fillStyle(0x000000, 0.28);
+      btnG.fillRoundedRect(btnCX - btnW/2 + 3, btnY - btnH2/2 + 5, btnW, btnH2, btnH2/2);
       btnG.fillGradientStyle(0x1ea84b, 0x1ea84b, 0x55dd70, 0x55dd70, 1);
-      btnG.fillRoundedRect(width/2 - btnW/2, btnY - btnH2/2, btnW, btnH2, btnH2/2);
-      btnG.fillStyle(0xffffff, h ? 0.30 : 0.18);
-      btnG.fillRoundedRect(width/2 - btnW/2 + 8, btnY - btnH2/2 + 5, btnW - 16, btnH2 * 0.36, btnH2/2 - 3);
-      btnG.lineStyle(2, 0xffffff, 0.5);
-      btnG.strokeRoundedRect(width/2 - btnW/2, btnY - btnH2/2, btnW, btnH2, btnH2/2);
+      btnG.fillRoundedRect(btnCX - btnW/2, btnY - btnH2/2, btnW, btnH2, btnH2/2);
+      btnG.fillStyle(0xffffff, hover ? 0.38 : 0.22);
+      btnG.fillRoundedRect(btnCX - btnW/2 + 8, btnY - btnH2/2 + 5, btnW - 16, btnH2 * 0.36, btnH2/2 - 3);
+      btnG.lineStyle(2, 0xffffff, hover ? 0.7 : 0.5);
+      btnG.strokeRoundedRect(btnCX - btnW/2, btnY - btnH2/2, btnW, btnH2, btnH2/2);
     };
     drawBtn(false);
     allObjs.push(btnG);
 
-    const btnTxt = this.add.text(width / 2, btnY, "Vào Phòng", {
+    const btnTxt = this.add.text(btnCX, btnY, "Vào Phòng", {
       fontFamily: "Signika", fontSize: "18px", color: "#ffffff",
-      fontStyle: "bold", stroke: "#004422", strokeThickness: 2,
+      fontStyle: "bold", stroke: "#004422", strokeThickness: 3,
+      shadow: { offsetX: 1, offsetY: 2, color: "#000", blur: 3, fill: true },
     }).setOrigin(0.5).setDepth(D + 4);
     allObjs.push(btnTxt);
 
-    const doJoin = () => {
+    // Pulse animation
+    this.tweens.add({ targets: btnG, alpha: { from: 1, to: 0.85 }, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    allObjs.push({ destroy: () => this.tweens.killTweensOf(btnG) });
+
+    const doJoin = async () => {
       if (!pwVal.trim()) {
         errTxt.setText("Vui lòng nhập mật khẩu!"); return;
       }
-      dismiss();
-      this._enterRoom(room, pwVal.trim());
+      btnTxt.setText("Đang kiểm tra...");
+
+      try {
+        const pd = this.registry.get("playerData") || JSON.parse(localStorage.getItem("playerData") || "null");
+        const res = await fetch(`${SERVER_URL}/rooms/${room.id}/verify-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${pd?.token}` },
+          body: JSON.stringify({ password: pwVal.trim() }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          dismiss();
+          this._enterRoom(room, pwVal.trim());
+        } else {
+          errTxt.setText(data.message || "Sai mật khẩu!");
+          btnTxt.setText("Vào Phòng");
+          // Toast đỏ giống LoginScene
+          const { width: w, height: h } = this.scale;
+          const toast = this.add.text(w / 2, h - 80, data.message || "Bạn đã nhập sai mật khẩu", {
+            fontFamily: "Signika", fontSize: "17px", color: "#ff4444", fontStyle: "bold",
+            stroke: "#000000", strokeThickness: 3,
+            backgroundColor: "#00000099", padding: { x: 16, y: 9 },
+          }).setOrigin(0.5).setDepth(400).setAlpha(0);
+          this.tweens.add({
+            targets: toast, alpha: 1, y: h - 100, duration: 200, ease: "Back.easeOut",
+            onComplete: () => this.time.delayedCall(2200, () => {
+              this.tweens.add({ targets: toast, alpha: 0, duration: 300, onComplete: () => toast.destroy() });
+            })
+          });
+        }
+      } catch {
+        errTxt.setText("Lỗi kết nối server!");
+        btnTxt.setText("Vào Phòng");
+      }
     };
 
-    const btnZone = this.add.zone(width/2, btnY, btnW, btnH2)
+    const btnZone = this.add.zone(btnCX, btnY, btnW, btnH2)
       .setInteractive({ cursor: "pointer" }).setDepth(D + 5);
-    btnZone.on("pointerover",  () => { drawBtn(true);  this.tweens.add({ targets: [btnG, btnTxt], scaleX: 1.04, scaleY: 1.04, duration: 80 }); });
-    btnZone.on("pointerout",   () => { drawBtn(false); this.tweens.add({ targets: [btnG, btnTxt], scaleX: 1,    scaleY: 1,    duration: 80 }); });
-    btnZone.on("pointerdown",  doJoin);
+    btnZone.on("pointerover",  () => { drawBtn(true); });
+    btnZone.on("pointerout",   () => { drawBtn(false); });
+    btnZone.on("pointerdown",  () => {
+      this.tweens.add({ targets: btnG, alpha: 0.65, duration: 60, yoyo: true });
+      doJoin();
+    });
     allObjs.push(btnZone);
 
-    // Nút Cancel
-    const canTxt = this.add.text(width / 2 + btnW/2 + 24, btnY, "Huỷ", {
+    const canTxt = this.add.text(canX, btnY, "Huỷ", {
       fontFamily: "Signika", fontSize: "15px", color: "#886633",
       fontStyle: "bold",
     }).setOrigin(0, 0.5).setDepth(D + 4).setInteractive({ cursor: "pointer" });

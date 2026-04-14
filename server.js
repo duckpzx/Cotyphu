@@ -1045,6 +1045,7 @@ io.on("connection", (socket) => {
       if (Number(room.is_private) === 1 && room.host_user_id !== user_id) {
         const enteredPw = String(data?.password ?? "").trim();
         const correctPw = String(room.room_password ?? "").trim();
+        console.log(`🔒 Room ${room_id} password check: entered="${enteredPw}" correct="${correctPw}" match=${enteredPw === correctPw}`);
         if (!enteredPw || enteredPw !== correctPw) {
           socket.emit("room:error", { message: "Sai mật khẩu phòng" }); return;
         }
@@ -2152,6 +2153,19 @@ app.post("/rooms/create", async (req, res) => {
 app.get("/rooms", async (req, res) => {
   try { res.json(await roomService.getVisibleRooms(req.query.room_type)); }
   catch { res.status(500).json({ success: false, message: "Server error" }); }
+});
+
+// Verify room password trước khi vào
+app.post("/rooms/:id/verify-password", async (req, res) => {
+  try {
+    const room = await roomRepo.getRoomById(Number(req.params.id));
+    if (!room) return res.json({ success: false, message: "Phòng không tồn tại" });
+    if (Number(room.is_private) !== 1) return res.json({ success: true }); // không cần pass
+    const entered = String(req.body.password ?? "").trim();
+    const correct = String(room.room_password ?? "").trim();
+    if (!entered || entered !== correct) return res.json({ success: false, message: "Bạn đã nhập sai mật khẩu" });
+    res.json({ success: true });
+  } catch { res.status(500).json({ success: false, message: "Server error" }); }
 });
 
 server.listen(3000, "0.0.0.0", () => {
