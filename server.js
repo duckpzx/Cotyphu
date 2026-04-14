@@ -13,6 +13,7 @@ import jwt from "jsonwebtoken";
 
 // ===== SERVICES =====
 import userService from "./src/server/services/user.service.js";
+import userRepo from "./src/server/repositories/user.repo.js";
 import characterService from "./src/server/services/character.service.js";
 import characterRepo from "./src/server/repositories/character.repo.js"; 
 import roomService from "./src/server/services/room.service.js";
@@ -2101,6 +2102,21 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
 app.get("/",           (req, res) => res.sendFile(path.join(__dirname, "index.html")));
 app.post("/register",  async (req, res) => res.json(await userService.register(req.body.username, req.body.email, req.body.password)));
 app.post("/login",     async (req, res) => res.json(await userService.login(req.body.username, req.body.password)));
+
+// Verify token — dùng để auto-login khi reload game
+app.get("/auth/me", async (req, res) => {
+  try {
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith("Bearer ")) return res.json({ success: false });
+    const token = auth.slice(7);
+    const decoded = jwt.verify(token, SECRET);
+    const result = await userRepo.findById(decoded.id);
+    if (!result) return res.json({ success: false });
+    res.json({ success: true, user: result });
+  } catch {
+    res.json({ success: false });
+  }
+});
 app.get("/characters", async (req, res) => {
   try { res.json(await characterService.getCharacters()); }
   catch { res.status(500).json({ success: false, message: "Server error" }); }

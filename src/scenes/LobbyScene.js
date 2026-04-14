@@ -128,6 +128,16 @@ export default class LobbyScene extends Phaser.Scene {
           this.cameras.main.once("camerafadeoutcomplete", () => {
             this.scene.start("ShopScene");
           });
+        } else if (item.key === "rank") {
+          this.cameras.main.fadeOut(200);
+          this.cameras.main.once("camerafadeoutcomplete", () => {
+            this.scene.start("RatingScene");
+          });
+        } else if (item.key === "lab") {
+          this.cameras.main.fadeOut(200);
+          this.cameras.main.once("camerafadeoutcomplete", () => {
+            this.scene.start("LabScene");
+          });
         } else {
           console.log("Click menu:", item.key);
         }
