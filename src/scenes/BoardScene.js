@@ -1795,8 +1795,9 @@ this.socket.on("game:tarot_denied", (data) => {
     }
 
     this.load.image("card_slot_small", "./assets/ui/tarot/card.png");
-    for (let i = 1; i <= 8; i++) {
-      this.load.image(`tarot_${i}`, `./assets/resources/Tarot/resize/thebai_${i}.png`);
+    for (let i = 1; i <= 10; i++) {
+      this.load.image(`tarot_${i}`,       `./assets/resources/Tarot/resize/thebai_${i}.png`);
+      this.load.image(`tarot_large_${i}`, `./assets/resources/Tarot/thebai_${i}.png`);
     }
   }
 

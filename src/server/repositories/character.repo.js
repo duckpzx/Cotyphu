@@ -9,6 +9,7 @@ const characterRepo = {
         c.id,
         c.name,
         c.description,
+        c.price,
         s.skin_number,
         s.image
       FROM characters c

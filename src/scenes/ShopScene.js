@@ -1070,6 +1070,8 @@ export default class ShopScene extends Phaser.Scene {
         const SKIN_LABELS = { 1: "Sơ cấp", 2: "Trung cấp", 3: "Cao cấp" };
 
         for (const skin of this.allShopSkins) {
+            // Bỏ qua skin mặc định (is_default = 1) — đó là skin gốc của nhân vật
+            if (skin.is_default) continue;
             const charName = skin.character_name;
             const skinNum = skin.skin_number;
             const frameKey = `shop_${charName}_${skinNum}_idle_000`;

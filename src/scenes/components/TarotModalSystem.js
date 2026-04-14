@@ -172,8 +172,8 @@ export default class TarotModalSystem {
     sc.tweens.add({ targets: nameText, alpha: 1, duration: 280, delay: delay + 60 });
     ui.nameText = nameText;
 
-    // Ảnh thẻ
-    const imgKey = `tarot_${card.id}`;
+    // Ảnh thẻ — dùng ảnh lớn (tarot_large_) nếu có, fallback về tarot_
+    const imgKey = sc.textures.exists(`tarot_large_${card.id}`) ? `tarot_large_${card.id}` : `tarot_${card.id}`;
     if (sc.textures.exists(imgKey)) {
       const img = push(sc.add.image(cx, top + CH * 0.44, imgKey)
         .setDisplaySize(CW * 0.62, CH * 0.52).setDepth(D + 5).setAlpha(0)

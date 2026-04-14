@@ -415,6 +415,12 @@ async function applyTarotEffect(gs, cur, tarotDef, payload = {}) {
       const targetCell = gs.cellStates[targetCellIndex];
       if (!targetCell) return false; // ô trống
       if (Number(targetCell.owner_user_id) === Number(cur.user_id)) return false; // không được phá của mình
+
+      // Không thể phá ô đang được bảo vệ
+      if ((targetCell.protected_turns || 0) > 0) {
+        socket.emit('game:tarot_denied', { message: 'Tinh cầu này đang được bảo vệ!' });
+        return false;
+      }
  
       const previousOwner = targetCell.owner_user_id;
       delete gs.cellStates[targetCellIndex];
@@ -456,6 +462,12 @@ async function applyTarotEffect(gs, cur, tarotDef, payload = {}) {
       if (Number(myCell.owner_user_id)    !== Number(cur.user_id)) return false;
       if (Number(enemyCell.owner_user_id) === Number(cur.user_id)) return false;
 
+      // Không thể hoán đổi ô đang được bảo vệ
+      if ((myCell.protected_turns || 0) > 0 || (enemyCell.protected_turns || 0) > 0) {
+        socket.emit('game:tarot_denied', { message: 'Một trong hai tinh cầu đang được bảo vệ!' });
+        return false;
+      }
+
       console.log('[swap_planet] TRƯỚC:', {
         myCell:    { idx: myCellIdx,    owner: myCell.owner_user_id,    color: myCell.planet_color },
         enemyCell: { idx: enemyCellIdx, owner: enemyCell.owner_user_id, color: enemyCell.planet_color }
@@ -486,6 +498,59 @@ async function applyTarotEffect(gs, cur, tarotDef, payload = {}) {
       return true;
     }
  
+    // ═══════════════════════════════════════════════════════════════════════
+    //  9. TÀI PHÚ — bonus_starting_cash_percent
+    //     Nhận ngay X% tiền khởi đầu (bet_ecoin * 20) từ hệ thống
+    // ═══════════════════════════════════════════════════════════════════════
+    case 'bonus_starting_cash_percent': {
+      const percent      = Number(tarotDef.effect_params?.percent ?? 30);
+      const startingCash = (gs.bet_ecoin || 5000) * 20;
+      const bonus        = Math.floor(startingCash * percent / 100);
+      if (bonus <= 0) return false;
+
+      cur.cash += bonus;
+
+      io.to(`game_${room_id}`).emit('game:skill_event', {
+        type:    'bonus_starting_cash_percent',
+        user_id: cur.user_id,
+        name:    cur.name,
+        bonus,
+        percent
+      });
+
+      emitGameStateSync(room_id);
+      return true;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  10. BẢO VỆ — protect_planet_turns
+    //      Bảo vệ 1 tinh cầu do người dùng chỉ định khỏi mọi tác động
+    //      (phá nhà, hoán đổi, tăng thuế) trong N lượt tung xúc xắc
+    // ═══════════════════════════════════════════════════════════════════════
+    case 'protect_planet_turns': {
+      const targetCellIndex = Number(payload.target_cell_index);
+      if (isNaN(targetCellIndex)) return false;
+
+      const targetCell = gs.cellStates[targetCellIndex];
+      if (!targetCell) return false;
+      // Chỉ được bảo vệ tinh cầu của mình
+      if (Number(targetCell.owner_user_id) !== Number(cur.user_id)) return false;
+
+      const turns = Number(tarotDef.effect_params?.turns ?? 3);
+      targetCell.protected_turns = (targetCell.protected_turns || 0) + turns;
+      targetCell.protected_by    = cur.user_id;
+
+      io.to(`game_${room_id}`).emit('game:skill_event', {
+        type:       'protect_planet_turns',
+        user_id:    cur.user_id,
+        name:       cur.name,
+        cell_index: targetCellIndex,
+        turns
+      });
+
+      return true;
+    }
+
     default:
       console.warn(`[TarotEffect] Unknown effect_type: ${effectType}`);
       return false;
@@ -617,11 +682,32 @@ function resetTurnTarotFlags(player) {
   player.used_tarot_this_turn = false;
   Object.values(player.tarot_runtime || {}).forEach(rt => {
     rt.used_this_turn = false;
-    // Giảm cooldown_turns_left mỗi lượt (không phân biệt đã dùng hay chưa — cooldown là số lượt chờ)
     if ((rt.cooldown_turns_left ?? 0) > 0) {
       rt.cooldown_turns_left -= 1;
     }
   });
+}
+
+// Tick protected_turns cho tất cả cellStates mỗi lượt
+function tickProtectedCells(room_id) {
+  const gs = gameStates[room_id];
+  if (!gs) return;
+  const expired = [];
+  Object.entries(gs.cellStates).forEach(([idx, cell]) => {
+    if ((cell.protected_turns || 0) > 0) {
+      cell.protected_turns -= 1;
+      if (cell.protected_turns <= 0) {
+        delete cell.protected_turns;
+        delete cell.protected_by;
+        expired.push(Number(idx));
+      }
+    }
+  });
+  if (expired.length > 0) {
+    io.to(`game_${room_id}`).emit('game:skill_event', {
+      type: 'protect_expired', cell_indexes: expired
+    });
+  }
 }
 
 // ── TAX BOOST — tăng thuế ngẫu nhiên sau mỗi vòng ──────────────
@@ -740,6 +826,7 @@ function endTurn(room_id) {
     if (!next) return;
 
     resetTurnTarotFlags(next);
+    tickProtectedCells(room_id);
 
     if ((next.skip_next_turn || 0) > 0) {
       next.skip_next_turn -= 1;
@@ -2320,13 +2407,13 @@ const SKIN_PRICES = {
   3: 35000,    // Skin cao cấp
 };
 
-// GET /shop/characters — Tất cả nhân vật kèm giá
+// GET /shop/characters — Tất cả nhân vật kèm giá từ DB
 app.get("/shop/characters", async (req, res) => {
   try {
     const result = await characterService.getCharacters();
     const characters = (result.characters || []).map(c => ({
       ...c,
-      price: CHARACTER_PRICES[c.id] ?? 20000,
+      price: Number(c.price ?? 0),
     }));
     res.json({ success: true, characters });
   } catch (err) {
@@ -2393,8 +2480,10 @@ app.post("/shop/buy-character", async (req, res) => {
       return res.json({ success: false, message: "Bạn đã sở hữu nhân vật này rồi!" });
     }
 
-    // 2) Lấy giá
-    const price = CHARACTER_PRICES[charId] ?? 20000;
+    // 2) Lấy giá từ DB
+    const [charRows] = await db.query("SELECT price FROM characters WHERE id = ?", [charId]);
+    if (!charRows[0]) return res.json({ success: false, message: "Nhân vật không tồn tại" });
+    const price = Number(charRows[0].price ?? 0);
 
     // 3) Kiểm tra ecoin
     const [userRows] = await db.query("SELECT ecoin FROM users WHERE id = ?", [userId]);
