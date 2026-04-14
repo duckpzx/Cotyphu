@@ -107,17 +107,22 @@ export default class TarotScene extends Phaser.Scene {
 
         const rows     = 2;
         const cols     = Math.ceil(cardKeys.length / rows);
-        const PAD      = 18;
-        const cardGapX = 12;
-        const cardGapY = 12;
+        const PAD_X    = 12;
+        const PAD_Y    = 18;
+        const cardGapX = 3;
+        const cardGapY = 10;
 
         const VISIBLE_COLS = 3;
-        const CARD_W = Math.floor((RIGHT_W - PAD * 2 - cardGapX * (VISIBLE_COLS - 1)) / VISIBLE_COLS * 0.82);
-        const CARD_H = Math.floor((PANEL_H - PAD * 2 - cardGapY) / 2);
+        const CARD_H = Math.floor((PANEL_H - PAD_Y * 2 - cardGapY) / 2);
+        const firstKey = cardKeys[0];
+        const firstSrc = this.textures.exists(firstKey) ? this.textures.get(firstKey).getSourceImage() : null;
+        const ratio    = firstSrc ? firstSrc.width / firstSrc.height : 0.68;
+        const CARD_W   = Math.round(CARD_H * ratio) + 10;
 
         const totalGridW = cols * CARD_W + (cols - 1) * cardGapX;
-        const gridStartX = rightCX - RIGHT_W / 2 + PAD;
-        const gridStartY = panelY - PANEL_H / 2 + PAD;
+        const totalGridH = 2 * CARD_H + cardGapY;
+        const gridStartX = rightCX - RIGHT_W / 2 + PAD_X;
+        const gridStartY = panelY - totalGridH / 2;
 
         this.cardContainer = this.add.container(gridStartX, gridStartY).setDepth(12);
 
@@ -134,13 +139,13 @@ export default class TarotScene extends Phaser.Scene {
         }
 
         this.minX = gridStartX;
-        this.maxX = Math.min(gridStartX, gridStartX - (totalGridW - (RIGHT_W - PAD * 2)));
+        this.maxX = Math.min(gridStartX, gridStartX - (totalGridW - (RIGHT_W - PAD_X * 2)));
         this.velocityX = 0;
 
         const maskShape = this.make.graphics();
         maskShape.fillRoundedRect(
-            rightCX - RIGHT_W / 2 + 16, panelY - PANEL_H / 2 + 8,
-            RIGHT_W - 32, PANEL_H - 16, 12
+            rightCX - RIGHT_W / 2 + PAD_X - 4, panelY - PANEL_H / 2 + PAD_Y - 4,
+            RIGHT_W - PAD_X * 2 + 8, PANEL_H - PAD_Y * 2 + 8, 12
         );
         this.cardContainer.setMask(maskShape.createGeometryMask());
 
@@ -434,7 +439,7 @@ buildSlot(cx, cy, w, h, idx) {
             drawHasCard();
 
             const img = scene.add.image(cx, cy, key);
-            const scale = Math.min((w - 10) / img.width, (h - 10) / img.height);
+            const scale = Math.min(w / img.width, (h - 5) / img.height);
             img.setScale(scale).setDepth(5);
             imgObj = img;
             ref.imgObj = img;
@@ -454,15 +459,7 @@ buildSlot(cx, cy, w, h, idx) {
             }
             sheenG.setMask(maskG.createGeometryMask());
 
-            // Tên thẻ
-            const data = scene.cardData[key];
-            if (data) {
-                nameLbl = scene.add.text(cx, cy + h/2 - 12, data.name, {
-                    fontFamily: "Signika", fontSize: "10px",
-                    color: "#ffffff", fontStyle: "bold",
-                    stroke: "#0a2a4a", strokeThickness: 2,
-                }).setOrigin(0.5, 1).setDepth(8);
-            }
+            // Tên thẻ đã có trong ảnh, không cần label thêm
         }
     };
     return ref;
@@ -491,7 +488,7 @@ buildSlot(cx, cy, w, h, idx) {
         }
 
         // Tính tổng chiều cao để căn giữa dọc
-        const BOX_H = 82, BOX_GAP = 10;
+        const BOX_H = 86, BOX_GAP = 10;
         const totalH = selected.length * BOX_H + (selected.length - 1) * BOX_GAP;
         let yy = areaTop + (areaH - totalH) / 2;
 
@@ -502,40 +499,60 @@ buildSlot(cx, cy, w, h, idx) {
             const boxX = cx - w / 2;
             const box  = this.add.graphics().setDepth(5);
 
-            box.fillStyle(0xffffff, 0.55);
+            // Nền trắng kem
+            box.fillStyle(0xffffff, 0.6);
             box.fillRoundedRect(boxX, yy, w, BOX_H, 10);
-            box.fillStyle(data.color, 1);
-            box.fillRoundedRect(boxX, yy + 5, 3, BOX_H - 14, 3);
-            box.lineStyle(1.5, data.color, 0.5);
+
+            // Viền đều 4 cạnh màu của thẻ — mờ nhẹ
+            box.lineStyle(1.5, data.color, 0.3);
             box.strokeRoundedRect(boxX, yy, w, BOX_H, 10);
-            box.fillStyle(0xffffff, 0.4);
-            box.fillRoundedRect(boxX + 6, yy + 4, w - 12, 14, 6);
+
+            // Dải màu trái dày hơn (4px) — đậm
+            box.fillStyle(data.color, 1);
+            box.fillRoundedRect(boxX, yy + 8, 4, BOX_H - 16, 3);
+
+            // Highlight trên
+            box.fillStyle(0xffffff, 0.45);
+            box.fillRoundedRect(boxX + 6, yy + 4, w - 12, 12, 5);
+
             this._effectObjs.push(box);
 
+            // Căn giữa dọc: tên ở 1/3 trên, mô tả ở 2/3 dưới
+            const nameCY = yy + BOX_H * 0.32;
+            const descCY = yy + BOX_H * 0.68;
+
+            // Dot màu
             const dot = this.add.graphics().setDepth(6);
             dot.fillStyle(data.color, 1);
-            dot.fillCircle(boxX + 18, yy + 17, 5);
+            dot.fillCircle(boxX + 20, nameCY, 6);
             this._effectObjs.push(dot);
 
-            this._effectObjs.push(this.add.text(boxX + 28, yy + 9, data.name, {
-                fontFamily: "Signika", fontSize: "14px", color: "#3a1a00", fontStyle: "bold",
-            }).setOrigin(0, 0).setDepth(6));
+            // Tên thẻ
+            this._effectObjs.push(this.add.text(boxX + 34, nameCY, data.name, {
+                fontFamily: "Signika", fontSize: "15px", color: "#3a1a00", fontStyle: "bold",
+            }).setOrigin(0, 0.5).setDepth(6));
 
+            // Cooldown — font lớn hơn, căn phải
             if (data.cooldown_seconds) {
-                this._effectObjs.push(this.add.text(cx + w / 2 - 8, yy + 9, `⏱ ${data.cooldown_seconds}s`, {
-                    fontFamily: "Signika", fontSize: "11px", color: "#8b5e1a", fontStyle: "italic",
-                }).setOrigin(1, 0).setDepth(6));
+                this._effectObjs.push(this.add.text(boxX + w - 10, nameCY, `⏱ ${data.cooldown_seconds}s`, {
+                    fontFamily: "Signika", fontSize: "13px", color: "#8b5e1a",
+                }).setOrigin(1, 0.5).setDepth(6));
             }
 
+            // Divider
             const dg = this.add.graphics().setDepth(6);
-            dg.lineStyle(1, data.color, 0.3);
-            dg.beginPath(); dg.moveTo(boxX + 10, yy + 28); dg.lineTo(boxX + w - 10, yy + 28); dg.strokePath();
+            dg.lineStyle(1, data.color, 0.25);
+            dg.beginPath();
+            dg.moveTo(boxX + 12, yy + BOX_H * 0.5);
+            dg.lineTo(boxX + w - 12, yy + BOX_H * 0.5);
+            dg.strokePath();
             this._effectObjs.push(dg);
 
-            this._effectObjs.push(this.add.text(boxX + 12, yy + 33, data.effect, {
+            // Mô tả căn giữa dọc phần dưới
+            this._effectObjs.push(this.add.text(boxX + 14, descCY, data.effect, {
                 fontFamily: "Signika", fontSize: "12px", color: "#5a3010",
-                lineSpacing: 3, wordWrap: { width: w - 22 },
-            }).setOrigin(0, 0).setDepth(6));
+                lineSpacing: 2, wordWrap: { width: w - 28 },
+            }).setOrigin(0, 0.5).setDepth(6));
 
             yy += BOX_H + BOX_GAP;
         });
@@ -555,40 +572,14 @@ buildSlot(cx, cy, w, h, idx) {
     // THẺ BÀI — click chọn slot + hiệu ứng đẹp
     // =========================================================================
     createStyledCard(x, y, key, cardW, cardH) {
-        const container   = this.add.container(x, y);
-        const radius      = 10;
+        const container = this.add.container(x, y);
 
-        // Nền card dùng card_item1 nếu có, fallback gradient
-        let cardBg;
-        if (this.textures.exists("card_item1")) {
-            cardBg = this.add.image(cardW / 2, cardH / 2, "card_item1").setDisplaySize(cardW, cardH);
-        } else {
-            cardBg = this.add.graphics();
-            cardBg.fillGradientStyle(0xfff8f0, 0xfff8f0, 0xffeedd, 0xffeedd, 1);
-            cardBg.fillRoundedRect(0, 0, cardW, cardH, radius);
-            cardBg.lineStyle(2.5, 0xcc8822, 0.9);
-            cardBg.strokeRoundedRect(0, 0, cardW, cardH, radius);
-        }
-
-        // Ảnh thẻ
-        const img = this.add.image(cardW / 2, cardH / 2 - 8, key);
-        const scale = Math.min((cardW - 16) / img.width, (cardH - 30) / img.height);
+        // Chỉ load ảnh thẻ, giữ tỷ lệ gốc, fit trong cardW x cardH
+        const img = this.add.image(cardW / 2, cardH / 2, key);
+        const scale = Math.min(cardW / img.width, cardH / img.height);
         img.setScale(scale);
 
-        // Tên thẻ
-        const data = this.cardData[key];
-        const HDR_H = Math.round(cardH * 0.26);
-        const nameTxt = this.add.text(cardW / 2, HDR_H / 2, data?.name || "", {
-            fontFamily: "Signika", fontSize: Math.max(11, Math.round(cardW * 0.12)) + "px",
-            color: "#ffffff", fontStyle: "bold",
-            stroke: "#0b0a2b", strokeThickness: 3,
-            align: "center",
-        }).setOrigin(0.5);
-
-        // Viền selected
-        const selOverlay = this.add.graphics();
-
-        container.add([cardBg, img, nameTxt, selOverlay]);
+        container.add(img);
 
         container.setInteractive(
             new Phaser.Geom.Rectangle(0, 0, cardW, cardH),
@@ -596,12 +587,8 @@ buildSlot(cx, cy, w, h, idx) {
         );
         container.input.cursor = "pointer";
 
-        container.on("pointerover", () => {
-            if (cardBg.setTint) cardBg.setTint(0xffe8cc);
-        });
-        container.on("pointerout", () => {
-            if (cardBg.clearTint) cardBg.clearTint();
-        });
+        container.on("pointerover", () => { img.setTint(0xddeeff); });
+        container.on("pointerout",  () => { img.clearTint(); });
 
         container.on("pointerup", () => {
             if (this._dragMoved) return;
@@ -611,23 +598,14 @@ buildSlot(cx, cy, w, h, idx) {
                 return;
             }
 
-            // Flash trắng xanh nhẹ + zoom in mượt
-            const flash = this.add.graphics().setDepth(50);
-            flash.fillStyle(0xeeffff, 0.28);
-            flash.fillRoundedRect(0, 0, cardW, cardH, radius);
-            container.add(flash);
-            container.setScale(0.94);
-            this.tweens.add({
-                targets: container, scaleX: 1, scaleY: 1,
-                duration: 220, ease: "Back.easeOut"
-            });
-            this.tweens.add({
-                targets: flash, alpha: 0,
-                duration: 350, ease: "Sine.easeOut",
-                onComplete: () => flash.destroy()
-            });
+            img.clearTint();
+            // Glow sáng nhẹ fade out
+            const glow = this.add.graphics().setDepth(50);
+            glow.fillStyle(0xffffff, 0.22);
+            glow.fillRoundedRect(0, 0, cardW, cardH, 10);
+            container.add(glow);
+            this.tweens.add({ targets: glow, alpha: 0, duration: 400, ease: "Sine.easeOut", onComplete: () => glow.destroy() });
 
-            // Hiệu ứng tia sáng bay đến slot
             const worldX = (this.cardContainer?.x || 0) + x + cardW / 2;
             const worldY = (this.cardContainer?.y || 0) + y + cardH / 2;
             this._playEquipEffect(worldX, worldY, this._slots[this.activeSlot]);
@@ -637,16 +615,14 @@ buildSlot(cx, cy, w, h, idx) {
             this.renderEffects();
 
             if (this.playerUserId) {
-                const selectedIds = this.selectedSlots.filter(Boolean).map(k => parseInt(k.split('_')[1]));
-                this.saveActiveTarots(this.playerUserId, selectedIds).catch(e => console.warn("Failed to save:", e));
+                const ids = this.selectedSlots.filter(Boolean).map(k => parseInt(k.split('_')[1]));
+                this.saveActiveTarots(this.playerUserId, ids).catch(() => {});
             }
 
             if (this.activeSlot === 0 && !this._slots[1].hasCard) {
-                this.activeSlot = 1;
-                this._slots[1].drawActive();
+                this.activeSlot = 1; this._slots[1].drawActive();
             } else if (this.activeSlot === 1 && !this._slots[0].hasCard) {
-                this.activeSlot = 0;
-                this._slots[0].drawActive();
+                this.activeSlot = 0; this._slots[0].drawActive();
             }
         });
 
@@ -657,43 +633,21 @@ buildSlot(cx, cy, w, h, idx) {
     _playEquipEffect(fromX, fromY, slot) {
         const toX = slot.cx;
         const toY = slot.cy;
-        const sw  = slot.w;
-        const sh  = slot.h;
 
-        // Chấm sáng bay từ card đến slot
-        const dot = this.add.graphics().setDepth(50);
-        dot.fillStyle(0xeeffff, 0.9);
-        dot.fillCircle(0, 0, 6);
-        dot.x = fromX; dot.y = fromY;
+        // Ngôi sao bay lướt nhẹ từ card đến slot
+        const star = this.add.text(fromX, fromY, "✦", {
+            fontSize: "18px", color: "#eeffff",
+            stroke: "#88ccff", strokeThickness: 2,
+        }).setOrigin(0.5).setDepth(50).setAlpha(0.9);
+
         this.tweens.add({
-            targets: dot, x: toX, y: toY,
-            scaleX: 0.2, scaleY: 0.2, alpha: 0,
-            duration: 280, ease: "Quad.easeIn",
-            onComplete: () => {
-                dot.destroy();
-
-                // Ripple xanh trắng zoom in tại slot
-                for (let i = 0; i < 3; i++) {
-                    const rg = this.add.graphics().setDepth(50);
-                    const delay = i * 80;
-                    const startScale = 0.6 + i * 0.1;
-                    rg.fillStyle(0xeeffff, 0.22 - i * 0.06);
-                    rg.fillRoundedRect(-sw / 2, -sh / 2, sw, sh, 14);
-                    rg.lineStyle(1.5, 0x88eeff, 0.5 - i * 0.12);
-                    rg.strokeRoundedRect(-sw / 2, -sh / 2, sw, sh, 14);
-                    rg.x = toX; rg.y = toY;
-                    rg.setScale(startScale);
-                    this.tweens.add({
-                        targets: rg,
-                        scaleX: 1.15, scaleY: 1.15,
-                        alpha: 0,
-                        duration: 380,
-                        delay,
-                        ease: "Sine.easeOut",
-                        onComplete: () => rg.destroy()
-                    });
-                }
-            }
+            targets: star,
+            x: toX, y: toY,
+            alpha: 0,
+            scaleX: 0.4, scaleY: 0.4,
+            duration: 320,
+            ease: "Sine.easeIn",
+            onComplete: () => star.destroy()
         });
     }
 

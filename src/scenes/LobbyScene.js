@@ -241,12 +241,12 @@ createTopBar() {
 
   // 2. Vẽ Avatar với VIỀN (Stroke)
   // setStrokeStyle(độ dày, màu sắc, alpha)
-  const avatar = this.add.circle(profileX + avatarRadius, y - 2, avatarRadius, 0xffcc00)
+  const avatar = this.add.circle(profileX + avatarRadius, y - 2, avatarRadius, 0x000000, 0)
       .setDepth(104);
 
   const avatarBorder = this.add.image(avatar.x, avatar.y, "border")
-    .setDepth(105) // Đặt cao hơn avatar để đè lên trên
-    .setDisplaySize(avatarSize + 15, avatarSize + 15);
+    .setDepth(105)
+    .setDisplaySize(avatarSize + 4, avatarSize + 4);
 
   // 3. Tên người chơi (đặt vào trong khung nền)
   const name = this.add.text(profileX + avatarSize + 15, y, this.playerName, {
