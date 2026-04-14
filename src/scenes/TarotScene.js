@@ -710,15 +710,17 @@ async saveActiveTarots(userId, tarotIds) {
 
 getTarotColor(effectType) {
     const map = {
-        skip_turn_enemy: 0xe84060,
-        extra_roll: 0xffcc00,
-        steal_cash_percent: 0xff6600,
-        move_forward_range: 0x44aaff,
-        tax_multiplier: 0xaa44ff,
-        bonus_cash_percent: 0x44dd88,
-        recover_house_money: 0x88ccff,
-        destroy_enemy_house: 0xff3366,
-        swap_planet: 0x9966ff
+        skip_turn_enemy:           0xe84060,  // đỏ hồng — bỏ lượt địch
+        extra_roll:                0xffcc00,  // vàng — thêm lượt tung
+        steal_cash_percent:        0xff6600,  // cam — ăn cắp tiền
+        move_forward_range:        0x44aaff,  // xanh dương — tiến nhanh
+        tax_multiplier:            0xaa44ff,  // tím — thuế
+        bonus_cash_percent:        0x44dd88,  // xanh lá — thưởng tiền
+        recover_house_money:       0x88ccff,  // xanh nhạt — thu hồi nhà
+        destroy_enemy_house:       0xff3366,  // đỏ — phá nhà
+        swap_planet:               0x9966ff,  // tím xanh — hoán đổi
+        bonus_starting_cash_percent: 0xf5a623, // vàng cam — Tài Phú
+        protect_planet_turns:      0x4488ff,  // xanh dương — Bảo Vệ
     };
 
     return map[effectType] || 0xc08a40;
