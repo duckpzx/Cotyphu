@@ -1041,6 +1041,15 @@ io.on("connection", (socket) => {
       if (!room) { socket.emit("room:error", { message: "Phòng không tồn tại" }); return; }
       if (room.room_status !== "waiting") { socket.emit("room:error", { message: "Phòng đã bắt đầu" }); return; }
 
+      // ── Kiểm tra mật khẩu phòng nội bộ ──────────────────────────
+      if (Number(room.is_private) === 1 && room.host_user_id !== user_id) {
+        const enteredPw = String(data?.password ?? "").trim();
+        const correctPw = String(room.room_password ?? "").trim();
+        if (!enteredPw || enteredPw !== correctPw) {
+          socket.emit("room:error", { message: "Sai mật khẩu phòng" }); return;
+        }
+      }
+
       const before = await io.in(`room_${room_id}`).fetchSockets();
       if (before.some(s => s.id === socket.id)) {
         socket.emit("room:players", { players: buildPlayerList(before, room.host_user_id), room }); return;

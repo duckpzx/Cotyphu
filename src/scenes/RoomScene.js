@@ -161,7 +161,10 @@ export default class RoomScene extends Phaser.Scene {
         this._showAlert("Lỗi: room_id không xác định!\n" + JSON.stringify(this.roomData));
         return;
       }
-      this.socket.emit("room:join", { room_id: roomId });
+      this.socket.emit("room:join", {
+        room_id: roomId,
+        password: this.roomData?.enteredPassword ?? null
+      });
     });
 
     this.socket.on("connect_error", (err) => {
@@ -171,11 +174,20 @@ export default class RoomScene extends Phaser.Scene {
 
     this.socket.on("room:error", (data) => {
       console.error("❌ room:error from server:", data.message);
-      this._showAlert(data.message || "Có lỗi xảy ra");
+      // Nếu chưa join được (chưa có players) → quay về danh sách phòng
+      if (!this._hasJoined) {
+        this._showAlert(data.message || "Có lỗi xảy ra", () => {
+          this.socket.disconnect();
+          this.scene.start("RoomListScene");
+        });
+      } else {
+        this._showAlert(data.message || "Có lỗi xảy ra");
+      }
     });
 
     // ── Nhận danh sách phòng đầy đủ khi mới vào ──────────────────────
     this.socket.on("room:players", (data) => {
+      this._hasJoined = true;
       console.log("📥 room:players received:", JSON.stringify(data));
       this.players = Array(this._maxPlayers).fill(null);
       data.players.forEach(p => {
@@ -308,9 +320,7 @@ export default class RoomScene extends Phaser.Scene {
     });
 
     // ── Lỗi ─────────────────────────────────────────────────────────
-    this.socket.on("room:error", (data) => {
-      this._showAlert(data.message || "Có lỗi xảy ra");
-    });
+    // (handled above)
   }
 
   _showSwapPromptMini(message, onAccept, onDecline) {

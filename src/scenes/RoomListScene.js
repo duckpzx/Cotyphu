@@ -844,6 +844,7 @@ export default class RoomListScene extends Phaser.Scene {
       getValue:       () => isMulti ? [...selected] : ([...selected][0] ?? null),
       clearSelection: () => { selected = new Set(); redraw(); },
       setLinked:      (other) => { linkedRow = other; },
+      setValue:       (val) => { selected = new Set([val]); redraw(); },
     };
     return rowApi;
   }
@@ -1047,6 +1048,9 @@ export default class RoomListScene extends Phaser.Scene {
       } else if (k.length === 1 && pwValue.length < 20) {
         pwValue += k;
       }
+      // Auto-select "Nội bộ" khi có mật khẩu, "Tự do" khi xóa hết
+      if (pwValue.length > 0) roomRow.setValue("private");
+      else roomRow.setValue("free");
       updateDisplay();
     };
     window.addEventListener("keydown", onKey);
