@@ -532,7 +532,7 @@ export default class RoomScene extends Phaser.Scene {
     this._slots = [];
 
     const { width, height } = this.scale;
-    const topY = 100;
+    const topY = 118;
     const slotH = Math.floor(height * 0.46);
     const cy   = topY + slotH / 2;
 
@@ -1153,159 +1153,235 @@ export default class RoomScene extends Phaser.Scene {
   }
 
   // ══════════════════════════════════════════════════════════════════════
-  // BOTTOM PANEL
+  // BOTTOM PANEL — layout mới: chat trái | action giữa | room info phải
   // ══════════════════════════════════════════════════════════════════════
   _buildBottomPanel(width, height) {
-    const panelH = 120;
-    const panelY = height - panelH - 8;
+    const panelH = 170;
+    const panelY = height - panelH;
     const panelW = width - 16;
     const panelX = 8;
-    const R = 18;
+    const midY   = panelY + panelH / 2;
+    const chatX    = 0;   // bám sát trái màn hình
+    const chatW    = Math.floor(width * 0.32);
+    const inputH   = 42;
+    const msgAreaH = panelH - inputH;
 
-    // ── Nền panel xanh gradient ────────────────────────────────────
-    const g = this.add.graphics();
-    // Shadow
-    g.fillStyle(0x000000, 0.35);
-    g.fillRoundedRect(panelX + 4, panelY + 5, panelW, panelH, R);
-    // Gradient xanh đậm → xanh trung
-    g.fillGradientStyle(0x1a6aaa, 0x1a6aaa, 0x0d3a6e, 0x0d3a6e, 1);
-    g.fillRoundedRect(panelX, panelY, panelW, panelH, R);
-    // Shine trên
-    g.fillStyle(0xffffff, 0.10);
-    g.fillRoundedRect(panelX + 6, panelY + 5, panelW - 12, 18, R - 4);
-    // Viền xanh sáng
-    g.lineStyle(2.5, 0x55ccff, 0.75);
-    g.strokeRoundedRect(panelX, panelY, panelW, panelH, R);
-    // Viền nét đứt bên trong
-    g.lineStyle(1.2, 0x88ddff, 0.35);
-    g.strokeRoundedRect(panelX + 8, panelY + 8, panelW - 16, panelH - 16, R - 5);
+    // Vùng tin nhắn — bám sát trái/trên, chỉ bo góc trên-phải
+    const msgBg = this.add.graphics();
+    msgBg.fillStyle(0x041428, 0.58);
+    msgBg.fillRoundedRect(chatX, panelY, chatW, msgAreaH, { tl: 0, tr: 12, bl: 0, br: 0 });
+    msgBg.lineStyle(1.5, 0x2255aa, 0.6);
+    msgBg.strokeRoundedRect(chatX, panelY, chatW, msgAreaH, { tl: 0, tr: 12, bl: 0, br: 0 });
 
-    // ── Ngôi sao góc dưới trái ─────────────────────────────────────
-    this.add.text(panelX + 18, panelY + panelH - 18, "★", {
-      fontFamily: "Signika", fontSize: "18px", color: "#ffffff",
-      stroke: "#0044aa", strokeThickness: 3
-    }).setOrigin(0.5);
+    this._chatBox = {
+      x: chatX + 8, y: panelY + 6,
+      w: chatW - 16, h: msgAreaH - 8,
+      lineH: 18, lines: []
+    };
 
-    const midY = panelY + panelH / 2;
+    [
+      { name: "Hệ thống", msg: "Chào mừng vào phòng chờ!" },
+      { name: "Hệ thống", msg: "Nhấn Sẵn Sàng khi đã chuẩn bị." },
+    ].forEach(l => this._appendChatLine(`[${l.name}] ${l.msg}`));
 
-    // ── Tính toán layout từ phải sang trái ───────────────────────
-    const rightEdge = panelX + panelW - 18;
-    const gap       = 32;                      // khoảng cách rộng hơn
+    // Ô input — bám sát trái/dưới, bo góc dưới-phải
+    const inputY = panelY + msgAreaH;
+    const inputW = chatW - 56;
+    const inputBg = this.add.graphics();
+    inputBg.fillStyle(0x020d1e, 0.9);
+    inputBg.fillRoundedRect(chatX, inputY, inputW, inputH, 0);
+    inputBg.lineStyle(1.5, 0x2255aa, 0.7);
+    inputBg.strokeRoundedRect(chatX, inputY, inputW, inputH, 0);
 
-    // Khối ❓ — icon 62x62
-    const qSize = 62;
-    const qCX   = rightEdge - qSize / 2;
-
-    // Khối INFO — rộng 120px, tâm infoCX
-    const infoW  = 120;
-    const infoCX = qCX - qSize / 2 - gap - infoW / 2;
-    const infoX  = infoCX - infoW / 2;
-
-    // Khối ECOIN — rộng 120px, tâm ecoinCX
-    const ecoinW  = 120;
-    const ecoinCX = infoX - gap - ecoinW / 2;
-    const ecoinX  = ecoinCX - ecoinW / 2;
-
-    // Khối MAP — 100×100, không viền
-    const mapH  = 100;
-    const mapW  = 100;
-    const mapCX = ecoinX - gap - mapW / 2;
-    const mapX  = mapCX - mapW / 2;
-    const mapY  = panelY + (panelH - mapH) / 2;
-
-    // Lưu vị trí nút để _rebuildBottomPanel dùng
-    this._bottomPanelMidY   = midY;
-    this._bottomPanelX      = panelX;
-    this._bottomPanelCol1CX = panelX + 160;
-
-    // ── MAP (không viền, ảnh giữ tỉ lệ gốc) ─────────────────────
-    const mapImg = this.add.image(mapCX, mapY + mapH / 2, "map1").setDepth(1);
-    const scaleToFit = Math.min(mapW / mapImg.width, mapH / mapImg.height);
-    mapImg.setScale(scaleToFit);
-
-    // ── ECOIN block ───────────────────────────────────────────────
-    const rd     = this.roomData;
-    const betAmt = Number(rd.bet ?? rd.bet_ecoin ?? 0);
-    const betStr = betAmt >= 1000000
-      ? (betAmt / 1000000).toFixed(betAmt % 1000000 === 0 ? 0 : 1) + "M"
-      : betAmt >= 1000 ? (betAmt / 1000) + "K"
-      : betAmt + "";
-
-    const dg = this.add.graphics();
-    dg.lineStyle(1, 0x55aadd, 0.35);
-    dg.lineBetween(ecoinX - gap / 2, panelY + 16, ecoinX - gap / 2, panelY + panelH - 16);
-
-    // "Mức cược" căn giữa ecoinCX
-    this.add.text(ecoinCX, midY - 22, "Mức cược", {
-      fontFamily: "Signika", fontSize: "13px",
-      color: "#88ccff", stroke: "#001a44", strokeThickness: 2,
-    }).setOrigin(0.5, 0.5);
-
-    // Coin + số tiền căn giữa ecoinCX
-    this.add.image(ecoinCX - 22, midY + 14, "coin")
-      .setDisplaySize(28, 28).setOrigin(0.5);
-
-    this.add.text(ecoinCX - 4, midY + 14, betStr, {
-      fontFamily: "Signika", fontSize: "30px",
-      color: "#ffe066", fontStyle: "bold",
-      stroke: "#7a3300", strokeThickness: 5,
-      shadow: { offsetX: 1, offsetY: 2, color: "#3a1a00", blur: 5, fill: true },
+    const placeholder = this.add.text(chatX + 14, inputY + inputH / 2, "Nhập tin nhắn...", {
+      fontFamily: "Signika", fontSize: "14px", color: "#4477aa"
     }).setOrigin(0, 0.5);
 
-    // ── INFO block ────────────────────────────────────────────────
-    const RANK_LABEL = {
-      pho_thong:   "Phổ thông",
-      tan_thu:     "Tân thủ",
-      cao_thu:     "Cao thủ",
-      bac_thay:    "Bậc thầy",
-      huyen_thoai: "Huyền thoại",
+    let inputText = "";
+    const inputDisplay = this.add.text(chatX + 12, inputY + inputH / 2, "", {
+      fontFamily: "Signika", fontSize: "12px", color: "#ffffff"
+    }).setOrigin(0, 0.5);
+
+    const inputZone = this.add.zone(chatX + inputW / 2, inputY + inputH / 2, inputW, inputH)
+      .setInteractive({ useHandCursor: false, cursor: "text" });
+    this.input.setDefaultCursor("default");
+    inputZone.on("pointerover", () => { this.game.canvas.style.cursor = "text"; });
+    inputZone.on("pointerout",  () => { this.game.canvas.style.cursor = "default"; });
+
+    inputZone.on("pointerdown", () => {
+      placeholder.setVisible(false);
+      if (!this._chatKeyListener) {
+        this._chatKeyListener = (e) => {
+          if (e.key === "Enter") {
+            if (inputText.trim()) {
+              const myName = this._getMyPlayer()?.name || "Bạn";
+              this.socket?.emit("room:chat", { message: inputText.trim() });
+              this._appendChatLine(`[${myName}] ${inputText.trim()}`);
+              inputText = ""; inputDisplay.setText(""); placeholder.setVisible(true);
+            }
+          } else if (e.key === "Backspace") {
+            inputText = inputText.slice(0, -1);
+            inputDisplay.setText(inputText);
+            placeholder.setVisible(inputText.length === 0);
+          } else if (e.key.length === 1) {
+            inputText += e.key; inputDisplay.setText(inputText);
+          }
+        };
+        window.addEventListener("keydown", this._chatKeyListener);
+      }
+    });
+
+    // Nút Gửi — đồng bộ style với nút Sẵn sàng
+    const sendBtnW = chatW - inputW;
+    const sendBtnH = inputH;
+    const sendX    = chatX + inputW + sendBtnW / 2;
+    const sendY    = inputY + sendBtnH / 2;
+    const sendBR   = sendBtnH / 2;
+    const sendG    = this.add.graphics();
+    const drawSend = (h) => {
+      sendG.clear();
+      // Gradient xanh lá
+      sendG.fillGradientStyle(h ? 0x22bbff : 0x0099ff, h ? 0x22bbff : 0x0099ff, h ? 0x0055cc : 0x0066cc, h ? 0x0055cc : 0x0066cc, 1);
+      sendG.fillRect(chatX + inputW, inputY, sendBtnW, sendBtnH);
+      // Shine
+      sendG.fillStyle(0xffffff, h ? 0.32 : 0.20);
+      sendG.fillRect(chatX + inputW + 4, inputY + 3, sendBtnW - 8, sendBtnH * 0.38);
+      sendG.strokeRect(chatX + inputW, inputY, sendBtnW, sendBtnH);
     };
-    const rankKey   = rd.rank_required ?? rd.rank ?? "pho_thong";
-    const rankLabel = RANK_LABEL[rankKey] ?? rankKey;
-    const roomType  = rd.is_private ? "Nội bộ" : "Tự do";
+    drawSend(false);
+    const sendTxt = this.add.text(sendX, sendY, "Gửi", {
+      fontFamily: "Signika", fontSize: "14px", color: "#ffffff", fontStyle: "bold",
+      stroke: "#004422", strokeThickness: 1,
+      shadow: { offsetX: 0, offsetY: 1, color: "#000", blur: 3, fill: true }
+    }).setOrigin(0.5);
+    const sendZone = this.add.zone(sendX, sendY, sendBtnW, sendBtnH)
+      .setInteractive({ useHandCursor: true });
+    sendZone.on("pointerover",  () => drawSend(true));
+    sendZone.on("pointerout",   () => drawSend(false));
+    sendZone.on("pointerdown",  () => {
+      this.tweens.add({ targets: [sendG, sendTxt], scaleX: 0.96, scaleY: 0.96, duration: 60, yoyo: true });
+      if (inputText.trim()) {
+        const myName = this._getMyPlayer()?.name || "Bạn";
+        this.socket?.emit("room:chat", { message: inputText.trim() });
+        this._appendChatLine(`[${myName}] ${inputText.trim()}`);
+        inputText = ""; inputDisplay.setText(""); placeholder.setVisible(true);
+      }
+    });
 
-    dg.lineBetween(infoX - gap / 2, panelY + 16, infoX - gap / 2, panelY + panelH - 16);
+    if (!this._chatSocketBound) {
+      this._chatSocketBound = true;
+      this.socket?.on("room:chat", (data) => { this._appendChatLine(`[${data.name}] ${data.message}`); });
+    }
 
-    // Badge loại phòng — căn giữa infoCX
-    const badgeG     = this.add.graphics();
-    const badgeColor = rd.is_private ? 0x8833cc : 0x1177cc;
-    badgeG.fillStyle(badgeColor, 0.75);
-    badgeG.fillRoundedRect(infoX, midY - 40, infoW, 22, 6);
-    badgeG.lineStyle(1, 0xaaddff, 0.5);
-    badgeG.strokeRoundedRect(infoX, midY - 40, infoW, 22, 6);
+    // ── DIVIDER chat | action ─────────────────────────────────────
+    const dg = this.add.graphics();
+    dg.lineStyle(1, 0x55aadd, 0.35);
+    dg.lineBetween(chatX + chatW + 8, panelY + 14, chatX + chatW + 8, panelY + panelH - 14);
 
-    this.add.text(infoCX, midY - 29, roomType, {
-      fontFamily: "Signika", fontSize: "13px",
-      color: "#ffffff", fontStyle: "bold",
-      stroke: "#001a44", strokeThickness: 2,
-    }).setOrigin(0.5, 0.5);
+    // ── ACTION BUTTON — giữa ─────────────────────────────────────
+    const actionCX = chatX + chatW + 8 + (panelW * 0.22);
+    this._bottomPanelMidY   = midY;
+    this._bottomPanelX      = panelX;
+    this._bottomPanelCol1CX = actionCX;
 
-    // Rank — căn giữa infoCX, dịch xuống thêm
-    this.add.text(infoCX, midY + 4, rankLabel, {
-      fontFamily: "Signika", fontSize: "18px",
-      color: "#ffffff", fontStyle: "bold",
-      stroke: "#003388", strokeThickness: 4,
-      shadow: { offsetX: 1, offsetY: 2, color: "#001155", blur: 4, fill: true },
-    }).setOrigin(0.5, 0.5);
+    // ── ROOM INFO — khung viền đứt bên phải ──────────────────────
+    const rd      = this.roomData;
+    const betAmt  = Number(rd.bet ?? rd.bet_ecoin ?? 0);
+    const betStr  = betAmt >= 1000000
+      ? (betAmt / 1000000).toFixed(betAmt % 1000000 === 0 ? 0 : 1) + "M"
+      : betAmt >= 1000 ? (betAmt / 1000) + "K" : betAmt + "";
 
-    // Số người — căn giữa infoCX
-    const maxP = this._isTeam ? 4 : 2;
-    this.add.text(infoCX, midY + 28, `${maxP} người chơi`, {
+    const RANK_LABEL = { pho_thong:"Phổ thông", tan_thu:"Tân thủ", cao_thu:"Cao thủ", bac_thay:"Bậc thầy", huyen_thoai:"Huyền thoại" };
+    const rankLabel  = RANK_LABEL[rd.rank_required ?? rd.rank ?? "pho_thong"] ?? "Phổ thông";
+    const roomType   = rd.is_private ? "Nội bộ" : "Tự do";
+
+    // Kích thước khung room info
+    const riW  = Math.floor(panelW * 0.38);
+    const riH  = panelH - 8;
+    const riX  = panelX + panelW - riW;
+    const riY  = panelY + 4;
+    const riCX = riX + riW / 2;
+    const riR  = 12;
+
+    // Nền mờ
+    const riG = this.add.graphics();
+    riG.fillStyle(0x0a2a55, 0.35);
+    riG.fillRoundedRect(riX, riY, riW, riH, riR);
+
+    // Viền đứt nét
+    const dashLen = 8, dashGap = 5;
+    riG.lineStyle(1.5, 0x55aadd, 0.6);
+    const drawDash = (x1, y1, x2, y2) => {
+      const dist = Phaser.Math.Distance.Between(x1, y1, x2, y2);
+      const ang  = Phaser.Math.Angle.Between(x1, y1, x2, y2);
+      for (let d = 0; d < dist; d += dashLen + dashGap) {
+        const e = Math.min(d + dashLen, dist);
+        riG.beginPath();
+        riG.moveTo(x1 + Math.cos(ang) * d, y1 + Math.sin(ang) * d);
+        riG.lineTo(x1 + Math.cos(ang) * e, y1 + Math.sin(ang) * e);
+        riG.strokePath();
+      }
+    };
+    drawDash(riX + riR, riY,       riX + riW - riR, riY);
+    drawDash(riX + riW, riY + riR, riX + riW,       riY + riH - riR);
+    drawDash(riX + riW - riR, riY + riH, riX + riR, riY + riH);
+    drawDash(riX, riY + riH - riR, riX,             riY + riR);
+
+    // Layout bên trong: MAP trái | Mức cược giữa | Loại phòng phải
+    const mapSize = riH - 16;
+    const mapCX   = riX + 8 + mapSize / 2;
+
+    const mapImg = this.add.image(mapCX, riY + riH / 2, "map1").setDepth(1);
+    const sc = Math.min(mapSize / mapImg.width, mapSize / mapImg.height);
+    mapImg.setScale(sc);
+
+    // Mức cược
+    const betCX = riX + 8 + mapSize + (riW - 8 - mapSize) * 0.38;
+    this.add.text(betCX, riY + riH * 0.28, "Mức cược", {
+      fontFamily:"Signika", fontSize:"13px", color:"#aaccee", stroke:"#001a44", strokeThickness:2
+    }).setOrigin(0.5);
+    this.add.image(betCX - 22, riY + riH * 0.62, "coin").setDisplaySize(28, 28).setOrigin(0.5);
+    this.add.text(betCX - 4, riY + riH * 0.62, betStr, {
+      fontFamily:"Signika", fontSize:"26px", color:"#ffe066", fontStyle:"bold",
+      stroke:"#7a3300", strokeThickness:5
+    }).setOrigin(0, 0.5);
+
+    // Loại phòng + rank
+    const typeCX = riX + 8 + mapSize + (riW - 8 - mapSize) * 0.78;
+    const badgeG = this.add.graphics();
+    badgeG.fillStyle(rd.is_private ? 0x8833cc : 0x1177cc, 0.85);
+    badgeG.fillRoundedRect(typeCX - 52, riY + riH * 0.12, 104, 22, 11);
+    this.add.text(typeCX, riY + riH * 0.23, roomType, {
+      fontFamily:"Signika", fontSize:"13px", color:"#ffffff", fontStyle:"bold", stroke:"#001a44", strokeThickness:2
+    }).setOrigin(0.5);
+    this.add.text(typeCX, riY + riH * 0.55, rankLabel, {
+      fontFamily:"Signika", fontSize:"18px", color:"#ffffff", fontStyle:"bold", stroke:"#003388", strokeThickness:4
+    }).setOrigin(0.5);
+    this.add.text(typeCX, riY + riH * 0.82, `${this._isTeam ? 4 : 2} người chơi`, {
+      fontFamily:"Signika", fontSize:"11px", color:"#88aacc", stroke:"#001a44", strokeThickness:2
+    }).setOrigin(0.5);
+  }
+
+  _appendChatLine(text) {
+    if (!this._chatBox) return;
+    const cb = this._chatBox;
+    const maxLines = Math.floor(cb.h / cb.lineH);
+
+    // Xóa dòng cũ nếu quá
+    if (cb.lines.length >= maxLines) {
+      const old = cb.lines.shift();
+      try { old?.destroy(); } catch(e) {}
+      // Dịch các dòng còn lại lên
+      cb.lines.forEach((t, i) => { t.y = cb.y + i * cb.lineH; });
+    }
+
+    const y = cb.y + cb.lines.length * cb.lineH;
+    const t = this.add.text(cb.x, y, text, {
       fontFamily: "Signika", fontSize: "12px",
-      color: "#88aacc", stroke: "#001a44", strokeThickness: 2,
-    }).setOrigin(0.5, 0.5);
-
-    // ── ❓ Icon ───────────────────────────────────────────────────
-    dg.lineBetween(qCX - qSize / 2 - gap / 2, panelY + 16, qCX - qSize / 2 - gap / 2, panelY + panelH - 16);
-
-    this.add.image(qCX, midY, "icon_question")
-      .setDisplaySize(qSize, qSize)
-      .setInteractive({ cursor: "pointer" })
-      .on("pointerdown", () => {
-        this._showAlert(
-          "Phòng Tự do: Ai cũng có thể vào.\nPhòng Nội bộ: Chỉ người được mời.\n\nHạng yêu cầu tối thiểu để tham gia phòng."
-        );
-      });
+      color: "#cce8ff", stroke: "#001133", strokeThickness: 2,
+      wordWrap: { width: cb.w }
+    });
+    cb.lines.push(t);
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -1368,27 +1444,7 @@ export default class RoomScene extends Phaser.Scene {
   // CHAT LOG
   // ══════════════════════════════════════════════════════════════════════
   _buildChatLog(width, height) {
-    const lines = [
-      { name: "Hệ thống", msg: "Chào mừng bạn vào phòng chờ!" },
-      { name: "Hệ thống", msg: "Nhấn Sẵn Sàng khi bạn đã chuẩn bị." },
-    ];
-    const logX = 18;
-    const logY = height - 185;
-    const lineH = 22;
-    lines.forEach((line, i) => {
-      const y    = logY + i * lineH;
-      const full = `[${line.name}] ${line.msg}`;
-      this.add.text(logX + 1, y + 1, full, {
-        fontFamily: "Signika", fontSize: "13px", color: "#000000"
-      }).setAlpha(0.45);
-      this.add.text(logX, y, full, {
-        fontFamily: "Signika",
-        fontSize:   "13px",
-        color:      "#cce8ff",
-        stroke:     "#001133",
-        strokeThickness: 2
-      });
-    });
+    // Chat log đã được tích hợp vào _buildBottomPanel
   }
 
   // ══════════════════════════════════════════════════════════════════════

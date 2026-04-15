@@ -2401,12 +2401,6 @@ const CHARACTER_PRICES = {
 };
 
 // Bảng giá skin
-const SKIN_PRICES = {
-  1: 0,        // Skin sơ cấp — miễn phí (theo nhân vật)
-  2: 15000,    // Skin trung cấp
-  3: 35000,    // Skin cao cấp
-};
-
 // GET /shop/characters — Tất cả nhân vật kèm giá từ DB
 app.get("/shop/characters", async (req, res) => {
   try {
@@ -2563,9 +2557,9 @@ app.post("/shop/buy-skin", async (req, res) => {
       return res.json({ success: false, message: "Bạn đã sở hữu trang phục này rồi!" });
     }
 
-    // 2) Lấy thông tin skin
+    // 2) Lấy thông tin skin kèm giá từ DB
     const [skinRows] = await db.query(
-      "SELECT skin_number, character_id FROM character_skins WHERE id = ?",
+      "SELECT skin_number, character_id, price FROM character_skins WHERE id = ?",
       [skinId]
     );
     if (!skinRows[0]) return res.json({ success: false, message: "Skin không tồn tại" });
@@ -2582,8 +2576,8 @@ app.post("/shop/buy-skin", async (req, res) => {
       return res.json({ success: false, message: "Bạn cần sở hữu nhân vật trước khi mua trang phục!" });
     }
 
-    // 4) Lấy giá
-    const price = SKIN_PRICES[skinNumber] ?? 15000;
+    // 4) Lấy giá từ DB
+    const price = Number(skinRows[0].price ?? 0);
 
     // 5) Kiểm tra ecoin
     const [userRows] = await db.query("SELECT ecoin FROM users WHERE id = ?", [userId]);
