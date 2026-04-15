@@ -532,7 +532,7 @@ export default class RoomScene extends Phaser.Scene {
     this._slots = [];
 
     const { width, height } = this.scale;
-    const topY = 108;
+    const topY = 102;
     const slotH = Math.floor(height * 0.46);
     const cy   = topY + slotH / 2;
 
@@ -876,7 +876,7 @@ export default class RoomScene extends Phaser.Scene {
     const vipItems = this._makeVipBadge(-hw, -hh + 2, sw, player.name, isMe);
 
     // ── Ready / Host badge ────────────────────────────────────────────────
-    const readyY   = hh + 25;
+    const readyY   = hh + 32;
     const readyItems = this._makeReadyBadge(0, readyY, sw, player, idx);
 
     // ── Info "i" ──────────────────────────────────────────────────────────
@@ -933,7 +933,7 @@ export default class RoomScene extends Phaser.Scene {
     const items = [];
 
     if (player.is_host) {
-      const authorImg = this.add.image(sw / 2 - 5, y - 65, "author")
+      const authorImg = this.add.image(sw / 2 - 5, y - 70, "author")
         .setDisplaySize(45, 45)
         .setOrigin(0.5);
       items.push(authorImg);
