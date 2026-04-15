@@ -61,6 +61,8 @@ export default class RoomScene extends Phaser.Scene {
     this.load.image("avatar_default","assets/ui/shared/user0.png");
     this.load.image("icon_info",     "assets/ui/shared/info.png");
     this.load.image("icon_setting",  "assets/ui/shared/setting.png");
+    this.load.image("icon_sound",    "assets/ui/shared/sound.png");
+    this.load.image("icon_music",    "assets/ui/shared/music.png");
     this.load.image("versus2",       "assets/ui/shared/versus3.png");
     this.load.image("author",        "assets/ui/shared/author.png");
 
@@ -347,7 +349,7 @@ export default class RoomScene extends Phaser.Scene {
     const { width } = this.scale;
     const D = 500;
     const w = 300;
-    const h = 96;
+    const h = 110;
     const x = width - w - 18;
     const y = 78;
 
@@ -362,7 +364,7 @@ export default class RoomScene extends Phaser.Scene {
     box.fillRoundedRect(x + 6, y + 6, w - 12, 18, 8);
     ui.push(box);
 
-    const txt = this.add.text(x + w / 2, y + 28, message, {
+    const txt = this.add.text(x + w / 2, y + h / 2 - 22, message, {
       fontFamily: "Signika",
       fontSize: "15px",
       color: "#ffffff",
@@ -372,9 +374,9 @@ export default class RoomScene extends Phaser.Scene {
     }).setOrigin(0.5, 0).setDepth(D + 1);
     ui.push(txt);
 
-    const acceptX = x + 86;
-    const declineX = x + 214;
-    const btnY = y + 72;
+    const acceptX  = x + w / 2 - 64;
+    const declineX = x + w / 2 + 64;
+    const btnY     = y + h - 26;
 
     const makeBtn = (cx, label, c1, c2, cb) => {
       const g = this.add.graphics().setDepth(D + 1);
@@ -531,7 +533,7 @@ export default class RoomScene extends Phaser.Scene {
 
     const { width, height } = this.scale;
     const topY = 100;
-    const slotH = Math.floor(height * 0.51);
+    const slotH = Math.floor(height * 0.46);
     const cy   = topY + slotH / 2;
 
     // Tính slotW sao cho tất cả slot vừa khít trong safe area (padding 24px mỗi bên)
@@ -799,19 +801,21 @@ export default class RoomScene extends Phaser.Scene {
     bg.lineStyle(2.5, isMe ? 0x44ffaa : 0x4db6ff, 0.9);
     bg.strokeRoundedRect(-hw, -hh, sw, sh, 14);
 
-    // ── Avatar area ───────────────────────────────────────────────────────
-    const avatarH  = Math.floor(sh * 0.72);
+    // ── Avatar area — chiếm phần lớn card, căn giữa ─────────────────────
+    const NAME_H   = 40;                          // chiều cao vùng tên người chơi trên cùng
+    const CHAR_H   = 26;                          // chiều cao vùng tên nhân vật dưới cùng
+    const avatarH  = sh - NAME_H - CHAR_H - 12;  // phần còn lại cho avatar
     const avatarW  = sw - 16;
     const avatarBg = this.add.graphics();
     avatarBg.fillStyle(0x0a2a55, 0.7);
-    avatarBg.fillRoundedRect(-hw + 8, -hh + 22, avatarW, avatarH, 10);
+    avatarBg.fillRoundedRect(-hw + 8, -hh + NAME_H, avatarW, avatarH, 10);
 
     // ── Background image nếu player có active_bg_id ───────────────────
     let bgImgObj = null;
     if (player.active_bg_id) {
       const bgKey = `bg_${player.active_bg_id}`;
       if (this.textures.exists(bgKey)) {
-        bgImgObj = this.add.image(0, -hh + 22 + avatarH / 2, bgKey);
+        bgImgObj = this.add.image(0, -hh + NAME_H + avatarH / 2, bgKey);
         const wRatio = avatarW / bgImgObj.width;
         const hRatio = avatarH / bgImgObj.height;
         bgImgObj.setScale(Math.max(wRatio, hRatio));
@@ -820,13 +824,13 @@ export default class RoomScene extends Phaser.Scene {
         const maskG = this.make.graphics({ add: false });
         maskG.fillStyle(0xffffff);
         maskG.fillRoundedRect(
-          cx - hw + 8, cy - hh + 22, avatarW, avatarH, 10
+          cx - hw + 8, cy - hh + NAME_H, avatarW, avatarH, 10
         );
         bgImgObj.setMask(maskG.createGeometryMask());
       }
     }
 
-    const avatarCY  = -hh + 22 + avatarH / 2;
+    const avatarCY   = -hh + NAME_H + avatarH / 2;
     const avatarSize = Math.min(avatarW * 0.88, avatarH * 0.88);
     let   avatar;
 
@@ -838,13 +842,11 @@ export default class RoomScene extends Phaser.Scene {
       const frame0Key  = `${name}_${skinNumber}_idle_000`;
 
       if (this.textures.exists(frame0Key)) {
-        // Frames đã load → tạo sprite + chạy animation
         const animKey = this._ensureIdleAnim(name, skinNumber);
         avatar = this.add.sprite(0, avatarCY, frame0Key);
         avatar.setDisplaySize(avatarSize, avatarSize).setAlpha(0.95);
         if (animKey) avatar.play(animKey);
       } else {
-        // Chưa load → dùng avatar_default tạm
         avatar = this.add.image(0, avatarCY, "avatar_default");
         avatar.setDisplaySize(avatarSize * 0.7, avatarSize * 0.7).setAlpha(0.6);
       }
@@ -853,7 +855,6 @@ export default class RoomScene extends Phaser.Scene {
       avatar.setDisplaySize(avatarSize * 0.7, avatarSize * 0.7).setAlpha(0.6);
     }
 
-    // Floating tween (chỉ áp dụng cho image, sprite tự animate)
     if (!hasChar || avatar.type === "Image") {
       this.tweens.add({
         targets: avatar,
@@ -863,25 +864,23 @@ export default class RoomScene extends Phaser.Scene {
       });
     }
 
-    // ── Tên nhân vật nhỏ bên dưới avatar ─────────────────────────────────
-    const charDisplayName = hasChar
-      ? player.character_name.replace(/_/g, " ")
-      : "";
-    const charLabel = this.add.text(0, -hh + 22 + avatarH + 6, charDisplayName, {
-      fontFamily: "Signika", fontSize: "11px",
-      color: isMe ? "#aaffcc" : "#88bbff",
-      stroke: "#001133", strokeThickness: 2,
+    // ── Tên nhân vật — dưới avatar, font cân đối ─────────────────────────
+    const charDisplayName = hasChar ? player.character_name.replace(/_/g, " ") : "";
+    const charLabel = this.add.text(0, hh - CHAR_H / 2 - 9, charDisplayName, {
+      fontFamily: "Signika", fontSize: "15px",
+      color: "#e0f0ff", fontStyle: "bold",
+      stroke: "#001133", strokeThickness: 3,
     }).setOrigin(0.5);
 
     // ── VIP badge (tên người chơi) ────────────────────────────────────────
     const vipItems = this._makeVipBadge(-hw, -hh + 2, sw, player.name, isMe);
 
     // ── Ready / Host badge ────────────────────────────────────────────────
-    const readyY   = hh - 34;
+    const readyY   = hh + 25;
     const readyItems = this._makeReadyBadge(0, readyY, sw, player, idx);
 
     // ── Info "i" ──────────────────────────────────────────────────────────
-    const infoIcon = this.add.image(hw - 5, hh - 70, "icon_info")
+    const infoIcon = this.add.image(hw - 5, hh - 85, "icon_info")
       .setDisplaySize(45, 45)
       .setInteractive({ cursor: "pointer" });
     infoIcon.on("pointerdown", () => {
@@ -917,13 +916,14 @@ export default class RoomScene extends Phaser.Scene {
     const g  = this.add.graphics();
     const shortName = name?.length > 18 ? name.slice(0, 18) + "..." : (name || "...");
 
-    const t = this.add.text(startX + bw / 2 + 2, startY + bh / 1.5, shortName, {
+    const t = this.add.text(startX + bw / 2 + 2, startY + bh / 1.5 - 2, shortName, {
       fontFamily: "Signika",
-      fontSize:   "19px",
-      color:      isMe ? "#aaffcc" : "#ffffff",
+      fontSize:   "22px",
+      color:      "#ffffff",
       fontStyle:  "bold",
-      stroke:     "#040a2a",
-      strokeThickness: 2
+      stroke:     "#001a4a",
+      strokeThickness: 4,
+      shadow: { offsetX: 0, offsetY: 2, color: "#000033", blur: 6, fill: true }
     }).setOrigin(0.5);
 
     return [g, t];
@@ -933,7 +933,7 @@ export default class RoomScene extends Phaser.Scene {
     const items = [];
 
     if (player.is_host) {
-      const authorImg = this.add.image(sw / 2 - 5, y + 0, "author")
+      const authorImg = this.add.image(sw / 2 - 5, y - 65, "author")
         .setDisplaySize(45, 45)
         .setOrigin(0.5);
       items.push(authorImg);
@@ -942,11 +942,11 @@ export default class RoomScene extends Phaser.Scene {
       const g = this.add.graphics();
       g.fillStyle(0x22cc55, 1);
       g.fillRoundedRect(x - 48, y - 14, 96, 28, 14);
-      g.lineStyle(1.5, 0x88ffaa, 0.8);
+      g.lineStyle(1.5, 0x0a1a0a, 0.6);
       g.strokeRoundedRect(x - 48, y - 14, 96, 28, 14);
       g.fillStyle(0xffffff, 0.2);
       g.fillRoundedRect(x - 42, y - 10, 84, 10, 6);
-      const t = this.add.text(x, y, "✓ Sẵn sàng", {
+      const t = this.add.text(x, y, "Sẵn sàng", {
         fontFamily: "Signika",
         fontSize:   "15px",
         color:      "#ffffff",
@@ -1039,9 +1039,85 @@ export default class RoomScene extends Phaser.Scene {
 
     const gearIcon = this.add.image(width - 48, 48, "icon_setting")
       .setDisplaySize(60, 60)
+      .setDepth(502)
       .setInteractive({ cursor: "pointer" });
-    gearIcon.on("pointerdown", () => {
-      this.tweens.add({ targets: gearIcon, angle: 90, duration: 200, yoyo: true });
+
+    gearIcon.on("pointerdown",  () => {
+      this._toggleSettingsBar(width - 48, 48);
+    });
+  }
+
+  _toggleSettingsBar(gearX, gearY) {
+    if (this._settingsBar) {
+      this._settingsBar.forEach(o => { try { o?.destroy(); } catch(e){} });
+      this._settingsBar = null;
+      return;
+    }
+
+    const ICON_SIZE = 55;
+    const GAP       = 12;
+    const PAD_X     = 6;
+    const PAD_Y     = 3;
+    const icons     = [
+      { key: "icon_sound" },
+      { key: "icon_music" },
+    ];
+    // Bar bao luôn gear: kéo dài đến hết gear bên phải
+    const barW = PAD_X + icons.length * ICON_SIZE + (icons.length - 1) * GAP + GAP + ICON_SIZE + PAD_X / 2;
+    const barH = PAD_Y * 2 + ICON_SIZE;
+    const barX = gearX + ICON_SIZE / 2 - barW;
+    const barY = gearY - barH / 2;
+    const D    = 498;
+    const objs = [];
+    const push = o => { objs.push(o); return o; };
+
+    // Nền pill tối xanh đậm, không viền
+    const bg = push(this.add.graphics().setDepth(D));
+    bg.fillStyle(0x0a1a33, 0.55);
+    bg.fillRoundedRect(barX, barY, barW, barH, barH / 2);
+
+    // Zone cursor pointer bao toàn bar
+    push(this.add.zone(barX + barW/2, barY + barH/2, barW, barH)
+      .setInteractive({ useHandCursor: true, cursor: "pointer" }).setDepth(D + 0.5));
+
+    // Sound + Music icons
+    icons.forEach((item, i) => {
+      const ix = barX + PAD_X + i * (ICON_SIZE + GAP) + ICON_SIZE / 2;
+      const iy = barY + barH / 2;
+      const img = push(this.add.image(ix, iy, item.key)
+        .setDisplaySize(ICON_SIZE, ICON_SIZE).setDepth(D + 1)
+        .setInteractive({ useHandCursor: true, cursor: "pointer" }));
+
+      img.on("pointerover",  () => img.setTint(0xddddff));
+      img.on("pointerout",   () => img.clearTint());
+      img.on("pointerdown",  () => {
+        this.tweens.add({ targets: img, alpha: 0.5, duration: 60, yoyo: true });
+        img.setTint(0xffffff);
+        this.time.delayedCall(150, () => img.clearTint());
+      });
+    });
+
+    this._settingsBar = objs;
+
+    // Slide in từ phải
+    objs.forEach(o => { if (o?.x !== undefined) o.x += barW * 0.6; });
+    this.tweens.add({
+      targets: objs.filter(o => o?.x !== undefined),
+      x: `-=${barW * 0.6}`, duration: 200, ease: "Back.easeOut"
+    });
+
+    // Đóng khi click ngoài — delay để tránh trigger ngay
+    this.time.delayedCall(250, () => {
+      if (!this._settingsBar) return;
+      const onDown = (p) => {
+        const inBar = p.x >= barX - 4 && p.x <= barX + barW + 4 && p.y >= barY - 4 && p.y <= barY + barH + 4;
+        if (!inBar) {
+          this._settingsBar?.forEach(o => { try { o?.destroy(); } catch(e){} });
+          this._settingsBar = null;
+          this.input.off("pointerdown", onDown);
+        }
+      };
+      this.input.on("pointerdown", onDown);
     });
   }
 

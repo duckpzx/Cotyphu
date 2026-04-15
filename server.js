@@ -1168,7 +1168,7 @@ io.on("connection", (socket) => {
 
       const isHost = room.host_user_id === user_id;
       const mySlot = findFreeSlot(before);
-      socket.player_name = user.username || user.name || "Player";
+      socket.player_name = user.name || user.username || "Player";
       socket.character_name = characterName; socket.skin_id = skinId;
       socket.active_bg_id = activeBgId; socket.active_bg_path = activeBgPath;
       socket.is_ready = false; socket.slot_index = mySlot; socket.current_room_id = room_id;
