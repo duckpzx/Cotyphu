@@ -3913,35 +3913,40 @@ this.input.keyboard.on("keydown-Y", () => {
 
     // ── Nền panel màu đồng bộ planet_color ──────────────────────────
     const panelG = push(this.add.graphics().setDepth(D + 1));
-    panelG.fillStyle(0x000000, 0.4);
-    panelG.fillRoundedRect(PCX - PW/2 + 6*S, PCY - PH/2 + 8*S, PW, PH, RAD);
-    panelG.fillGradientStyle(bgDark, bgDark, bgMid, bgMid, 1);
+    // Bóng đổ
+    panelG.fillStyle(0x000000, 0.45);
+    panelG.fillRoundedRect(PCX - PW/2 + 5*S, PCY - PH/2 + 7*S, PW, PH, RAD);
+    // Nền màu đồng bộ planet_color — transparent 0.80
+    panelG.fillStyle(bgDark, 0.80);
     panelG.fillRoundedRect(PCX - PW/2, PCY - PH/2, PW, PH, RAD);
-    panelG.lineStyle(3*S, borderC, 0.9);
+    // Lớp sáng nhẹ phía trên
+    panelG.fillStyle(bgMid, 0.28);
+    panelG.fillRoundedRect(PCX - PW/2, PCY - PH/2, PW, PH * 0.42, RAD);
+    // Viền ngoài màu planet
+    panelG.lineStyle(3*S, borderC, 1);
     panelG.strokeRoundedRect(PCX - PW/2, PCY - PH/2, PW, PH, RAD);
-    panelG.lineStyle(1.5*S, borderI, 0.3);
-    panelG.strokeRoundedRect(PCX - PW/2 + 5*S, PCY - PH/2 + 5*S, PW - 10*S, PH - 10*S, RAD - 4*S);
-    panelG.fillStyle(0xffffff, 0.06);
-    panelG.fillRoundedRect(PCX - PW/2 + 10*S, PCY - PH/2 + 8*S, PW - 20*S, PH * 0.18, RAD - 6*S);
+    // Viền trong mờ
+    panelG.lineStyle(1.5*S, borderI, 0.22);
+    panelG.strokeRoundedRect(PCX - PW/2 + 5*S, PCY - PH/2 + 5*S, PW - 10*S, PH - 10*S, RAD - 3*S);
 
     // ── Layout grid từ trên xuống ────────────────────────────────────
-    const TOP    = PCY - PH/2;
-    const PAD    = 26 * S;              // padding rộng hơn
-    const ROW_TIMER  = TOP + 8*S;
-    const ROW_TITLE  = TOP + PAD + 22*S;
-    const ROW_ORB    = TOP + PH * 0.46;
-    const ROW_PRICE  = TOP + PH * 0.75;
-    const ROW_BTN    = TOP + PH - PAD - 22*S;
+    const TOP        = PCY - PH/2;
+    const PAD        = 20 * S;
+    const ROW_TIMER  = TOP + 7*S;
+    const ROW_TITLE  = TOP + PAD + 20*S;
+    const ROW_ORB    = TOP + PH * 0.44;
+    const ROW_PRICE  = TOP + PH * 0.73;
+    const ROW_BTN    = TOP + PH - PAD - 20*S;
 
-    // ── Timer bar ngang — sát mép trên (trừ chỗ nút X) ─────────────
+    // ── Timer bar — sát mép trên, chừa chỗ nút X ────────────────────
     const TIMER_SECS = 12;
-    const TBAR_W = PW - 60*S;          // chừa 50px bên phải cho nút X
-    const TBAR_H = 8 * S;
-    const TBAR_X = PCX - PW/2 + 14*S;
+    const TBAR_W = PW - 56*S;
+    const TBAR_H = 7 * S;
+    const TBAR_X = PCX - PW/2 + 10*S;
     const TBAR_Y = ROW_TIMER;
 
     const timerBg = push(this.add.graphics().setDepth(D + 3));
-    timerBg.fillStyle(0x000000, 0.35);
+    timerBg.fillStyle(0x000000, 0.3);
     timerBg.fillRoundedRect(TBAR_X, TBAR_Y, TBAR_W, TBAR_H, TBAR_H / 2);
 
     const timerFill = push(this.add.graphics().setDepth(D + 4));
@@ -3953,8 +3958,8 @@ this.input.keyboard.on("keydown-Y", () => {
     };
     drawTimerBar(1);
 
-    const timerTxt = push(this.add.text(TBAR_X, TBAR_Y - 2*S, `${TIMER_SECS}s`, {
-      fontFamily: "Signika", fontSize: Math.floor(10*S) + "px", color: "#aaccaa"
+    const timerTxt = push(this.add.text(TBAR_X, TBAR_Y - 1*S, `${TIMER_SECS}s`, {
+      fontFamily: "Signika", fontSize: Math.floor(9*S) + "px", color: "#aaccaa"
     }).setOrigin(0, 1).setDepth(D + 4));
 
     let secsLeft = TIMER_SECS;
@@ -3971,31 +3976,32 @@ this.input.keyboard.on("keydown-Y", () => {
       }
     });
 
-    // ── Tiêu đề "ĐẶT TINH CẦU" ──────────────────────────────────────
+    // ── Tiêu đề pill ─────────────────────────────────────────────────
     const titleY = ROW_TITLE;
-    const titleBg = push(this.add.graphics().setDepth(D + 2));
     const tc1 = ((Math.floor(r0 * 0.45 + 20) << 16) | (Math.floor(g0 * 0.45 + 10) << 8) | Math.floor(b0 * 0.45 + 30));
+    const titleBg = push(this.add.graphics().setDepth(D + 2));
     titleBg.fillStyle(tc1, 1);
-    titleBg.fillRoundedRect(PCX - 120*S, titleY - 17*S, 240*S, 34*S, 17*S);
+    titleBg.fillRoundedRect(PCX - 115*S, titleY - 16*S, 230*S, 32*S, 16*S);
     titleBg.lineStyle(2*S, borderI, 0.8);
-    titleBg.strokeRoundedRect(PCX - 120*S, titleY - 17*S, 240*S, 34*S, 17*S);
+    titleBg.strokeRoundedRect(PCX - 115*S, titleY - 16*S, 230*S, 32*S, 16*S);
 
     push(this.add.text(PCX, titleY, "ĐẶT TINH CẦU", {
-      fontFamily: "Signika", fontSize: Math.floor(19*S) + "px",
+      fontFamily: "Signika", fontSize: Math.floor(18*S) + "px",
       color: "#ffffff", fontStyle: "bold",
-      stroke: "#000000", strokeThickness: 4,
-      shadow: { offsetX: 0, offsetY: 2, color: "#000", blur: 6, fill: true }
+      stroke: "#00000055", strokeThickness: 2,
+      shadow: { offsetX: 0, offsetY: 1, color: "#00000077", blur: 4, fill: true }
     }).setOrigin(0.5).setDepth(D + 3));
 
-    // ── Nút X góc phải trên ──────────────────────────────────────────
-    const CLOSE_X = PCX + PW/2 - 22*S;
-    const CLOSE_Y = PCY - PH/2 + 22*S;
-    const CLOSE_SIZE = 42*S;
+    // ── Nút X — nửa trong nửa ngoài góc phải trên ───────────────────
+    const CLOSE_SIZE = 60*S;
+    const CLOSE_X    = PCX + PW/2;
+    const CLOSE_Y    = PCY - PH/2;
+
     if (this.textures.exists("close_btn")) {
       const closeImg = push(this.add.image(CLOSE_X, CLOSE_Y, "close_btn")
-        .setDisplaySize(CLOSE_SIZE, CLOSE_SIZE).setDepth(D + 8)
+        .setDisplaySize(CLOSE_SIZE, CLOSE_SIZE).setDepth(D + 10)
         .setInteractive({ useHandCursor: true }));
-      closeImg.on("pointerover",  () => closeImg.setDisplaySize(CLOSE_SIZE * 1.12, CLOSE_SIZE * 1.12));
+      closeImg.on("pointerover",  () => closeImg.setDisplaySize(CLOSE_SIZE * 1.1, CLOSE_SIZE * 1.1));
       closeImg.on("pointerout",   () => closeImg.setDisplaySize(CLOSE_SIZE, CLOSE_SIZE));
       closeImg.on("pointerdown",  () => {
         if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
@@ -4003,14 +4009,15 @@ this.input.keyboard.on("keydown-Y", () => {
         this._closeBuildPanel();
       });
     } else {
-      const closeG = push(this.add.graphics().setDepth(D + 8));
-      closeG.fillStyle(0xcc2222, 1);
+      const closeG = push(this.add.graphics().setDepth(D + 10));
+      closeG.fillStyle(0xdd1111, 1);
       closeG.fillCircle(CLOSE_X, CLOSE_Y, CLOSE_SIZE / 2);
-      closeG.lineStyle(2*S, 0xffffff, 0.8);
+      closeG.lineStyle(3*S, 0xffffff, 0.9);
       closeG.strokeCircle(CLOSE_X, CLOSE_Y, CLOSE_SIZE / 2);
       const closeTxt = push(this.add.text(CLOSE_X, CLOSE_Y, "✕", {
-        fontFamily: "Signika", fontSize: Math.floor(18*S) + "px", color: "#ffffff", fontStyle: "bold"
-      }).setOrigin(0.5).setDepth(D + 9).setInteractive({ useHandCursor: true }));
+        fontFamily: "Signika", fontSize: Math.floor(22*S) + "px",
+        color: "#ffffff", fontStyle: "bold", stroke: "#880000", strokeThickness: 3
+      }).setOrigin(0.5).setDepth(D + 11).setInteractive({ useHandCursor: true }));
       closeTxt.on("pointerdown", () => {
         if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
         this.socket.emit("game:build_response", { room_id: this.gameRoomId, cell_index: data.cell_index, accept: false });
@@ -4056,21 +4063,39 @@ this.input.keyboard.on("keydown-Y", () => {
       }
     });
 
-    // ── Giá + vị trí nằm ngang nhau, dịch lên trên ─────────────────
-    const INFO_Y = ROW_PRICE - 18*S;
-    const COIN_SIZE = 30*S;
-    push(this.add.image(PCX - 65*S, INFO_Y, "coin")
+    // ── Giá + vị trí căn giữa, cùng font, thẳng hàng ───────────────
+    const INFO_Y    = ROW_PRICE - 10*S;
+    const COIN_SIZE = 35*S;
+    const INFO_FONT = Math.floor(22*S) + "px";
+    const priceStr  = this._formatMoney(data.build_cost);
+    const locStr    = `Vị trí: ô ${data.cell_index}`;
+
+    // Đo width thực để căn giữa chính xác
+    const _tp = this.add.text(0, -9999, priceStr, { fontFamily: "Signika", fontSize: INFO_FONT, fontStyle: "bold" });
+    const _tl = this.add.text(0, -9999, locStr,   { fontFamily: "Signika", fontSize: INFO_FONT, fontStyle: "bold" });
+    const priceW = _tp.width, locW = _tl.width;
+    _tp.destroy(); _tl.destroy();
+
+    const SEP        = 14*S;
+    const totalInfoW = COIN_SIZE + 6*S + priceW + SEP + locW;
+    const iX         = PCX - totalInfoW / 2;
+
+    // Coin icon — căn giữa dọc với text
+    push(this.add.image(iX + COIN_SIZE/2, INFO_Y, "coin")
       .setDisplaySize(COIN_SIZE, COIN_SIZE).setDepth(D + 3));
-    push(this.add.text(PCX - 65*S + COIN_SIZE/2 + 8*S, INFO_Y, `${this._formatMoney(data.build_cost)}`, {
-      fontFamily: "Signika", fontSize: Math.floor(24*S) + "px",
+    // 25K
+    push(this.add.text(iX + COIN_SIZE + 6*S, INFO_Y, priceStr, {
+      fontFamily: "Signika", fontSize: INFO_FONT,
       color: "#ffe566", fontStyle: "bold",
-      stroke: "#3a1a00", strokeThickness: 3,
-      shadow: { offsetX: 0, offsetY: 2, color: "#000", blur: 4, fill: true }
+      stroke: "#3a1a0088", strokeThickness: 2,
+      shadow: { offsetX: 0, offsetY: 1, color: "#00000088", blur: 3, fill: true }
     }).setOrigin(0, 0.5).setDepth(D + 3));
-    push(this.add.text(PCX + 18*S, INFO_Y, `Vị trí: ô ${data.cell_index}`, {
-      fontFamily: "Signika", fontSize: Math.floor(20*S) + "px",
-      color: "#ccccee", fontStyle: "bold",
-      stroke: "#000000", strokeThickness: 2,
+    // Vị trí — cùng font, cùng màu vàng, thẳng hàng
+    push(this.add.text(iX + COIN_SIZE + 6*S + priceW + SEP, INFO_Y, locStr, {
+      fontFamily: "Signika", fontSize: INFO_FONT,
+      color: "#ffe566", fontStyle: "bold",
+      stroke: "#3a1a0088", strokeThickness: 2,
+      shadow: { offsetX: 0, offsetY: 1, color: "#00000088", blur: 3, fill: true }
     }).setOrigin(0, 0.5).setDepth(D + 3));
 
     // ── Nút MUA / BỎ QUA — nhỏ hơn ─────────────────────────────────
@@ -4080,12 +4105,12 @@ this.input.keyboard.on("keydown-Y", () => {
     const BTN_BUY_X  = PCX - BTN_W/2 - BTN_GAP/2;
     const BTN_SKIP_X = PCX + BTN_W/2 + BTN_GAP/2;
 
-    this._buildModalBtn(shell, BTN_BUY_X,  BTN_Y, BTN_W, BTN_H, 0x22cc55, 0x118833, "🛒  MUA", () => {
+    this._buildModalBtn(shell, BTN_BUY_X,  BTN_Y, BTN_W, BTN_H, 0x22cc55, 0x118833, "MUA", () => {
       if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
       this.socket.emit("game:build_response", { room_id: this.gameRoomId, cell_index: data.cell_index, accept: true });
       this._closeBuildPanel();
     });
-    this._buildModalBtn(shell, BTN_SKIP_X, BTN_Y, BTN_W, BTN_H, 0xcc3322, 0x881111, "✕  BỎ QUA", () => {
+    this._buildModalBtn(shell, BTN_SKIP_X, BTN_Y, BTN_W, BTN_H, 0xcc3322, 0x881111, "BỎ QUA", () => {
       if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
       this.socket.emit("game:build_response", { room_id: this.gameRoomId, cell_index: data.cell_index, accept: false });
       this._closeBuildPanel();
@@ -4123,11 +4148,11 @@ this.input.keyboard.on("keydown-Y", () => {
       g.fillStyle(0xffffff, hover ? 0.42 : 0.28);
       g.fillRoundedRect(bx - bw / 2 + 10, by - bh / 2 + 5, bw - 20, bh * 0.40, br - 3);
       // Viền trắng ngoài
-      g.lineStyle(2.5, 0xffffff, 0.65);
+      g.lineStyle(1.5, 0xffffff, 0.5);
       g.strokeRoundedRect(bx - bw / 2, by - bh / 2, bw, bh, br);
       // Viền màu sáng thêm
       if (hover) {
-        g.lineStyle(2, 0xffffff, 0.90);
+        g.lineStyle(1.5, 0xffffff, 0.75);
         g.strokeRoundedRect(bx - bw / 2 + 2, by - bh / 2 + 2, bw - 4, bh - 4, br - 2);
       }
     };
