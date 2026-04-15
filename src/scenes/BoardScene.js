@@ -1778,6 +1778,8 @@ this.socket.on("game:tarot_denied", (data) => {
     this.load.image("orb_red",      "./assets/resources/Orb/iloveimg-resized/orb_red.png");
     this.load.image("orb_blue",     "./assets/resources/Orb/iloveimg-resized/orb_blue.png");
     this.load.image("orb_purple",   "./assets/resources/Orb/iloveimg-resized/orb_purple.png");
+    this.load.image("coin",         "./assets/ui/shared/coin.png");
+    this.load.image("close_btn",    "./assets/ui/shared/close.png");
     this.load.image("close_icon",   "./assets/ui/shared/close.png");
 
     // Fire arrow frames for ô 28 skill effect
@@ -1877,7 +1879,10 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
       slot.icon.setTexture(texKey);
       slot.icon.setOrigin(0.5);
       slot.icon.setPosition(slot.x + slot.w / 2, slot.y + slot.h / 2);
-      slot.icon.setDisplaySize(slot.w, slot.h);
+      // Giữ đúng tỷ lệ ảnh, scale vừa khít slot
+      const src = this.textures.get(texKey).getSourceImage();
+      const scale = Math.min(slot.w / src.width, slot.h / src.height);
+      slot.icon.setScale(scale);
       slot.icon.setAlpha(1);
       slot.icon.setVisible(true);
     } else {
@@ -3801,6 +3806,7 @@ this.input.keyboard.on("keydown-Y", () => {
   }
 
   _closeBuildPanel() {
+    if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
     if (this._buildPanelObjs) {
       this._buildPanelObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
       this._buildPanelObjs = [];
@@ -3868,11 +3874,7 @@ this.input.keyboard.on("keydown-Y", () => {
   }
 
 // ═══════════════════════════════════════════════════════════════
-//  Thay thế toàn bộ _showBuildPanel và _buildModalBtn trong BoardScene.js
-// ═══════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════
-//  _showBuildPanel — phiên bản nâng cấp
+//  _showBuildPanel — Casual 3D Chibi style (1 cấp độ, không nâng cấp)
 // ═══════════════════════════════════════════════════════════════
 
   _showBuildPanel(data) {
@@ -3884,256 +3886,217 @@ this.input.keyboard.on("keydown-Y", () => {
       this._buildPanelObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
     }
     this._buildPanelObjs = [];
+    if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
 
     const shell = { D, addObj: (o) => { this._buildPanelObjs.push(o); return o; } };
     const push  = (o) => shell.addObj(o);
 
-    // ── Dimmer (blur-style) ─────────────────────────────────────────
-    const dim = push(this.add.graphics().setDepth(D));
-    dim.fillStyle(0x000020, 0.70);
-    dim.fillRect(0, 0, width, height);
+    // ── Màu đồng bộ theo planet_color của người chơi ────────────────
+    const orbHex   = this._planetColorToHex(data.planet_color);
+    const orbKey   = this._hexToOrbKey(orbHex);
+    // Tạo màu nền tối từ orbHex (trộn với đen)
+    const r0 = ((orbHex >> 16) & 0xff), g0 = ((orbHex >> 8) & 0xff), b0 = (orbHex & 0xff);
+    const bgDark  = ((Math.floor(r0 * 0.18) << 16) | (Math.floor(g0 * 0.18) << 8) | Math.floor(b0 * 0.18));
+    const bgMid   = ((Math.floor(r0 * 0.12) << 16) | (Math.floor(g0 * 0.12) << 8) | Math.floor(b0 * 0.12));
+    const borderC = orbHex;
+    const borderI = ((Math.floor(r0 * 0.6 + 255 * 0.4) << 16) | (Math.floor(g0 * 0.6 + 255 * 0.4) << 8) | Math.floor(b0 * 0.6 + 255 * 0.4));
 
-    // ── Panel chính — lớn hơn, tỉ lệ đẹp hơn ───────────────────────
-    const PW  = 460 * S;
-    const PH  = 520 * S;
-    const PCX = width  / 2;
-    const PCY = height / 2;
+    // ── Kích thước panel nằm dưới màn hình ──────────────────────────
+    const PW  = Math.min(width * 0.88, 560 * S);
+    const PH  = 340 * S;
+    const PCX = width / 2;
+    const PCY = height - PH / 2 - 180 * S;
     const RAD = 24 * S;
 
-    const panelG = push(this.createStyledPanel(PCX, PCY, PW, PH, RAD));
-    panelG.setDepth(D + 1);
+    // ── Overlay tối map ──────────────────────────────────────────────
+    push(this.add.rectangle(width/2, height/2, width, height, 0x000000, 0.45).setDepth(D));
 
-    // Hiệu ứng glow ngoài panel
-    const glowG = push(this.add.graphics().setDepth(D));
-    glowG.fillStyle(0xffd080, 0.08);
-    glowG.fillRoundedRect(PCX - PW / 2 - 18 * S, PCY - PH / 2 - 18 * S, PW + 36 * S, PH + 36 * S, RAD + 18 * S);
+    // ── Nền panel màu đồng bộ planet_color ──────────────────────────
+    const panelG = push(this.add.graphics().setDepth(D + 1));
+    panelG.fillStyle(0x000000, 0.4);
+    panelG.fillRoundedRect(PCX - PW/2 + 6*S, PCY - PH/2 + 8*S, PW, PH, RAD);
+    panelG.fillGradientStyle(bgDark, bgDark, bgMid, bgMid, 1);
+    panelG.fillRoundedRect(PCX - PW/2, PCY - PH/2, PW, PH, RAD);
+    panelG.lineStyle(3*S, borderC, 0.9);
+    panelG.strokeRoundedRect(PCX - PW/2, PCY - PH/2, PW, PH, RAD);
+    panelG.lineStyle(1.5*S, borderI, 0.3);
+    panelG.strokeRoundedRect(PCX - PW/2 + 5*S, PCY - PH/2 + 5*S, PW - 10*S, PH - 10*S, RAD - 4*S);
+    panelG.fillStyle(0xffffff, 0.06);
+    panelG.fillRoundedRect(PCX - PW/2 + 10*S, PCY - PH/2 + 8*S, PW - 20*S, PH * 0.18, RAD - 6*S);
 
-   // ── Nút X — dùng close_icon image ──────────────────────────────
-    const closeX = PCX + PW / 2 + 2 * S;
-    const closeY = PCY - PH / 2 - 2 * S;
+    // ── Layout grid từ trên xuống ────────────────────────────────────
+    const TOP    = PCY - PH/2;
+    const PAD    = 26 * S;              // padding rộng hơn
+    const ROW_TIMER  = TOP + 8*S;
+    const ROW_TITLE  = TOP + PAD + 22*S;
+    const ROW_ORB    = TOP + PH * 0.46;
+    const ROW_PRICE  = TOP + PH * 0.75;
+    const ROW_BTN    = TOP + PH - PAD - 22*S;
 
-    const closeBtn = push(
-      this.add.image(closeX, closeY, "close_icon")
-        .setScale(0.70 * S)
-        .setDepth(D + 10)
-        .setInteractive({ useHandCursor: true })
-    );
-    closeBtn.on("pointerover",  () => {
-      this.tweens.add({ targets: closeBtn, scaleX: 0.80*S, scaleY: 0.80*S, duration: 80 });
-    });
-    closeBtn.on("pointerout",   () => {
-      this.tweens.add({ targets: closeBtn, scaleX: 0.70*S, scaleY: 0.70*S, duration: 80 });
-    });
-    closeBtn.on("pointerdown",  () => {
-      this.tweens.add({
-        targets: closeBtn, scaleX: 0.58*S, scaleY: 0.58*S,
-        duration: 60, yoyo: true,
-        onComplete: () => {
-          this.socket.emit("game:build_response", {
-            room_id: this.gameRoomId, cell_index: data.cell_index, accept: false
-          });
+    // ── Timer bar ngang — sát mép trên (trừ chỗ nút X) ─────────────
+    const TIMER_SECS = 12;
+    const TBAR_W = PW - 60*S;          // chừa 50px bên phải cho nút X
+    const TBAR_H = 8 * S;
+    const TBAR_X = PCX - PW/2 + 14*S;
+    const TBAR_Y = ROW_TIMER;
+
+    const timerBg = push(this.add.graphics().setDepth(D + 3));
+    timerBg.fillStyle(0x000000, 0.35);
+    timerBg.fillRoundedRect(TBAR_X, TBAR_Y, TBAR_W, TBAR_H, TBAR_H / 2);
+
+    const timerFill = push(this.add.graphics().setDepth(D + 4));
+    const drawTimerBar = (frac) => {
+      timerFill.clear();
+      const col = frac > 0.5 ? 0x44dd88 : frac > 0.25 ? 0xffcc00 : 0xff4444;
+      timerFill.fillStyle(col, 1);
+      timerFill.fillRoundedRect(TBAR_X, TBAR_Y, Math.max(TBAR_W * frac, TBAR_H), TBAR_H, TBAR_H / 2);
+    };
+    drawTimerBar(1);
+
+    const timerTxt = push(this.add.text(TBAR_X, TBAR_Y - 2*S, `${TIMER_SECS}s`, {
+      fontFamily: "Signika", fontSize: Math.floor(10*S) + "px", color: "#aaccaa"
+    }).setOrigin(0, 1).setDepth(D + 4));
+
+    let secsLeft = TIMER_SECS;
+    this._buildTimer = this.time.addEvent({
+      delay: 1000, repeat: TIMER_SECS - 1,
+      callback: () => {
+        secsLeft--;
+        drawTimerBar(secsLeft / TIMER_SECS);
+        timerTxt.setText(`${secsLeft}s`);
+        if (secsLeft <= 0) {
+          this.socket.emit("game:build_response", { room_id: this.gameRoomId, cell_index: data.cell_index, accept: false });
           this._closeBuildPanel();
         }
-      });
+      }
     });
 
-    // ── Tiêu đề — to hơn, có icon trang trí ────────────────────────
-    const titleY = PCY - PH / 2 + 40 * S;
-
-    // Icon ngôi sao trái
-    push(this.add.text(PCX - 105 * S, titleY, "✦", {
-      fontFamily: "serif",
-      fontSize: Math.floor(16 * S) + "px",
-      color: "#c8a060",
-    }).setOrigin(0.5).setDepth(D + 2));
-
-    push(this.add.text(PCX + 105 * S, titleY, "✦", {
-      fontFamily: "serif",
-      fontSize: Math.floor(16 * S) + "px",
-      color: "#c8a060",
-    }).setOrigin(0.5).setDepth(D + 2));
+    // ── Tiêu đề "ĐẶT TINH CẦU" ──────────────────────────────────────
+    const titleY = ROW_TITLE;
+    const titleBg = push(this.add.graphics().setDepth(D + 2));
+    const tc1 = ((Math.floor(r0 * 0.45 + 20) << 16) | (Math.floor(g0 * 0.45 + 10) << 8) | Math.floor(b0 * 0.45 + 30));
+    titleBg.fillStyle(tc1, 1);
+    titleBg.fillRoundedRect(PCX - 120*S, titleY - 17*S, 240*S, 34*S, 17*S);
+    titleBg.lineStyle(2*S, borderI, 0.8);
+    titleBg.strokeRoundedRect(PCX - 120*S, titleY - 17*S, 240*S, 34*S, 17*S);
 
     push(this.add.text(PCX, titleY, "ĐẶT TINH CẦU", {
-      fontFamily: "Signika",
-      fontSize:   Math.floor(26 * S) + "px",
-      color:      "#4a2a08",
-      fontStyle:  "bold",
-      stroke:     "#f5dfa0",
-      strokeThickness: Math.floor(3 * S),
-      shadow: { offsetX: 1, offsetY: 2, color: "#c8a06088", blur: 4, fill: true },
-    }).setOrigin(0.5).setDepth(D + 2));
-
-    // Đường kẻ trang trí dưới tiêu đề — có ornament
-    const divY = titleY + 22 * S;
-    const divG = push(this.add.graphics().setDepth(D + 2));
-    divG.lineStyle(2 * S, 0xc8a060, 0.7);
-    divG.lineBetween(PCX - PW * 0.42, divY, PCX - 14 * S, divY);
-    divG.lineBetween(PCX + 14 * S,    divY, PCX + PW * 0.42, divY);
-    // Hình thoi giữa
-    divG.fillStyle(0xc8a060, 0.9);
-    divG.fillTriangle(PCX, divY - 5 * S,  PCX - 8 * S, divY,  PCX, divY + 5 * S);
-    divG.fillTriangle(PCX, divY - 5 * S,  PCX + 8 * S, divY,  PCX, divY + 5 * S);
-
-    // ── Card tinh cầu — to hơn, có thêm chi tiết ───────────────────
-    const orbHex = this._planetColorToHex(data.planet_color);
-    const orbKey = this._hexToOrbKey(orbHex);
-
-    const CARD_W = 240 * S;   // trước là 200
-    const CARD_H = 250 * S;   // trước là 210
-    const CARD_X = PCX - CARD_W / 2;
-    const CARD_Y = PCY - PH / 2 + 96 * S; // trước là 78 -> dịch xuống
-    const CARD_R = 18 * S;   // bo góc nhẹ lớn hơn
-
-    // Glow màu orb xung quanh card
-    const cardGlowG = push(this.add.graphics().setDepth(D + 2));
-    cardGlowG.fillStyle(orbHex, 0.12);
-    cardGlowG.fillRoundedRect(CARD_X - 10 * S, CARD_Y - 10 * S, CARD_W + 20 * S, CARD_H + 20 * S, CARD_R + 10 * S);
-    this.tweens.add({
-      targets: cardGlowG, alpha: { from: 1, to: 0.4 },
-      duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
-    });
-
-    // Bóng đổ card
-    const cardShadow = push(this.add.graphics().setDepth(D + 2));
-    cardShadow.fillStyle(0x000000, 0.22);
-    cardShadow.fillRoundedRect(CARD_X + 5 * S, CARD_Y + 8 * S, CARD_W, CARD_H, CARD_R);
-
-    // Thân card
-    const cardG = push(this.add.graphics().setDepth(D + 3));
-    cardG.fillStyle(0x0d2a4a, 1);
-    cardG.fillRoundedRect(CARD_X, CARD_Y, CARD_W, CARD_H, CARD_R);
-
-    // Dải màu orb phía dưới
-    cardG.fillStyle(orbHex, 0.22);
-    cardG.fillRoundedRect(CARD_X, CARD_Y + CARD_H * 0.48, CARD_W, CARD_H * 0.52, CARD_R);
-    cardG.fillRect(CARD_X, CARD_Y + CARD_H * 0.48, CARD_W, CARD_H * 0.20);
-
-    // Đường phân cách tinh tế
-    cardG.lineStyle(1 * S, orbHex, 0.4);
-    cardG.lineBetween(CARD_X + 12 * S, CARD_Y + CARD_H * 0.50, CARD_X + CARD_W - 12 * S, CARD_Y + CARD_H * 0.50);
-
-    // Shine card
-    cardG.fillStyle(0xffffff, 0.15);
-    cardG.fillRoundedRect(CARD_X + 8 * S, CARD_Y + 6 * S, CARD_W - 16 * S, CARD_H * 0.18, CARD_R - 4 * S);
-
-    // Viền card
-    cardG.lineStyle(2.5 * S, orbHex, 0.95);
-    cardG.strokeRoundedRect(CARD_X, CARD_Y, CARD_W, CARD_H, CARD_R);
-    // Viền sáng trên
-    cardG.lineStyle(1.5 * S, 0xffffff, 0.22);
-    cardG.strokeRoundedRect(CARD_X + 2 * S, CARD_Y + 2 * S, CARD_W - 4 * S, CARD_H - 4 * S, CARD_R - 2 * S);
-
-    // Label "Tinh cầu" — badge nhỏ
-    const badgeG = push(this.add.graphics().setDepth(D + 4));
-    const badgeW = 102 * S, badgeH = 24 * S;
-    badgeG.fillStyle(0x1a90d0, 0.85);
-    badgeG.fillRoundedRect(PCX - badgeW / 2, CARD_Y + 12 * S, badgeW, badgeH, badgeH / 2);
-
-    push(this.add.text(PCX, CARD_Y + 12 * S + badgeH / 2, "Tinh cầu", {
-      fontFamily: "Signika",
-      fontSize:   Math.floor(16 * S) + "px",
-      color:      "#00121b",
-      fontStyle:  "bold",
-    }).setOrigin(0.5).setDepth(D + 5));
-    // Orb — float animation
-    const ORB_CY = CARD_Y + CARD_H * 0.45;
-    const ORB_SIZE = 118 * S; // trước là 100
-    const orbImg = push(
-      this.add.image(PCX, ORB_CY, orbKey)
-        .setDisplaySize(ORB_SIZE, ORB_SIZE)
-        .setDepth(D + 5)
-    );
-    this.tweens.add({
-      targets: orbImg, y: ORB_CY - 7 * S,
-      duration: 1200, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
-    });
-
-    // Bóng orb
-    const orbShadowEl = push(
-      this.add.ellipse(PCX, CARD_Y + CARD_H - 22 * S, 65 * S, 12 * S, orbHex, 0.30)
-        .setDepth(D + 4)
-    );
-    this.tweens.add({
-      targets: orbShadowEl,
-      scaleX: { from: 1, to: 0.60 }, alpha: { from: 0.30, to: 0.06 },
-      duration: 1200, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
-    });
-
-    // Giá — nổi bật hơn
-    push(this.add.text(PCX, CARD_Y + CARD_H - 20 * S, `💰 Giá: ${this._formatMoney(data.build_cost)}`, {
-      fontFamily: "Signika",
-      fontSize:   Math.floor(16 * S) + "px",
-      color:      "#ffe566",
-      fontStyle:  "bold",
-      stroke:     "#00000099",
-      strokeThickness: Math.floor(2.5 * S),
-      shadow: { offsetX: 0, offsetY: 2, color: "#000", blur: 4, fill: true },
-    }).setOrigin(0.5).setDepth(D + 5));
-
-    // ── Ô số — badge nhỏ dưới card ─────────────────────────────────
-    const cellY = CARD_Y + CARD_H + 20 * S + 8 * S; 
-
-    const cellBadgeW = 132 * S;
-    const cellBadgeH = 30 * S;
-
-    const cellBadgeG = push(this.add.graphics().setDepth(D + 2));
-    cellBadgeG.fillStyle(0x8b5e1a, 0.25);
-    cellBadgeG.fillRoundedRect(PCX - cellBadgeW / 2, cellY - cellBadgeH / 2, cellBadgeW, cellBadgeH, 14 * S);
-    cellBadgeG.lineStyle(1.5 * S, 0xc8a060, 0.55);
-    cellBadgeG.strokeRoundedRect(PCX - cellBadgeW / 2, cellY - cellBadgeH / 2, cellBadgeW, cellBadgeH, 14 * S);
-
-    push(this.add.text(PCX, cellY, `📍 Ô số ${data.cell_index}`, {
-      fontFamily: "Signika",
-      fontSize:   Math.floor(17 * S) + "px", 
-      color:      "#9b7040",
-      fontStyle:  "bold",
+      fontFamily: "Signika", fontSize: Math.floor(19*S) + "px",
+      color: "#ffffff", fontStyle: "bold",
+      stroke: "#000000", strokeThickness: 4,
+      shadow: { offsetX: 0, offsetY: 2, color: "#000", blur: 6, fill: true }
     }).setOrigin(0.5).setDepth(D + 3));
 
-    // ── Hai button — to hơn, khoảng cách đều ───────────────────────
-    const BTN_W   = 155 * S;
-    const BTN_H   = 52 * S;
-    const BTN_Y   = PCY + PH / 2 - 74 * S; // trước là -50 -> kéo lên trên
-    const BTN_GAP = 24 * S;
-
-    const BTN_BUY_X  = PCX - BTN_W / 2 - BTN_GAP / 2;
-    const BTN_SKIP_X = PCX + BTN_W / 2 + BTN_GAP / 2;
-
-    // MUA — xanh lá
-    this._buildModalBtn(shell,
-      BTN_BUY_X, BTN_Y, BTN_W, BTN_H,
-      0x2ecc40, 0x1a8a28, "🛒 MUA",
-      () => {
-        this.socket.emit("game:build_response", {
-          room_id: this.gameRoomId, cell_index: data.cell_index, accept: true
-        });
+    // ── Nút X góc phải trên ──────────────────────────────────────────
+    const CLOSE_X = PCX + PW/2 - 22*S;
+    const CLOSE_Y = PCY - PH/2 + 22*S;
+    const CLOSE_SIZE = 42*S;
+    if (this.textures.exists("close_btn")) {
+      const closeImg = push(this.add.image(CLOSE_X, CLOSE_Y, "close_btn")
+        .setDisplaySize(CLOSE_SIZE, CLOSE_SIZE).setDepth(D + 8)
+        .setInteractive({ useHandCursor: true }));
+      closeImg.on("pointerover",  () => closeImg.setDisplaySize(CLOSE_SIZE * 1.12, CLOSE_SIZE * 1.12));
+      closeImg.on("pointerout",   () => closeImg.setDisplaySize(CLOSE_SIZE, CLOSE_SIZE));
+      closeImg.on("pointerdown",  () => {
+        if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
+        this.socket.emit("game:build_response", { room_id: this.gameRoomId, cell_index: data.cell_index, accept: false });
         this._closeBuildPanel();
-      }
-    );
-
-    // BỎ QUA — đỏ cam
-    this._buildModalBtn(shell,
-      BTN_SKIP_X, BTN_Y, BTN_W, BTN_H,
-      0xe05c2a, 0x8a2a10, "⏭ BỎ QUA",
-      () => {
-        this.socket.emit("game:build_response", {
-          room_id: this.gameRoomId, cell_index: data.cell_index, accept: false
-        });
+      });
+    } else {
+      const closeG = push(this.add.graphics().setDepth(D + 8));
+      closeG.fillStyle(0xcc2222, 1);
+      closeG.fillCircle(CLOSE_X, CLOSE_Y, CLOSE_SIZE / 2);
+      closeG.lineStyle(2*S, 0xffffff, 0.8);
+      closeG.strokeCircle(CLOSE_X, CLOSE_Y, CLOSE_SIZE / 2);
+      const closeTxt = push(this.add.text(CLOSE_X, CLOSE_Y, "✕", {
+        fontFamily: "Signika", fontSize: Math.floor(18*S) + "px", color: "#ffffff", fontStyle: "bold"
+      }).setOrigin(0.5).setDepth(D + 9).setInteractive({ useHandCursor: true }));
+      closeTxt.on("pointerdown", () => {
+        if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
+        this.socket.emit("game:build_response", { room_id: this.gameRoomId, cell_index: data.cell_index, accept: false });
         this._closeBuildPanel();
-      }
-    );
-
-    // ── Hiệu ứng particles nhỏ trang trí ───────────────────────────
-    for (let i = 0; i < 4; i++) {
-      const px = PCX - PW / 2 + (i + 0.5) * (PW / 4);
-      const py = PCY - PH / 2 + 12 * S;
-      const dot = push(this.add.graphics().setDepth(D + 2));
-      dot.fillStyle(0xffd080, 0.6);
-      dot.fillCircle(px, py, 3 * S);
-      this.tweens.add({
-        targets: dot, alpha: { from: 0.6, to: 0.1 },
-        duration: 800 + i * 200, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
       });
     }
+
+    // ── Orb trung tâm phát sáng ──────────────────────────────────────
+    const ORB_CX = PCX;
+    const ORB_CY = ROW_ORB;
+    const ORB_SIZE = 90*S;
+
+    // Vòng hào quang — vẽ tĩnh, chỉ pulse alpha (không scale để tránh tạo hình tròn tối)
+    const aura2 = push(this.add.graphics().setDepth(D + 2));
+    aura2.fillStyle(orbHex, 0.18);
+    aura2.fillCircle(ORB_CX, ORB_CY, ORB_SIZE * 0.62);
+    this.tweens.add({ targets: aura2, alpha: { from: 0.9, to: 0.3 }, duration: 1100, repeat: -1, yoyo: true, ease: "Sine.easeInOut" });
+
+    const aura1 = push(this.add.graphics().setDepth(D + 3));
+    aura1.fillStyle(0xffffff, 0.10);
+    aura1.fillCircle(ORB_CX, ORB_CY, ORB_SIZE * 0.50);
+    this.tweens.add({ targets: aura1, alpha: { from: 0.4, to: 0.9 }, duration: 900, repeat: -1, yoyo: true, ease: "Sine.easeInOut" });
+
+    // Bóng đổ orb — float cùng orb
+    const orbShadow = push(this.add.ellipse(ORB_CX, ORB_CY + ORB_SIZE * 0.46, ORB_SIZE * 0.65, ORB_SIZE * 0.16, orbHex, 0.28).setDepth(D + 2));
+
+    // Orb image — float nhẹ lên xuống 4px
+    const orbImg = push(this.add.image(ORB_CX, ORB_CY, orbKey)
+      .setDisplaySize(ORB_SIZE, ORB_SIZE).setDepth(D + 4));
+
+    // Float tất cả cùng nhau — dùng offset tương đối đúng cách
+    const floatObjs = [aura1, aura2, orbShadow, orbImg];
+    const floatBase = floatObjs.map(o => o.y);
+    let floatDir = -1, floatY = 0;
+    this.time.addEvent({
+      delay: 16,
+      repeat: -1,
+      callback: () => {
+        floatY += floatDir * 0.04;
+        if (floatY <= -6) floatDir = 1;
+        if (floatY >= 0)  floatDir = -1;
+        floatObjs.forEach((o, i) => { o.y = floatBase[i] + floatY; });
+      }
+    });
+
+    // ── Giá + vị trí nằm ngang nhau, dịch lên trên ─────────────────
+    const INFO_Y = ROW_PRICE - 18*S;
+    const COIN_SIZE = 30*S;
+    push(this.add.image(PCX - 65*S, INFO_Y, "coin")
+      .setDisplaySize(COIN_SIZE, COIN_SIZE).setDepth(D + 3));
+    push(this.add.text(PCX - 65*S + COIN_SIZE/2 + 8*S, INFO_Y, `${this._formatMoney(data.build_cost)}`, {
+      fontFamily: "Signika", fontSize: Math.floor(24*S) + "px",
+      color: "#ffe566", fontStyle: "bold",
+      stroke: "#3a1a00", strokeThickness: 3,
+      shadow: { offsetX: 0, offsetY: 2, color: "#000", blur: 4, fill: true }
+    }).setOrigin(0, 0.5).setDepth(D + 3));
+    push(this.add.text(PCX + 18*S, INFO_Y, `Vị trí: ô ${data.cell_index}`, {
+      fontFamily: "Signika", fontSize: Math.floor(20*S) + "px",
+      color: "#ccccee", fontStyle: "bold",
+      stroke: "#000000", strokeThickness: 2,
+    }).setOrigin(0, 0.5).setDepth(D + 3));
+
+    // ── Nút MUA / BỎ QUA — nhỏ hơn ─────────────────────────────────
+    const BTN_W = 120*S, BTN_H = 40*S;
+    const BTN_Y = ROW_BTN;
+    const BTN_GAP = 16*S;
+    const BTN_BUY_X  = PCX - BTN_W/2 - BTN_GAP/2;
+    const BTN_SKIP_X = PCX + BTN_W/2 + BTN_GAP/2;
+
+    this._buildModalBtn(shell, BTN_BUY_X,  BTN_Y, BTN_W, BTN_H, 0x22cc55, 0x118833, "🛒  MUA", () => {
+      if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
+      this.socket.emit("game:build_response", { room_id: this.gameRoomId, cell_index: data.cell_index, accept: true });
+      this._closeBuildPanel();
+    });
+    this._buildModalBtn(shell, BTN_SKIP_X, BTN_Y, BTN_W, BTN_H, 0xcc3322, 0x881111, "✕  BỎ QUA", () => {
+      if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
+      this.socket.emit("game:build_response", { room_id: this.gameRoomId, cell_index: data.cell_index, accept: false });
+      this._closeBuildPanel();
+    });
+
+    // ── Slide-in từ dưới ────────────────────────────────────────────
+    this._buildPanelObjs.forEach(o => { if (o?.y !== undefined) o.y += PH * 0.6; });
+    this.tweens.add({
+      targets: this._buildPanelObjs.filter(o => o?.y !== undefined),
+      y: `-=${PH * 0.6}`, duration: 320, ease: "Back.easeOut"
+    });
   }
 
 // ─────────────────────────────────────────────────────────────────

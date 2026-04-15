@@ -57,6 +57,7 @@ window.onload = async function () {
     type: Phaser.AUTO,
     parent: "root-game",
     backgroundColor: "#020617",
+    disableVisibilityChange: true,
     scale: {
       mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,
