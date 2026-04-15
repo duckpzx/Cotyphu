@@ -1275,10 +1275,10 @@ export default class RoomScene extends Phaser.Scene {
 
     const zone = this.add.zone(bx, by, bw, bh).setInteractive({ cursor: enabled ? "pointer" : "default" });
     if (enabled) {
-      zone.on("pointerover",  () => { draw(true);  this.tweens.add({ targets: [g, txt], scaleX: 1.05, scaleY: 1.05, duration: 100 }); });
-      zone.on("pointerout",   () => { draw(false); this.tweens.add({ targets: [g, txt], scaleX: 1,    scaleY: 1,    duration: 100 }); });
+      zone.on("pointerover",  () => { draw(true); });
+      zone.on("pointerout",   () => { draw(false); });
       zone.on("pointerdown",  () => {
-        this.tweens.add({ targets: [g, txt], scaleX: 0.94, scaleY: 0.94, duration: 60, yoyo: true });
+        this.tweens.add({ targets: [g, txt], scaleX: 0.96, scaleY: 0.96, duration: 60, yoyo: true });
         cb();
       });
     }
@@ -1396,10 +1396,10 @@ export default class RoomScene extends Phaser.Scene {
       duration: 1100, yoyo: true, repeat: -1, ease: "Sine.easeInOut"
     });
     const zone = this.add.zone(bx, by, bw, bh).setInteractive({ cursor: "pointer" });
-    zone.on("pointerover",  () => { draw(true);  this.tweens.add({ targets: [g, txt], scaleX: 1.05, scaleY: 1.05, duration: 100 }); });
-    zone.on("pointerout",   () => { draw(false); this.tweens.add({ targets: [g, txt], scaleX: 1,    scaleY: 1,    duration: 100 }); });
+    zone.on("pointerover",  () => { draw(true); });
+    zone.on("pointerout",   () => { draw(false); });
     zone.on("pointerdown",  () => {
-      this.tweens.add({ targets: [g, txt], scaleX: 0.94, scaleY: 0.94, duration: 60, yoyo: true });
+      this.tweens.add({ targets: [g, txt], scaleX: 0.96, scaleY: 0.96, duration: 60, yoyo: true });
       cb();
     });
   }

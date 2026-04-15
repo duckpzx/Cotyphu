@@ -2712,18 +2712,6 @@ this.input.keyboard.on("keydown-Y", () => {
         cardBg.fillStyle(pc.color, 0.10);
         cardBg.fillRoundedRect(cardX, cY, CARD_W, CARD_H * 0.38, 6 * minRatio);
 
-        cardBg.lineStyle(2 * minRatio, pc.color, 0.95);
-        cardBg.strokeRoundedRect(cardX, cY, CARD_W, CARD_H, 6 * minRatio);
-
-        cardBg.lineStyle(1 * minRatio, 0xffffff, 0.12);
-        cardBg.strokeRoundedRect(
-          cardX + 3 * minRatio,
-          cY + 3 * minRatio,
-          CARD_W - 6 * minRatio,
-          CARD_H - 6 * minRatio,
-          4 * minRatio
-        );
-
         const slotText = this.add.text(
           cardX + CARD_W / 2,
           cY + 7 * minRatio,
@@ -2849,24 +2837,35 @@ this.input.keyboard.on("keydown-Y", () => {
     const S = minRatio;
 
     // ── Turn counter — top center ──────────────────────────────────
-    // Shadow text (xanh đậm, lệch xuống) để tạo hiệu ứng gradient
-    this._turnCounterShadow = this.add.text(width/2 + 2, 32*S + 3, "— LƯỢT", {
+    // Shadow số
+    this._turnCounterShadow = this.add.text(width/2 + 2, 32*S + 3, "—", {
       fontFamily: "Signika",
-      fontSize: Math.floor(44*S) + "px",
+      fontSize: Math.floor(52*S) + "px",
       color: "#0044aa",
       fontStyle: "bold",
-    }).setOrigin(0.5).setDepth(62).setAlpha(0.7);
+    }).setOrigin(1, 0.5).setDepth(62).setAlpha(0.7);
 
-    // Main text — trắng với stroke xanh đậm
-    this._turnCounterText = this.add.text(width/2, 32*S, "— LƯỢT", {
+    // Main số — lớn hơn
+    this._turnCounterText = this.add.text(width/2, 32*S, "—", {
       fontFamily: "Signika",
-      fontSize: Math.floor(44*S) + "px",
+      fontSize: Math.floor(52*S) + "px",
       color: "#e8f4ff",
       fontStyle: "bold",
       stroke: "#001339ff",
       strokeThickness: Math.floor(8*S),
       shadow: { offsetX: 0, offsetY: 1, color: "#001339ff", blur: 8, fill: true }
-    }).setOrigin(0.5).setDepth(63);
+    }).setOrigin(1, 0.5).setDepth(63);
+
+    // Chữ "LƯỢT" — nhỏ hơn, nằm bên phải số
+    this._turnLabelText = this.add.text(width/2 + 4, 36*S, "LƯỢT", {
+      fontFamily: "Signika",
+      fontSize: Math.floor(28*S) + "px",
+      color: "#e8f4ff",
+      fontStyle: "bold",
+      stroke: "#001339ff",
+      strokeThickness: Math.floor(6*S),
+      shadow: { offsetX: 0, offsetY: 1, color: "#001339ff", blur: 6, fill: true }
+    }).setOrigin(0, 0.5).setDepth(63);
 
     // ── infoText — bottom center, to hơn ──────────────────────────
     this.infoText = this.add.text(width/2, height - 36*S, "⏳", {
@@ -2889,9 +2888,8 @@ this.input.keyboard.on("keydown-Y", () => {
   // Cập nhật turn counter từ turn_number
   _updateTurnCounter(turnNumber) {
     if (!this._turnCounterText) return;
-    const txt = `${turnNumber} LƯỢT`;
-    this._turnCounterText.setText(txt);
-    this._turnCounterShadow?.setText(txt);
+    this._turnCounterText.setText(`${turnNumber}`);
+    this._turnCounterShadow?.setText(`${turnNumber}`);
   }
 
   // =====================
@@ -3880,7 +3878,7 @@ this.input.keyboard.on("keydown-Y", () => {
   _showBuildPanel(data) {
     const { width, height } = this.scale;
     const S = this.minRatio;
-    const D = 150;
+    const D = 220;
 
     if (this._buildPanelObjs) {
       this._buildPanelObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
@@ -4065,10 +4063,10 @@ this.input.keyboard.on("keydown-Y", () => {
 
     // ── Giá + vị trí căn giữa, cùng font, thẳng hàng ───────────────
     const INFO_Y    = ROW_PRICE - 10*S;
-    const COIN_SIZE = 35*S;
+    const COIN_SIZE = 36*S;
     const INFO_FONT = Math.floor(22*S) + "px";
     const priceStr  = this._formatMoney(data.build_cost);
-    const locStr    = `Vị trí: ô ${data.cell_index}`;
+    const locStr    = `Vị Trí: Ô ${data.cell_index}`;
 
     // Đo width thực để căn giữa chính xác
     const _tp = this.add.text(0, -9999, priceStr, { fontFamily: "Signika", fontSize: INFO_FONT, fontStyle: "bold" });
@@ -4086,14 +4084,14 @@ this.input.keyboard.on("keydown-Y", () => {
     // 25K
     push(this.add.text(iX + COIN_SIZE + 6*S, INFO_Y, priceStr, {
       fontFamily: "Signika", fontSize: INFO_FONT,
-      color: "#ffe566", fontStyle: "bold",
+      color: "#ffffff", fontStyle: "bold",
       stroke: "#3a1a0088", strokeThickness: 2,
       shadow: { offsetX: 0, offsetY: 1, color: "#00000088", blur: 3, fill: true }
     }).setOrigin(0, 0.5).setDepth(D + 3));
     // Vị trí — cùng font, cùng màu vàng, thẳng hàng
     push(this.add.text(iX + COIN_SIZE + 6*S + priceW + SEP, INFO_Y, locStr, {
       fontFamily: "Signika", fontSize: INFO_FONT,
-      color: "#ffe566", fontStyle: "bold",
+      color: "#ffffff", fontStyle: "bold",
       stroke: "#3a1a0088", strokeThickness: 2,
       shadow: { offsetX: 0, offsetY: 1, color: "#00000088", blur: 3, fill: true }
     }).setOrigin(0, 0.5).setDepth(D + 3));

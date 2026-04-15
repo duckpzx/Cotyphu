@@ -2422,7 +2422,7 @@ app.get("/shop/characters", async (req, res) => {
   }
 });
 
-// GET /shop/skins — Tất cả skin trong game
+// GET /shop/skins — Tất cả skin trong game (giá từ DB)
 app.get("/shop/skins", async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -2432,15 +2432,13 @@ app.get("/shop/skins", async (req, res) => {
         cs.skin_number,
         cs.image,
         cs.is_default,
+        cs.price,
         c.name AS character_name
       FROM character_skins cs
       JOIN characters c ON c.id = cs.character_id
       ORDER BY cs.character_id, cs.skin_number
     `);
-    const skins = rows.map(s => ({
-      ...s,
-      price: SKIN_PRICES[s.skin_number] ?? 15000,
-    }));
+    const skins = rows.map(s => ({ ...s, price: Number(s.price ?? 0) }));
     res.json({ success: true, skins });
   } catch (err) {
     console.error("GET /shop/skins error:", err);
