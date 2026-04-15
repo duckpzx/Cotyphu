@@ -532,7 +532,7 @@ export default class RoomScene extends Phaser.Scene {
     this._slots = [];
 
     const { width, height } = this.scale;
-    const topY = 118;
+    const topY = 108;
     const slotH = Math.floor(height * 0.46);
     const cy   = topY + slotH / 2;
 
@@ -657,7 +657,7 @@ export default class RoomScene extends Phaser.Scene {
       }
 
       this._buildActionBtn(
-        this._bottomPanelCol1CX ?? panelX + 160, midY, 220, 54,
+        this._bottomPanelCol1CX ?? panelX + 160, midY, 160, 44,
         canStart ? 0xff7700 : 0x555566,
         canStart ? 0xffaa00 : 0x777788,
         btnLabel,
@@ -673,7 +673,7 @@ export default class RoomScene extends Phaser.Scene {
       // Nút Sẵn Sàng / Hủy
       const isReady = myPlayer?.is_ready || false;
       this._buildActionBtn(
-        this._bottomPanelCol1CX ?? panelX + 160, midY, 200, 54,
+        this._bottomPanelCol1CX ?? panelX + 160, midY, 160, 44,
         isReady ? 0x22cc55 : 0x1155cc,
         isReady ? 0x55ff88 : 0x3388ff,
         isReady ? "Hủy Sẵn Sàng" : "Sẵn Sàng",
@@ -916,7 +916,7 @@ export default class RoomScene extends Phaser.Scene {
     const g  = this.add.graphics();
     const shortName = name?.length > 18 ? name.slice(0, 18) + "..." : (name || "...");
 
-    const t = this.add.text(startX + bw / 2 + 2, startY + bh / 1.5 - 2, shortName, {
+    const t = this.add.text(startX + bw / 2 + 2, startY + bh / 1.5 + 1, shortName, {
       fontFamily: "Signika",
       fontSize:   "22px",
       color:      "#ffffff",
@@ -1134,21 +1134,22 @@ export default class RoomScene extends Phaser.Scene {
   // ══════════════════════════════════════════════════════════════════════
   _buildHostStatus(width, height) {
     const cx = width / 2;
-    const cy = height - 175;
+    const cy = height - 148;
 
-    const minP     = this._isTeam ? 4 : 2;
+    const minP      = this._isTeam ? 4 : 2;
     const statusMsg = this._isTeam
-      ? "Team 2v2: cần đủ 4 người và tất cả sẵn sàng"
-      : `Solo: cần ít nhất ${minP} người và tất cả sẵn sàng`;
+      ? "Team 2v2: cần đủ 4 người\nvà tất cả sẵn sàng"
+      : `Solo: cần ít nhất ${minP} người\nvà tất cả sẵn sàng`;
 
     this._hostStatusText = this.add.text(cx, cy, statusMsg, {
         fontFamily: "Signika",
-        fontSize:   "14px",
-        color:      "#cce8ff",
+        fontSize:   "17px",
+        color:      "#ffffff",
         fontStyle:  "bold",
-        stroke:     "#002266",
-        strokeThickness: 3,
-        align:      "center"
+        stroke:     "#0022666b",
+        strokeThickness: 4,
+        align:      "center",
+        wordWrap:   { width: 260 }
       }).setOrigin(0.5);
   }
 
@@ -1282,7 +1283,7 @@ export default class RoomScene extends Phaser.Scene {
     const actionCX = chatX + chatW + 8 + (panelW * 0.22);
     this._bottomPanelMidY   = midY;
     this._bottomPanelX      = panelX;
-    this._bottomPanelCol1CX = actionCX;
+    this._bottomPanelCol1CX = width / 2;
 
     // ── ROOM INFO — khung viền đứt bên phải ──────────────────────
     const rd      = this.roomData;
@@ -1295,12 +1296,11 @@ export default class RoomScene extends Phaser.Scene {
     const rankLabel  = RANK_LABEL[rd.rank_required ?? rd.rank ?? "pho_thong"] ?? "Phổ thông";
     const roomType   = rd.is_private ? "Nội bộ" : "Tự do";
 
-    // Kích thước khung room info
-    const riW  = Math.floor(panelW * 0.38);
+    // Kích thước khung room info — nhỏ gọn, chỉ map + mức cược
+    const riW  = Math.floor(panelW * 0.26);
     const riH  = panelH - 8;
     const riX  = panelX + panelW - riW;
     const riY  = panelY + 4;
-    const riCX = riX + riW / 2;
     const riR  = 12;
 
     // Nền mờ
@@ -1327,39 +1327,29 @@ export default class RoomScene extends Phaser.Scene {
     drawDash(riX + riW - riR, riY + riH, riX + riR, riY + riH);
     drawDash(riX, riY + riH - riR, riX,             riY + riR);
 
-    // Layout bên trong: MAP trái | Mức cược giữa | Loại phòng phải
+    // MAP bên trái — có viền trắng bo góc
     const mapSize = riH - 16;
-    const mapCX   = riX + 8 + mapSize / 2;
+    const mapCX   = riX + 10 + mapSize / 2;
+    const mapBg   = this.add.graphics();
+    mapBg.fillStyle(0xffffff, 0.15);
+    mapBg.fillRoundedRect(riX + 8, riY + 6, mapSize, mapSize, 8);
+    mapBg.lineStyle(2.5, 0xffffff, 0.8);
+    mapBg.strokeRoundedRect(riX + 8, riY + 6, mapSize, mapSize, 8);
+    const mapImg  = this.add.image(mapCX, riY + riH / 2, "map1").setDepth(1);
+    mapImg.setScale(Math.min((mapSize - 4) / mapImg.width, (mapSize - 4) / mapImg.height));
 
-    const mapImg = this.add.image(mapCX, riY + riH / 2, "map1").setDepth(1);
-    const sc = Math.min(mapSize / mapImg.width, mapSize / mapImg.height);
-    mapImg.setScale(sc);
-
-    // Mức cược
-    const betCX = riX + 8 + mapSize + (riW - 8 - mapSize) * 0.38;
-    this.add.text(betCX, riY + riH * 0.28, "Mức cược", {
-      fontFamily:"Signika", fontSize:"13px", color:"#aaccee", stroke:"#001a44", strokeThickness:2
+    // Mức cược bên phải map
+    const betStartX = riX + 10 + mapSize + 14;
+    const betCX     = betStartX + (riW - 10 - mapSize - 14 - 10) / 2;
+    this.add.text(betCX, riY + riH * 0.30, "Mức cược", {
+      fontFamily:"Signika", fontSize:"18px", color:"#ffffff", fontStyle:"bold",
+      stroke:"#001a44", strokeThickness:3
     }).setOrigin(0.5);
-    this.add.image(betCX - 22, riY + riH * 0.62, "coin").setDisplaySize(28, 28).setOrigin(0.5);
-    this.add.text(betCX - 4, riY + riH * 0.62, betStr, {
-      fontFamily:"Signika", fontSize:"26px", color:"#ffe066", fontStyle:"bold",
+    this.add.image(betCX - 28, riY + riH * 0.68, "coin").setDisplaySize(34, 34).setOrigin(0.5);
+    this.add.text(betCX - 8, riY + riH * 0.68, betStr, {
+      fontFamily:"Signika", fontSize:"32px", color:"#ffe066", fontStyle:"bold",
       stroke:"#7a3300", strokeThickness:5
     }).setOrigin(0, 0.5);
-
-    // Loại phòng + rank
-    const typeCX = riX + 8 + mapSize + (riW - 8 - mapSize) * 0.78;
-    const badgeG = this.add.graphics();
-    badgeG.fillStyle(rd.is_private ? 0x8833cc : 0x1177cc, 0.85);
-    badgeG.fillRoundedRect(typeCX - 52, riY + riH * 0.12, 104, 22, 11);
-    this.add.text(typeCX, riY + riH * 0.23, roomType, {
-      fontFamily:"Signika", fontSize:"13px", color:"#ffffff", fontStyle:"bold", stroke:"#001a44", strokeThickness:2
-    }).setOrigin(0.5);
-    this.add.text(typeCX, riY + riH * 0.55, rankLabel, {
-      fontFamily:"Signika", fontSize:"18px", color:"#ffffff", fontStyle:"bold", stroke:"#003388", strokeThickness:4
-    }).setOrigin(0.5);
-    this.add.text(typeCX, riY + riH * 0.82, `${this._isTeam ? 4 : 2} người chơi`, {
-      fontFamily:"Signika", fontSize:"11px", color:"#88aacc", stroke:"#001a44", strokeThickness:2
-    }).setOrigin(0.5);
   }
 
   _appendChatLine(text) {
