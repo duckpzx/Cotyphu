@@ -941,11 +941,11 @@ export default class RoomScene extends Phaser.Scene {
     } else if (player.is_ready) {
       const g = this.add.graphics();
       g.fillStyle(0x22cc55, 1);
-      g.fillRoundedRect(x - 48, y - 14, 96, 28, 14);
+      g.fillRoundedRect(x - 48, y - 14, 96, 28, 9);
       g.lineStyle(1.5, 0x0a1a0a, 0.6);
-      g.strokeRoundedRect(x - 48, y - 14, 96, 28, 14);
+      g.strokeRoundedRect(x - 48, y - 14, 96, 28, 9);
       g.fillStyle(0xffffff, 0.2);
-      g.fillRoundedRect(x - 42, y - 10, 84, 10, 6);
+      g.fillRoundedRect(x - 42, y - 10, 84, 10, 5);
       const t = this.add.text(x, y, "Sẵn sàng", {
         fontFamily: "Signika",
         fontSize:   "15px",
@@ -964,7 +964,7 @@ export default class RoomScene extends Phaser.Scene {
     } else {
       const g = this.add.graphics();
       g.fillStyle(0x555566, 0.65);
-      g.fillRoundedRect(x - 38, y - 13, 76, 26, 13);
+      g.fillRoundedRect(x - 38, y - 13, 76, 26, 8);
       const t = this.add.text(x, y, "Đang chờ", {
         fontFamily: "Signika",
         fontSize:   "13px",
@@ -1073,7 +1073,7 @@ export default class RoomScene extends Phaser.Scene {
 
     // Nền pill tối xanh đậm, không viền
     const bg = push(this.add.graphics().setDepth(D));
-    bg.fillStyle(0x0a1a33, 0.55);
+    bg.fillStyle(0x041428, 0.55);
     bg.fillRoundedRect(barX, barY, barW, barH, barH / 2);
 
     // Zone cursor pointer bao toàn bar
@@ -1293,9 +1293,9 @@ export default class RoomScene extends Phaser.Scene {
       : betAmt >= 1000 ? (betAmt / 1000) + "K" : betAmt + "";
 
     const riW  = Math.floor(panelW * 0.26);
-    const riH  = panelH - 20;
-    const riX  = panelX + panelW - riW;
-    const riY  = panelY + 10;
+    const riH  = panelH - 50;
+    const riX  = panelX + panelW - riW - 12;
+    const riY  = panelY + 25;
     const riR  = 12;
 
     const riG = this.add.graphics();
@@ -1341,16 +1341,16 @@ export default class RoomScene extends Phaser.Scene {
     drawArc(riX + riW - riR, riY + riH - riR, riR, 0, Math.PI * 0.5);
     drawArc(riX + riR, riY + riH - riR, riR, Math.PI * 0.5, Math.PI);
 
-// --- MAP VỚI VIỀN TRẮNG VÀ ẢNH ĐƯỢC BO GÓC ---
+    // --- MAP VỚI VIỀN TRẮNG VÀ ẢNH ĐƯỢC BO GÓC ---
     const mapTexture = this.textures.get("map1").getSourceImage();
-    const maxMapArea = riH - 28; 
+    const maxMapArea = riH - 16; 
     const radius = 6; // Độ bo góc
 
     const scale = Math.min(maxMapArea / mapTexture.width, maxMapArea / mapTexture.height);
     const finalMapW = mapTexture.width * scale;
     const finalMapH = mapTexture.height * scale;
 
-    const mapX = riX + 12; 
+    const mapX = riX + 18; 
     const mapY = riY + (riH - finalMapH) / 2; 
     
     // 1. Vẽ viền trắng (Graphics)
@@ -1375,17 +1375,24 @@ export default class RoomScene extends Phaser.Scene {
     mapImg.setMask(mask);
 
     // --- MỨC CƯỢC ---
-    const betStartX = mapX + finalMapW + 10;
-    const betCX = betStartX + (riW - (betStartX - riX)) / 2;
-    
-    this.add.text(betCX, riY + riH * 0.35, "Mức cược", {
+    const betStartX = mapX + finalMapW + 6;
+    const betCX = betStartX + (riX + riW - betStartX) / 2;
+    const betLabelY = riY + riH / 2 - 18;
+    const betValueY = riY + riH / 2 + 16;
+
+    const betLabel = this.add.text(betCX, betLabelY, "Mức cược", {
       fontFamily:"Signika", fontSize:"22px", color:"#ffffff", fontStyle:"bold"
     }).setOrigin(0.5);
 
-    const coin = this.add.image(betCX - 25, riY + riH * 0.68, "coin").setDisplaySize(28, 28).setOrigin(0.5);
-    this.add.text(coin.x + 18, riY + riH * 0.68, betStr, {
+    const coinSize = 28;
+    const betTextObj = this.add.text(0, betValueY, betStr, {
       fontFamily:"Signika", fontSize:"26px", color:"#ffffff", fontStyle:"bold"
     }).setOrigin(0, 0.5);
+    
+    // Căn trái với "Mức cược"
+    const betLeftX = betLabel.x - betLabel.width / 2;
+    const coin = this.add.image(betLeftX + coinSize / 2, betValueY, "coin").setDisplaySize(coinSize, coinSize).setOrigin(0.5);
+    betTextObj.setX(coin.x + coinSize / 2 + 6);
   }
 
   _appendChatLine(text) {
