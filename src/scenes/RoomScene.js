@@ -1146,8 +1146,8 @@ export default class RoomScene extends Phaser.Scene {
         fontSize:   "17px",
         color:      "#ffffff",
         fontStyle:  "bold",
-        stroke:     "#0022666b",
-        strokeThickness: 4,
+        stroke:     "#0022666a",
+        strokeThickness: 3,
         align:      "center",
         wordWrap:   { width: 260 }
       }).setOrigin(0.5);
@@ -1292,25 +1292,21 @@ export default class RoomScene extends Phaser.Scene {
       ? (betAmt / 1000000).toFixed(betAmt % 1000000 === 0 ? 0 : 1) + "M"
       : betAmt >= 1000 ? (betAmt / 1000) + "K" : betAmt + "";
 
-    const RANK_LABEL = { pho_thong:"Phổ thông", tan_thu:"Tân thủ", cao_thu:"Cao thủ", bac_thay:"Bậc thầy", huyen_thoai:"Huyền thoại" };
-    const rankLabel  = RANK_LABEL[rd.rank_required ?? rd.rank ?? "pho_thong"] ?? "Phổ thông";
-    const roomType   = rd.is_private ? "Nội bộ" : "Tự do";
-
-    // Kích thước khung room info — nhỏ gọn, chỉ map + mức cược
     const riW  = Math.floor(panelW * 0.26);
-    const riH  = panelH - 8;
+    const riH  = panelH - 20;
     const riX  = panelX + panelW - riW;
-    const riY  = panelY + 4;
+    const riY  = panelY + 10;
     const riR  = 12;
 
-    // Nền mờ
     const riG = this.add.graphics();
-    riG.fillStyle(0x0a2a55, 0.35);
+    // Nền tối mờ nhẹ cho cả khung (giống ảnh mẫu 2)
+    riG.fillStyle(0x000000, 0.1);
     riG.fillRoundedRect(riX, riY, riW, riH, riR);
 
-    // Viền đứt nét
-    const dashLen = 8, dashGap = 5;
-    riG.lineStyle(1.5, 0x55aadd, 0.6);
+    // --- CẤU HÌNH NÉT ĐỨT MỚI (Mảnh và đều hơn) ---
+    const dashLen = 3, dashGap = 3; // Giảm xuống 3 cho nét nhỏ lại
+    riG.lineStyle(1.2, 0x1e4a8d, 0.6); // Nét mảnh 1.2, màu xanh đậm hơn một chút
+
     const drawDash = (x1, y1, x2, y2) => {
       const dist = Phaser.Math.Distance.Between(x1, y1, x2, y2);
       const ang  = Phaser.Math.Angle.Between(x1, y1, x2, y2);
@@ -1322,33 +1318,73 @@ export default class RoomScene extends Phaser.Scene {
         riG.strokePath();
       }
     };
-    drawDash(riX + riR, riY,       riX + riW - riR, riY);
-    drawDash(riX + riW, riY + riR, riX + riW,       riY + riH - riR);
+    const drawArc = (cx, cy, r, startA, endA) => {
+      const arcLen = r * Math.abs(endA - startA);
+      const steps  = Math.ceil(arcLen / (dashLen + dashGap));
+      for (let i = 0; i < steps; i++) {
+        const t1 = i / steps;
+        const t2 = Math.min((i + 0.4) / steps, 1); // 0.4 giúp khe hở góc đều hơn
+        const a1 = startA + (endA - startA) * t1;
+        const a2 = startA + (endA - startA) * t2;
+        riG.beginPath();
+        riG.arc(cx, cy, r, a1, a2);
+        riG.strokePath();
+      }
+    };
+
+    drawDash(riX + riR, riY, riX + riW - riR, riY);
+    drawDash(riX + riW, riY + riR, riX + riW, riY + riH - riR);
     drawDash(riX + riW - riR, riY + riH, riX + riR, riY + riH);
-    drawDash(riX, riY + riH - riR, riX,             riY + riR);
+    drawDash(riX, riY + riH - riR, riX, riY + riR);
+    drawArc(riX + riR, riY + riR, riR, Math.PI, Math.PI * 1.5);
+    drawArc(riX + riW - riR, riY + riR, riR, Math.PI * 1.5, Math.PI * 2);
+    drawArc(riX + riW - riR, riY + riH - riR, riR, 0, Math.PI * 0.5);
+    drawArc(riX + riR, riY + riH - riR, riR, Math.PI * 0.5, Math.PI);
 
-    // MAP bên trái — có viền trắng bo góc
-    const mapSize = riH - 16;
-    const mapCX   = riX + 10 + mapSize / 2;
-    const mapBg   = this.add.graphics();
-    mapBg.fillStyle(0xffffff, 0.15);
-    mapBg.fillRoundedRect(riX + 8, riY + 6, mapSize, mapSize, 8);
-    mapBg.lineStyle(2.5, 0xffffff, 0.8);
-    mapBg.strokeRoundedRect(riX + 8, riY + 6, mapSize, mapSize, 8);
-    const mapImg  = this.add.image(mapCX, riY + riH / 2, "map1").setDepth(1);
-    mapImg.setScale(Math.min((mapSize - 4) / mapImg.width, (mapSize - 4) / mapImg.height));
+// --- MAP VỚI VIỀN TRẮNG VÀ ẢNH ĐƯỢC BO GÓC ---
+    const mapTexture = this.textures.get("map1").getSourceImage();
+    const maxMapArea = riH - 28; 
+    const radius = 6; // Độ bo góc
 
-    // Mức cược bên phải map
-    const betStartX = riX + 10 + mapSize + 14;
-    const betCX     = betStartX + (riW - 10 - mapSize - 14 - 10) / 2;
-    this.add.text(betCX, riY + riH * 0.30, "Mức cược", {
-      fontFamily:"Signika", fontSize:"18px", color:"#ffffff", fontStyle:"bold",
-      stroke:"#001a44", strokeThickness:3
+    const scale = Math.min(maxMapArea / mapTexture.width, maxMapArea / mapTexture.height);
+    const finalMapW = mapTexture.width * scale;
+    const finalMapH = mapTexture.height * scale;
+
+    const mapX = riX + 12; 
+    const mapY = riY + (riH - finalMapH) / 2; 
+    
+    // 1. Vẽ viền trắng (Graphics)
+    const mapBg = this.add.graphics();
+    mapBg.lineStyle(2.5, 0xffffff, 1.5); 
+    mapBg.strokeRoundedRect(mapX, mapY, finalMapW, finalMapH, radius);
+    mapBg.setDepth(2); // Cho viền nằm trên ảnh cho sắc nét
+
+    // 2. Thêm ảnh map
+    const mapImg = this.add.image(mapX + finalMapW/2, mapY + finalMapH/2, "map1");
+    mapImg.setScale(scale);
+    mapImg.setDepth(1);
+
+    // 3. Tạo MASK để bo góc ảnh (Đây là phần quan trọng nhất)
+    const maskShape = this.add.graphics();
+    maskShape.fillStyle(0xffffff);
+    // Vẽ một hình tương tự như ảnh nhưng dùng fill để làm mặt nạ
+    maskShape.fillRoundedRect(mapX, mapY, finalMapW, finalMapH, radius);
+    
+    // Áp mặt nạ vào ảnh
+    const mask = maskShape.createGeometryMask();
+    mapImg.setMask(mask);
+
+    // --- MỨC CƯỢC ---
+    const betStartX = mapX + finalMapW + 10;
+    const betCX = betStartX + (riW - (betStartX - riX)) / 2;
+    
+    this.add.text(betCX, riY + riH * 0.35, "Mức cược", {
+      fontFamily:"Signika", fontSize:"22px", color:"#ffffff", fontStyle:"bold"
     }).setOrigin(0.5);
-    this.add.image(betCX - 28, riY + riH * 0.68, "coin").setDisplaySize(34, 34).setOrigin(0.5);
-    this.add.text(betCX - 8, riY + riH * 0.68, betStr, {
-      fontFamily:"Signika", fontSize:"32px", color:"#ffe066", fontStyle:"bold",
-      stroke:"#7a3300", strokeThickness:5
+
+    const coin = this.add.image(betCX - 25, riY + riH * 0.68, "coin").setDisplaySize(28, 28).setOrigin(0.5);
+    this.add.text(coin.x + 18, riY + riH * 0.68, betStr, {
+      fontFamily:"Signika", fontSize:"26px", color:"#ffffff", fontStyle:"bold"
     }).setOrigin(0, 0.5);
   }
 
