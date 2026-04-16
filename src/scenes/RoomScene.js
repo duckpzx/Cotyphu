@@ -793,7 +793,7 @@ export default class RoomScene extends Phaser.Scene {
 
     // Màu khác biệt nếu là slot của mình
     if (isMe) {
-      bg.fillGradientStyle(0x1a8a5a, 0x1a8a5a, 0x0d5a38, 0x0d5a38, 1);
+      bg.fillGradientStyle(0x1a897c, 0x1a897c, 0x0d4a62, 0x0d4a62, 1);
     } else {
       bg.fillGradientStyle(0x1a5fa8, 0x1a5fa8, 0x0d3a72, 0x0d3a72, 1);
     }
@@ -1039,7 +1039,7 @@ export default class RoomScene extends Phaser.Scene {
 
     const gearIcon = this.add.image(width - 48, 48, "icon_setting")
       .setDisplaySize(60, 60)
-      .setDepth(502)
+      .setDepth(499)
       .setInteractive({ cursor: "pointer" });
 
     gearIcon.on("pointerdown",  () => {
@@ -1073,7 +1073,7 @@ export default class RoomScene extends Phaser.Scene {
 
     // Nền pill tối xanh đậm, không viền
     const bg = push(this.add.graphics().setDepth(D));
-    bg.fillStyle(0x041428, 0.55);
+    bg.fillStyle(0x041428, 0.35);
     bg.fillRoundedRect(barX, barY, barW, barH, barH / 2);
 
     // Zone cursor pointer bao toàn bar
