@@ -1,5 +1,6 @@
 import { getActiveProfile } from "../server/utils/playerData.js";
 import { SERVER_URL } from "../config.js";
+import ChatWidget from "./components/ChatWidget.js";
 
 export default class RoomScene extends Phaser.Scene {
 
@@ -1162,125 +1163,21 @@ export default class RoomScene extends Phaser.Scene {
     const panelW = width - 16;
     const panelX = 8;
     const midY   = panelY + panelH / 2;
-    const chatX    = 0;   // bám sát trái màn hình
-    const chatW    = Math.floor(width * 0.32);
-    const inputH   = 42;
-    const msgAreaH = panelH - inputH;
+    const chatW  = Math.floor(width * 0.32);
 
-    // Vùng tin nhắn — bám sát trái/trên, chỉ bo góc trên-phải
-    const msgBg = this.add.graphics();
-    msgBg.fillStyle(0x041428, 0.58);
-    msgBg.fillRoundedRect(chatX, panelY, chatW, msgAreaH, { tl: 0, tr: 12, bl: 0, br: 0 });
-    msgBg.lineStyle(1.5, 0x2255aa, 0.6);
-    msgBg.strokeRoundedRect(chatX, panelY, chatW, msgAreaH, { tl: 0, tr: 12, bl: 0, br: 0 });
-
-    this._chatBox = {
-      x: chatX + 8, y: panelY + 6,
-      w: chatW - 16, h: msgAreaH - 8,
-      lineH: 18, lines: []
-    };
-
-    [
-      { name: "Hệ thống", msg: "Chào mừng vào phòng chờ!" },
-      { name: "Hệ thống", msg: "Nhấn Sẵn Sàng khi đã chuẩn bị." },
-    ].forEach(l => this._appendChatLine(`[${l.name}] ${l.msg}`));
-
-    // Ô input — bám sát trái/dưới, bo góc dưới-phải
-    const inputY = panelY + msgAreaH;
-    const inputW = chatW - 56;
-    const inputBg = this.add.graphics();
-    inputBg.fillStyle(0x020d1e, 0.9);
-    inputBg.fillRoundedRect(chatX, inputY, inputW, inputH, 0);
-    inputBg.lineStyle(1.5, 0x2255aa, 0.7);
-    inputBg.strokeRoundedRect(chatX, inputY, inputW, inputH, 0);
-
-    const placeholder = this.add.text(chatX + 14, inputY + inputH / 2, "Nhập tin nhắn...", {
-      fontFamily: "Signika", fontSize: "14px", color: "#4477aa"
-    }).setOrigin(0, 0.5);
-
-    let inputText = "";
-    const inputDisplay = this.add.text(chatX + 12, inputY + inputH / 2, "", {
-      fontFamily: "Signika", fontSize: "12px", color: "#ffffff"
-    }).setOrigin(0, 0.5);
-
-    const inputZone = this.add.zone(chatX + inputW / 2, inputY + inputH / 2, inputW, inputH)
-      .setInteractive({ useHandCursor: false, cursor: "text" });
-    this.input.setDefaultCursor("default");
-    inputZone.on("pointerover", () => { this.game.canvas.style.cursor = "text"; });
-    inputZone.on("pointerout",  () => { this.game.canvas.style.cursor = "default"; });
-
-    inputZone.on("pointerdown", () => {
-      placeholder.setVisible(false);
-      if (!this._chatKeyListener) {
-        this._chatKeyListener = (e) => {
-          if (e.key === "Enter") {
-            if (inputText.trim()) {
-              const myName = this._getMyPlayer()?.name || "Bạn";
-              this.socket?.emit("room:chat", { message: inputText.trim() });
-              this._appendChatLine(`[${myName}] ${inputText.trim()}`);
-              inputText = ""; inputDisplay.setText(""); placeholder.setVisible(true);
-            }
-          } else if (e.key === "Backspace") {
-            inputText = inputText.slice(0, -1);
-            inputDisplay.setText(inputText);
-            placeholder.setVisible(inputText.length === 0);
-          } else if (e.key.length === 1) {
-            inputText += e.key; inputDisplay.setText(inputText);
-          }
-        };
-        window.addEventListener("keydown", this._chatKeyListener);
-      }
-    });
-
-    // Nút Gửi — đồng bộ style với nút Sẵn sàng
-    const sendBtnW = chatW - inputW;
-    const sendBtnH = inputH;
-    const sendX    = chatX + inputW + sendBtnW / 2;
-    const sendY    = inputY + sendBtnH / 2;
-    const sendBR   = sendBtnH / 2;
-    const sendG    = this.add.graphics();
-    const drawSend = (h) => {
-      sendG.clear();
-      // Gradient xanh lá
-      sendG.fillGradientStyle(h ? 0x22bbff : 0x0099ff, h ? 0x22bbff : 0x0099ff, h ? 0x0055cc : 0x0066cc, h ? 0x0055cc : 0x0066cc, 1);
-      sendG.fillRect(chatX + inputW, inputY, sendBtnW, sendBtnH);
-      // Shine
-      sendG.fillStyle(0xffffff, h ? 0.32 : 0.20);
-      sendG.fillRect(chatX + inputW + 4, inputY + 3, sendBtnW - 8, sendBtnH * 0.38);
-      sendG.strokeRect(chatX + inputW, inputY, sendBtnW, sendBtnH);
-    };
-    drawSend(false);
-    const sendTxt = this.add.text(sendX, sendY, "Gửi", {
-      fontFamily: "Signika", fontSize: "14px", color: "#ffffff", fontStyle: "bold",
-      stroke: "#004422", strokeThickness: 1,
-      shadow: { offsetX: 0, offsetY: 1, color: "#000", blur: 3, fill: true }
-    }).setOrigin(0.5);
-    const sendZone = this.add.zone(sendX, sendY, sendBtnW, sendBtnH)
-      .setInteractive({ useHandCursor: true });
-    sendZone.on("pointerover",  () => drawSend(true));
-    sendZone.on("pointerout",   () => drawSend(false));
-    sendZone.on("pointerdown",  () => {
-      this.tweens.add({ targets: [sendG, sendTxt], scaleX: 0.96, scaleY: 0.96, duration: 60, yoyo: true });
-      if (inputText.trim()) {
-        const myName = this._getMyPlayer()?.name || "Bạn";
-        this.socket?.emit("room:chat", { message: inputText.trim() });
-        this._appendChatLine(`[${myName}] ${inputText.trim()}`);
-        inputText = ""; inputDisplay.setText(""); placeholder.setVisible(true);
-      }
-    });
-
-    if (!this._chatSocketBound) {
-      this._chatSocketBound = true;
-      this.socket?.on("room:chat", (data) => { this._appendChatLine(`[${data.name}] ${data.message}`); });
-    }
+    // ── CHAT WIDGET (room channel) ────────────────────────────────
+    this._chatWidget?.destroy();
+    this._chatWidget = new ChatWidget(this, { channel: "room", socket: this.socket });
+    this._chatWidget.build(0, panelY, chatW, panelH);
+    this._chatWidget.addSystemMessage("Chào mừng vào phòng chờ!");
+    this._chatWidget.addSystemMessage("Nhấn Sẵn Sàng khi đã chuẩn bị.");
 
     // ── DIVIDER chat | action ─────────────────────────────────────
     const dg = this.add.graphics();
     dg.lineStyle(1, 0x55aadd, 0.35);
-    dg.lineBetween(chatX + chatW + 8, panelY + 14, chatX + chatW + 8, panelY + panelH - 14);
+    dg.lineBetween(chatW + 8, panelY + 14, chatW + 8, panelY + panelH - 14);
 
     // ── ACTION BUTTON — giữa ─────────────────────────────────────
-    const actionCX = chatX + chatW + 8 + (panelW * 0.22);
     this._bottomPanelMidY   = midY;
     this._bottomPanelX      = panelX;
     this._bottomPanelCol1CX = width / 2;
@@ -1299,13 +1196,12 @@ export default class RoomScene extends Phaser.Scene {
     const riR  = 12;
 
     const riG = this.add.graphics();
-    // Nền tối mờ nhẹ cho cả khung (giống ảnh mẫu 2)
     riG.fillStyle(0x000000, 0.1);
     riG.fillRoundedRect(riX, riY, riW, riH, riR);
 
-    // --- CẤU HÌNH NÉT ĐỨT MỚI (Mảnh và đều hơn) ---
-    const dashLen = 3, dashGap = 3; // Giảm xuống 3 cho nét nhỏ lại
-    riG.lineStyle(1.2, 0x1e4a8d, 0.6); // Nét mảnh 1.2, màu xanh đậm hơn một chút
+    // --- CẤU HÌNH NÉT ĐỨT ---
+    const dashLen = 3, dashGap = 3;
+    riG.lineStyle(1.2, 0x1e4a8d, 0.6);
 
     const drawDash = (x1, y1, x2, y2) => {
       const dist = Phaser.Math.Distance.Between(x1, y1, x2, y2);
@@ -1724,5 +1620,10 @@ export default class RoomScene extends Phaser.Scene {
       .setInteractive({ cursor: "pointer" }).setDepth(D + 4);
     noZone.on("pointerdown", () => { dismiss(); if (onCancel) onCancel(); });
     allObjs.push(noZone);
+  }
+
+  shutdown() {
+    this._chatWidget?.destroy();
+    this._chatWidget = null;
   }
 }

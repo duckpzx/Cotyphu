@@ -21,6 +21,7 @@ import roomRepo from "./src/server/repositories/room.repo.js";
 import tarotService from "./src/server/services/tarot.service.js";
 import questionsService from "./src/server/services/questions.service.js";
 import db from "./src/server/config/db.js";
+import { registerChatHandlers, startChatCleanupJob } from "./src/server/handlers/chatHandler.js";
 
 const SECRET = process.env.JWT_SECRET;
 const app    = express();
@@ -1047,6 +1048,9 @@ function emitGameStateSync(room_id) {
 io.on("connection", (socket) => {
   console.log(`\n✅ Connected: ${socket.id} | user_id: ${socket.user_id}`);
 
+  // ── CHAT ─────────────────────────────────────────────────────────────
+  registerChatHandlers(socket, io);
+
   // ── BOARD GAME join ───────────────────────────────────────────────
   socket.on("join", async (data) => {
     try {
@@ -1260,7 +1264,7 @@ io.on("connection", (socket) => {
       console.log(`🎮 Game init room ${room_id}, bet=${bet_ecoin}, buildCost=${gs.build_cost}`);
 
       io.to(`room_${room_id}`).emit("room:starting", { countdown: 3, room_id });
-      sockets.forEach(s => { s.join(`game_${room_id}`); s.game_room_id = room_id; });
+      sockets.forEach(s => { s.join(`game_${room_id}`); s.game_room_id = room_id; s.current_game_id = room_id; });
 
       setTimeout(() => {
         io.to(`game_${room_id}`).emit("game:init", {
@@ -2257,6 +2261,7 @@ app.post("/rooms/:id/verify-password", async (req, res) => {
 
 server.listen(3000, "0.0.0.0", () => {
   console.log("✅ Server ready at (tất cả interface)");
+  startChatCleanupJob();
 });
 app.get("/tarots", async (req, res) => {
   try {

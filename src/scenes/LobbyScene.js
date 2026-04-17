@@ -1,5 +1,7 @@
 import { getPlayerData, setPlayerData, getActiveProfile } from "../server/utils/playerData.js";
 import EcoinManager from "../server/utils/ecoinManager.js";
+import ChatWidget from "./components/ChatWidget.js";
+import { SERVER_URL } from "../config.js";
 
 // src/scenes/LobbyScene.js
 export default class LobbyScene extends Phaser.Scene {
@@ -22,6 +24,8 @@ export default class LobbyScene extends Phaser.Scene {
     this.load.image("shop","assets/ui/lobby/shop.png");
     this.load.image("tarot","assets/ui/lobby/tarot.png");
     this.load.image("friend","assets/ui/lobby/friend.png");
+    this.load.image("chat_btn","assets/ui/lobby/chat.png");
+    this.load.image("close_btn","assets/ui/shared/close.png");
   }
 
   create() {
@@ -398,5 +402,195 @@ createTopBar() {
       });
   });
 
+  // ── WORLD CHAT ────────────────────────────────────────────────────
+  this._buildChatButton(width, height);
+  }
+
+  _buildChatButton(width, height) {
+    const BTN_SIZE = 95;
+    const LABEL_H  = 22;
+    const btnX     = 22 + BTN_SIZE / 2;
+    const btnY     = height - 170;
+    const D        = 110;
+
+    // Icon chat
+    const icon = this.add.image(btnX, btnY, "chat_btn")
+      .setDisplaySize(BTN_SIZE, BTN_SIZE)
+      .setDepth(D)
+      .setInteractive({ cursor: "pointer" });
+
+    // Label "Tin nhắn" với nền bo góc
+    const label = this.add.text(btnX, btnY - BTN_SIZE / 2 + 90, "Tin Nhắn", {
+      fontFamily: "Signika", fontSize: "17px", color: "#dff8ff",
+      fontStyle: "bold", stroke: "#222222", strokeThickness: 3,
+    }).setOrigin(0.5, 0).setDepth(D + 1);
+
+    const lbPadX = 12, lbPadY = 4, lbR = 8;
+    const labelBg = this.add.graphics().setDepth(D);
+    labelBg.fillStyle(0x0f0f0f, 0.4);
+    labelBg.fillRoundedRect(
+      label.x - label.width / 2 - lbPadX,
+      label.y - lbPadY,
+      label.width + lbPadX * 2,
+      label.height + lbPadY * 2,
+      lbR
+    );
+
+    // Hover
+    icon.on("pointerover",  () => icon.setTint(0xddddff));
+    icon.on("pointerout",   () => icon.clearTint());
+    icon.on("pointerdown",  () => {
+      this.tweens.add({ targets: icon, scaleX: 0.88, scaleY: 0.88, duration: 70, yoyo: true });
+      this._toggleChatPanel(width, height);
+    });
+  }
+
+  _toggleChatPanel(width, height) {
+    if (this._chatPanelOpen) {
+      this._destroyChatPanel();
+    } else {
+      this._openChatPanel(width, height);
+    }
+  }
+
+  _openChatPanel(width, height) {
+    this._chatPanelOpen = true;
+
+    const PANEL_W = 340;
+    const PANEL_H = 420;
+    const PANEL_X = 10;
+    const PANEL_Y = height / 2 - PANEL_H / 2 - 30;
+    const TAB_H   = 36;
+    const D       = 120;
+
+    const objs = [];
+    const push  = o => { objs.push(o); return o; };
+
+    // ── Nền panel ──────────────────────────────────────────────────
+    const bg = push(this.add.graphics().setDepth(D));
+    bg.fillStyle(0x041428, 0.92);
+    bg.fillRoundedRect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 12);
+    bg.lineStyle(1.5, 0x2255aa, 0.7);
+    bg.strokeRoundedRect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 12);
+
+    // ── Tabs ───────────────────────────────────────────────────────
+    const tabs = ["Thế Giới", "Bạn Bè"];
+    this._activeTab = this._activeTab || 0;
+    const tabObjs = [];
+
+    const buildTabs = () => {
+      tabObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
+      tabObjs.length = 0;
+
+      tabs.forEach((label, i) => {
+        const tx = PANEL_X + (PANEL_W / tabs.length) * i;
+        const tw = PANEL_W / tabs.length;
+        const isActive = i === this._activeTab;
+
+        const tg = this.add.graphics().setDepth(D + 1);
+        tg.fillStyle(isActive ? 0x1a5fa8 : 0x0a1a33, isActive ? 1 : 0.8);
+        tg.fillRoundedRect(tx + 2, PANEL_Y + 2, tw - 4, TAB_H - 2,
+          { tl: i === 0 ? 10 : 0, tr: i === tabs.length - 1 ? 10 : 0, bl: 0, br: 0 });
+        tabObjs.push(tg);
+
+        const tt = this.add.text(tx + tw / 2, PANEL_Y + TAB_H / 2, label, {
+          fontFamily: "Signika", fontSize: "15px",
+          color: isActive ? "#ffffff" : "#7799bb", fontStyle: "bold"
+        }).setOrigin(0.5).setDepth(D + 2);
+        tabObjs.push(tt);
+
+        const tz = this.add.zone(tx + tw / 2, PANEL_Y + TAB_H / 2, tw, TAB_H)
+          .setInteractive({ cursor: "pointer" }).setDepth(D + 3);
+        tz.on("pointerdown", () => {
+          if (this._activeTab === i) return;
+          this._activeTab = i;
+          buildTabs();
+          rebuildChatArea();
+        });
+        tabObjs.push(tz);
+      });
+
+      objs.push(...tabObjs);
+    };
+
+    // ── Khu vực chat ───────────────────────────────────────────────
+    const CHAT_Y = PANEL_Y + TAB_H + 4;
+    const CHAT_H = PANEL_H - TAB_H - 4;
+    let currentChat = null;
+
+    const rebuildChatArea = () => {
+      currentChat?.destroy();
+
+      if (this._activeTab === 0) {
+        // World chat
+        this._initWorldSocket(() => {
+          currentChat = new ChatWidget(this, {
+            channel: "world", socket: this._worldSocket, depth: D + 1
+          });
+          currentChat.build(PANEL_X, CHAT_Y, PANEL_W, CHAT_H);
+          currentChat.addSystemMessage("Chat Thế Giới — Chào mừng!");
+          this._currentChatWidget = currentChat;
+        });
+      } else {
+        // Bạn bè — placeholder
+        const ph = this.add.text(PANEL_X + PANEL_W / 2, CHAT_Y + CHAT_H / 2,
+          "Tính năng Bạn Bè\nsắp ra mắt!", {
+          fontFamily: "Signika", fontSize: "16px", color: "#7799bb",
+          align: "center"
+        }).setOrigin(0.5).setDepth(D + 1);
+        currentChat = { destroy: () => ph.destroy() };
+        this._currentChatWidget = null;
+      }
+    };
+
+    // ── Nút đóng X (icon close.png, nhô ra góc trên phải panel) ───
+    const closeR = 18;
+    const closeX = PANEL_X + PANEL_W + 4;
+    const closeY = PANEL_Y - 4;
+    const closeBtn = push(this.add.image(closeX, closeY, "close_btn")
+      .setDisplaySize(closeR * 2.2, closeR * 2.2)
+      .setDepth(D + 4));
+    const closeZone = push(this.add.zone(closeX, closeY, closeR * 2.4, closeR * 2.4)
+      .setInteractive({ cursor: "pointer" }).setDepth(D + 5));
+    closeZone.on("pointerover",  () => closeBtn.setAlpha(0.85));
+    closeZone.on("pointerout",   () => closeBtn.setAlpha(1));
+    closeZone.on("pointerdown",  () => this._destroyChatPanel());
+
+    buildTabs();
+    rebuildChatArea();
+
+    this._chatPanelObjs = objs;
+    this._chatPanelTabObjs = tabObjs;
+    this._chatPanelRebuild = rebuildChatArea;
+    this._chatPanelCurrentRef = () => currentChat;
+  }
+
+  _destroyChatPanel() {
+    this._chatPanelOpen = false;
+    this._currentChatWidget?.destroy();
+    this._currentChatWidget = null;
+    this._chatPanelObjs?.forEach(o => { try { o?.destroy(); } catch(e){} });
+    this._chatPanelObjs = null;
+  }
+
+  _initWorldSocket(cb) {
+    const playerData = this.registry.get("playerData") || JSON.parse(localStorage.getItem("playerData") || "null");
+    const token = playerData?.token || localStorage.getItem("token");
+    if (!token) return;
+
+    if (this._worldSocket?.connected) { cb(); return; }
+
+    this._worldSocket?.disconnect();
+    this._worldSocket = io(SERVER_URL, {
+      transports: ["websocket", "polling"],
+      auth: { token }
+    });
+    this._worldSocket.on("connect", () => cb());
+  }
+
+  shutdown() {
+    this._destroyChatPanel();
+    this._worldSocket?.disconnect();
+    this._worldSocket = null;
   }
 }

@@ -4,6 +4,7 @@ import TarotButtonWidget from "./components/TarotButtonWidget.js";
 import CardSystem        from "./components/CardSystem.js";
 import { SERVER_URL }    from "../config.js";
 import { getActiveProfile, getPlayerData } from "../server/utils/playerData.js";
+import ChatWidget        from "./components/ChatWidget.js";
 
 export default class BoardScene extends Phaser.Scene {
   constructor() {
@@ -2232,7 +2233,8 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
 
     this.setupSocketEvents();
 
-    // Board path
+    // ── GAME CHAT ─────────────────────────────────────────────────
+    this._buildGameChat(width, height);
     this.boardPath = [
       { index:0,  x:0.24,  y:0.59,  hw:0.022, hh:0.018, name:"START",   type:"skill" },
       { index:1,  x:0.304, y:0.62,  hw:0.027, hh:0.0266,name:"Cell 1",  type:"land"  },
@@ -4252,5 +4254,26 @@ this.input.keyboard.on("keydown-Y", () => {
           orange: "#fb923c"  // Cam
       };
       return colors[key] || "#ffffff";
+  }
+
+  _buildGameChat(width, height) {
+    const chatW = Math.min(300, Math.floor(width * 0.22));
+    const chatH = 180;
+    const chatX = 0;
+    const chatY = height - chatH - 10;
+
+    this._gameChat?.destroy();
+    this._gameChat = new ChatWidget(this, {
+      channel: "game",
+      socket:  this.socket,
+      depth:   50
+    });
+    this._gameChat.build(chatX, chatY, chatW, chatH);
+    this._gameChat.addSystemMessage("Chat trong trận — Chúc vui!");
+  }
+
+  shutdown() {
+    this._gameChat?.destroy();
+    this._gameChat = null;
   }
 }

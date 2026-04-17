@@ -668,7 +668,7 @@ export default class RoomListScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(D + 5);
 
     // Close button — dùng ảnh close.png
-    const closeR = 22;
+    const closeR = 18;
     const closeX = px + modalW + 4, closeY = py - 4;
     const closeImg = this.add.image(closeX, closeY, "close")
       .setDisplaySize(closeR * 2.2, closeR * 2.2)
