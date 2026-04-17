@@ -44,9 +44,9 @@ export default class ChatWidget {
     // ── Vùng tin nhắn ──────────────────────────────────────────────
     const msgBg = this.scene.add.graphics().setDepth(D);
     msgBg.fillStyle(0x041428, 0.62);
-    msgBg.fillRoundedRect(x, y, w, MSG_H, { tl: 8, tr: 8, bl: 0, br: 0 });
+    msgBg.fillRoundedRect(x, y, w, MSG_H, { tl: 0, tr: 0, bl: 0, br: 0 });
     msgBg.lineStyle(1.5, 0x2255aa, 0.5);
-    msgBg.strokeRoundedRect(x, y, w, MSG_H, { tl: 8, tr: 8, bl: 0, br: 0 });
+    msgBg.strokeRoundedRect(x, y, w, MSG_H, { tl: 0, tr: 0, bl: 0, br: 0 });
     this._push(msgBg);
 
     this._chatBox = {
@@ -59,9 +59,9 @@ export default class ChatWidget {
     const inputY = y + MSG_H;
     const inputBg = this.scene.add.graphics().setDepth(D);
     inputBg.fillStyle(0x020d1e, 0.92);
-    inputBg.fillRoundedRect(x, inputY, INPUT_W, INPUT_H, { tl: 0, tr: 0, bl: 8, br: 0 });
+    inputBg.fillRoundedRect(x, inputY, INPUT_W, INPUT_H, { tl: 0, tr: 0, bl: 12, br: 0 });
     inputBg.lineStyle(1.5, 0x2255aa, 0.6);
-    inputBg.strokeRoundedRect(x, inputY, INPUT_W, INPUT_H, { tl: 0, tr: 0, bl: 8, br: 0 });
+    inputBg.strokeRoundedRect(x, inputY, INPUT_W, INPUT_H, { tl: 0, tr: 0, bl: 12, br: 0 });
     this._push(inputBg);
 
     this._placeholder = this.scene.add.text(x + 12, inputY + INPUT_H / 2, "Nhập tin nhắn...", {

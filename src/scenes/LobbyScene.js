@@ -498,7 +498,7 @@ createTopBar() {
         const tg = this.add.graphics().setDepth(D + 1);
         tg.fillStyle(isActive ? 0x1a5fa8 : 0x0a1a33, isActive ? 1 : 0.8);
         tg.fillRoundedRect(tx + 2, PANEL_Y + 2, tw - 4, TAB_H - 2,
-          { tl: i === 0 ? 10 : 0, tr: i === tabs.length - 1 ? 10 : 0, bl: 0, br: 0 });
+          { tl: i === 0 ? 10 : 0, tr: 0, bl: 0, br: 0 });
         tabObjs.push(tg);
 
         const tt = this.add.text(tx + tw / 2, PANEL_Y + TAB_H / 2, label, {
