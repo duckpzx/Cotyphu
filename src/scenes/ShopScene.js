@@ -467,7 +467,7 @@ export default class ShopScene extends Phaser.Scene {
         ];
 
         const startY = py - PH / 2 + 75;
-        const cardW = 100, cardH = 130, gap = 12;f
+        const cardW = 100, cardH = 130, gap = 12;
         const totalCardsW = packages.length * cardW + (packages.length - 1) * gap;
         const startX = px - totalCardsW / 2;
 
