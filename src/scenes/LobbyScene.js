@@ -353,7 +353,6 @@ createTopBar() {
     .setInteractive({ cursor: 'pointer' });
 
   friend.on("pointerdown", () => {
-    this.tweens.add({ targets: friend, scaleX: 0.88, scaleY: 0.88, duration: 70, yoyo: true });
     if (this._friendPanelOpen) {
       this._destroyFriendPanel();
     } else {
@@ -417,7 +416,7 @@ createTopBar() {
   }
 
   _buildChatButton(width, height) {
-    const BTN_SIZE = 95;
+    const BTN_SIZE = 90;
     const LABEL_H  = 22;
     const btnX     = 22 + BTN_SIZE / 2;
     const btnY     = height - 170;
@@ -450,7 +449,6 @@ createTopBar() {
     icon.on("pointerover",  () => icon.setTint(0xddddff));
     icon.on("pointerout",   () => icon.clearTint());
     icon.on("pointerdown",  () => {
-      this.tweens.add({ targets: icon, scaleX: 0.88, scaleY: 0.88, duration: 70, yoyo: true });
       this._toggleChatPanel(width, height);
     });
   }

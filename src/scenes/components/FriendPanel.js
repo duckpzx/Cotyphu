@@ -108,7 +108,7 @@ export default class FriendPanel {
     this._tabMeta = { TAB_START, TAB_Y, TAB_W, TAB_H, TAB_GAP };
 
     // ── Nút X (close_btn nhô ra góc trên phải — kiểu Chat) ───────
-    const closeR = 18;
+    const closeR = 20;
     const closeX = L + W;
     const closeY = T;
     const closeBtn = push(this.scene.add.image(closeX, closeY, "close_btn")
@@ -119,18 +119,21 @@ export default class FriendPanel {
     closeZone.on("pointerout",   () => closeBtn.setAlpha(1));
     closeZone.on("pointerdown",  () => this.destroy());
 
-    // ── Thanh tìm kiếm (tab 0 & 2) ───────────────────────────────
-    this._searchBarY = T + 14;
-    this._buildSearchBar(L, T, W, D);
+    // ── Toolbar: Sắp xếp + Tìm kiếm ─────────────────────────────
+    const PAD   = 30; // padding cách viền đứt
+    const BAR_Y = T + PAD;
+    const BAR_H = 34;
+    this._sortMode = "status"; // "status" | "alpha"
+    this._buildToolbar(L, T, W, H, BAR_Y, BAR_H, PAD, D);
 
-    // ── Vùng danh sách ───────────────────────────────────────────
-    this._listTop  = T + 58;
-    this._listH    = H - 58 - 28;
-    this._listL    = L + 12;
-    this._listW    = W - 24;
+    // ── Vùng danh sách (cách viền đứt PAD mỗi bên) ───────────────
+    this._listTop  = BAR_Y + BAR_H + 8;
+    this._listH    = H - (BAR_Y - T) - BAR_H - 8 - PAD - 20;
+    this._listL    = L + PAD;
+    this._listW    = W - PAD * 2;
 
     // ── Footer đếm bạn ───────────────────────────────────────────
-    this._footerTxt = push(this.scene.add.text(L + W - 14, T + H - 10, "", {
+    this._footerTxt = push(this.scene.add.text(L + W - PAD, T + H - 10, "", {
       fontFamily: "Signika", fontSize: "13px", color: "#7a5a20"
     }).setOrigin(1, 1).setDepth(D + 2));
 
@@ -218,37 +221,83 @@ export default class FriendPanel {
     });
   }
 
-  _buildSearchBar(L, T, W, D) {
-    const SY = T + 14;
-    const SH = 32;
-    const SW = W - 28;       // full width trừ padding 2 bên
-    const SX = L + 14;       // bám sát trái panel
+  _buildToolbar(L, T, W, H, BAR_Y, BAR_H, PAD, D) {
+    const push = o => { this._objs.push(o); return o; };
 
-    const sbg = this.scene.add.graphics().setDepth(D + 2);
+    // ── Label "Sắp xếp" ──────────────────────────────────────────
+    push(this.scene.add.text(L + PAD, BAR_Y + BAR_H / 2, "Sắp xếp", {
+      fontFamily: "Signika", fontSize: "14px", color: "#6b4a10", fontStyle: "bold"
+    }).setOrigin(0, 0.5).setDepth(D + 2));
+
+    // ── Nút sort toggle (TRẠNG THÁI ▶ / TÊN A-Z ▶) ───────────────
+    const SORT_BW = 130, SORT_BH = BAR_H;
+    const SORT_X  = L + PAD + 72;
+    const SORT_Y  = BAR_Y;
+
+    const sortG = push(this.scene.add.graphics().setDepth(D + 2));
+    const sortTxt = push(this.scene.add.text(SORT_X + SORT_BW / 2 - 8, SORT_Y + SORT_BH / 2, "", {
+      fontFamily: "Signika", fontSize: "14px",
+      color: "#c4f562ff", fontStyle: "bold",
+      stroke: "#2d4f00", strokeThickness: 2
+    }).setOrigin(0.5).setDepth(D + 3));
+    const arrowTxt = push(this.scene.add.text(SORT_X + SORT_BW - 14, SORT_Y + SORT_BH / 2, "▶", {
+      fontFamily: "Signika", fontSize: "16px", color: "#f5a800",
+      stroke: "#a0500099", strokeThickness: 2
+    }).setOrigin(0.5).setDepth(D + 3));
+
+    const drawSort = () => {
+      sortG.clear();
+      sortG.fillStyle(0x6b4a10, 0.5);
+      sortG.fillRoundedRect(SORT_X + 1, SORT_Y + 1.5, SORT_BW, SORT_BH, 8);
+        sortG.fillGradientStyle(
+        0xffffff,
+        0xf8fdff,
+        0xbfe9ff,
+        0x9edcff,
+        1
+        );
+        sortG.fillRoundedRect(SORT_X, SORT_Y, SORT_BW, SORT_BH, 8);
+      sortG.fillStyle(0xffffff, 0.6);
+      sortG.fillRoundedRect(SORT_X + 4, SORT_Y + 3, SORT_BW - 8, SORT_BH * 0.35, 6);
+      sortG.fillRoundedRect(SORT_X + 6, SORT_Y + 3, SORT_BW - 12, SORT_BH * 0.35, 5);
+      sortTxt.setText(this._sortMode === "status" ? "TRẠNG THÁI" : "TÊN A-Z");
+    };
+    drawSort();
+
+    const sortZone = push(this.scene.add.zone(SORT_X + SORT_BW / 2, SORT_Y + SORT_BH / 2, SORT_BW, SORT_BH)
+      .setInteractive({ cursor: "pointer" }).setDepth(D + 4));
+    sortZone.on("pointerdown", () => {
+      this._sortMode = this._sortMode === "status" ? "alpha" : "status";
+      drawSort();
+      this._rebuildList();
+    });
+
+    // ── Ô tìm kiếm (nửa phải) ────────────────────────────────────
+    const SW = W * 0.40;
+    const SX = L + W - PAD - SW;
+    const SY = BAR_Y;
+    const SH = BAR_H;
+
+    const sbg = push(this.scene.add.graphics().setDepth(D + 2));
     sbg.fillStyle(0xfff8e8, 0.9);
     sbg.fillRoundedRect(SX, SY, SW, SH, 8);
-    sbg.lineStyle(1.5, 0xb8922e, 0.6);
+    sbg.lineStyle(1.5, 0x906a2e, 0.6);
     sbg.strokeRoundedRect(SX, SY, SW, SH, 8);
-    this._objs.push(sbg);
 
-    this._searchPh = this.scene.add.text(SX + 10, SY + SH / 2, "Tìm theo tên", {
+    this._searchPh = push(this.scene.add.text(SX + 12, SY + SH / 2, "Tìm theo tên", {
       fontFamily: "Signika", fontSize: "13px", color: "#b8922e"
-    }).setOrigin(0, 0.5).setDepth(D + 3);
-    this._objs.push(this._searchPh);
+    }).setOrigin(0, 0.5).setDepth(D + 3));
 
-    this._searchTxt = this.scene.add.text(SX + 10, SY + SH / 2, "", {
+    this._searchTxt = push(this.scene.add.text(SX + 12, SY + SH / 2, "", {
       fontFamily: "Signika", fontSize: "13px", color: "#502700"
-    }).setOrigin(0, 0.5).setDepth(D + 3);
-    this._objs.push(this._searchTxt);
+    }).setOrigin(0, 0.5).setDepth(D + 3));
 
-    // Icon kính lúp
-    const lens = this.scene.add.text(SX + SW - 10, SY + SH / 2, "🔍", {
+    push(this.scene.add.text(SX + SW - 10, SY + SH / 2, "🔍", {
       fontSize: "14px"
-    }).setOrigin(1, 0.5).setDepth(D + 3);
-    this._objs.push(lens);
+    }).setOrigin(1, 0.5).setDepth(D + 3));
 
-    const zone = this.scene.add.zone(SX + SW / 2, SY + SH / 2, SW, SH)
-      .setInteractive({ cursor: "text" }).setDepth(D + 4);
+    const zone = push(this.scene.add.zone(SX + SW / 2, SY + SH / 2, SW, SH)
+      .setInteractive({ cursor: "text" }).setDepth(D + 4));
     zone.on("pointerover", () => { this.scene.game.canvas.style.cursor = "text"; });
     zone.on("pointerout",  () => { this.scene.game.canvas.style.cursor = "default"; });
     zone.on("pointerdown", () => {
@@ -266,7 +315,7 @@ export default class FriendPanel {
             this._searchPh.setVisible(!this._searchQuery);
             this._rebuildList();
           } else if (e.key === "Enter") {
-            if (this._tabIdx === 1) this.socket?.emit("friend:search", { query: this._searchQuery });
+            if (this._tabIdx === 2) this.socket?.emit("friend:search", { query: this._searchQuery });
           } else if (e.key.length === 1) {
             this._searchQuery = (this._searchQuery || "") + e.key;
             this._searchTxt.setText(this._searchQuery);
@@ -276,7 +325,6 @@ export default class FriendPanel {
         window.addEventListener("keydown", this._searchKeyListener);
       }
     });
-    this._objs.push(zone);
   }
 
   // ── PRIVATE: List ───────────────────────────────────────────────
@@ -296,8 +344,14 @@ export default class FriendPanel {
 
     if (this._tabIdx === 0) {
       // ── D.S Bạn Bè ──────────────────────────────────────────────
-      let list = this._friends;
+      let list = [...this._friends];
       if (q) list = list.filter(f => (f.name || "").toLowerCase().includes(q));
+      // Sắp xếp
+      if (this._sortMode === "status") {
+        list.sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0));
+      } else {
+        list.sort((a, b) => (a.name || "").localeCompare(b.name || "", "vi"));
+      }
 
       if (!list.length) {
         this._pushListText(L + W / 2, T + 60, "Chưa có bạn bè nào", "#b8922e", D);
