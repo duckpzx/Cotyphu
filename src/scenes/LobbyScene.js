@@ -1,6 +1,7 @@
 import { getPlayerData, setPlayerData, getActiveProfile } from "../server/utils/playerData.js";
 import EcoinManager from "../server/utils/ecoinManager.js";
 import ChatWidget from "./components/ChatWidget.js";
+import FriendPanel from "./components/FriendPanel.js";
 import { SERVER_URL } from "../config.js";
 
 // src/scenes/LobbyScene.js
@@ -349,7 +350,16 @@ createTopBar() {
   const friend = this.add.image(iconStartX, y - 5, "friend")
     .setScale(1)
     .setDepth(103)
-    .setInteractive({ cursor: 'pointer' }); // Thêm ở đây
+    .setInteractive({ cursor: 'pointer' });
+
+  friend.on("pointerdown", () => {
+    this.tweens.add({ targets: friend, scaleX: 0.88, scaleY: 0.88, duration: 70, yoyo: true });
+    if (this._friendPanelOpen) {
+      this._destroyFriendPanel();
+    } else {
+      this._openFriendPanel(width, height);
+    }
+  });
 
   const shop = this.add.image(iconStartX + gap, y - 5, "shop")
     .setScale(1)
@@ -590,7 +600,47 @@ createTopBar() {
 
   shutdown() {
     this._destroyChatPanel();
+    this._destroyFriendPanel();
     this._worldSocket?.disconnect();
     this._worldSocket = null;
+  }
+
+  // ── FRIEND PANEL ─────────────────────────────────────────────────
+
+  _openFriendPanel(width, height) {
+    this._friendPanelOpen = true;
+    const playerData = this.registry.get("playerData") || JSON.parse(localStorage.getItem("playerData") || "null");
+    const token = playerData?.token || localStorage.getItem("token");
+
+    // Dùng lại worldSocket nếu đã connect, hoặc tạo mới
+    const doOpen = () => {
+      this._friendPanel = new FriendPanel(this, {
+        socket:     this._worldSocket,
+        playerData: this.player,
+        depth:      160
+      });
+      this._friendPanel.build(width, height);
+    };
+
+    if (this._worldSocket?.connected) {
+      doOpen();
+    } else {
+      this._initWorldSocket(() => doOpen());
+    }
+  }
+
+  _destroyFriendPanel() {
+    this._friendPanelOpen = false;
+    this._friendPanel?.destroy();
+    this._friendPanel = null;
+  }
+
+  _showToast(msg) {
+    const { width, height } = this.scale;
+    const t = this.add.text(width / 2, height / 2 - 60, msg, {
+      fontFamily: "Signika", fontSize: "16px", color: "#ffffff",
+      backgroundColor: "#00000099", padding: { x: 16, y: 8 }
+    }).setOrigin(0.5).setDepth(300);
+    this.tweens.add({ targets: t, alpha: 0, delay: 1800, duration: 400, onComplete: () => t.destroy() });
   }
 }
