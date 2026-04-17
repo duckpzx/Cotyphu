@@ -194,10 +194,10 @@ export default class ChatWidget {
     if (!this.socket) return;
 
     this._onMessage = (data) => {
-      this._appendLine(`[${data.name}] ${data.message}`);
+      this._appendLine(`[${data.name}] ${data.message}`, "#ffffff", data.time);
     };
     this._onHistory = (history) => {
-      history.forEach(d => this._appendLine(`[${d.name}] ${d.message}`));
+      history.forEach(d => this._appendLine(`[${d.name}] ${d.message}`, "#ffffff", d.time));
     };
     this._onError = (data) => {
       this._appendLine(`⚠ ${data.message}`, "#ff8888");
@@ -215,27 +215,54 @@ export default class ChatWidget {
     if (this._onError)   this.socket.off("chat:error", this._onError);
   }
 
-  _appendLine(text, color = "#ffffff") {
+  _appendLine(text, color = "#ffffff", time = null) {
     if (!this._chatBox) return;
     const cb = this._chatBox;
     const maxLines = Math.floor(cb.h / cb.lineH);
 
     if (this._lines.length >= maxLines) {
       const old = this._lines.shift();
-      try { old?.destroy(); } catch(e) {}
-      // Dịch các dòng còn lại lên
-      this._lines.forEach(l => l.setY(l.y - cb.lineH));
+      try { old?.ts?.destroy(); old?.msg?.destroy(); } catch(e) {}
+      this._lines.forEach(l => {
+        l.msg.setY(l.msg.y - cb.lineH);
+        l.ts?.setY(l.ts.y - cb.lineH);
+      });
     }
 
     const lineY = cb.y + this._lines.length * cb.lineH;
-    const t = this.scene.add.text(cb.x, lineY, text, {
-      fontFamily: "Signika",
-      fontSize:   "13px",
-      color,
-      wordWrap:   { width: cb.w }
+
+    // Timestamp — format thông minh
+    let tsStr = "";
+    if (time) {
+      const d   = new Date(time);
+      const now = new Date();
+      const diffMin = Math.floor((Date.now() - time) / 60000);
+      if (diffMin < 1) {
+        tsStr = "vừa xong";
+      } else if (diffMin < 60) {
+        tsStr = `${diffMin}ph`;
+      } else if (d.toDateString() === now.toDateString()) {
+        tsStr = d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+      } else {
+        tsStr = d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
+      }
+    }
+
+    const msg = this.scene.add.text(cb.x, lineY, text, {
+      fontFamily: "Signika", fontSize: "13px", color,
+      wordWrap: { width: cb.w - (tsStr ? 52 : 0) }
     }).setDepth(this.depth + 1);
 
-    this._lines.push(t);
-    this._objects.push(t);
+    let ts = null;
+    if (tsStr) {
+      ts = this.scene.add.text(cb.x + cb.w, lineY, tsStr, {
+        fontFamily: "Signika", fontSize: "11px", color: "#6688aa"
+      }).setOrigin(1, 0).setDepth(this.depth + 1);
+      this._objects.push(ts);
+    }
+
+    const entry = { msg, ts };
+    this._lines.push(entry);
+    this._objects.push(msg);
   }
 }

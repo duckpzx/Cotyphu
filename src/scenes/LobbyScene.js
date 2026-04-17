@@ -545,8 +545,8 @@ createTopBar() {
 
     // ── Nút đóng X (icon close.png, nhô ra góc trên phải panel) ───
     const closeR = 18;
-    const closeX = PANEL_X + PANEL_W + 4;
-    const closeY = PANEL_Y - 4;
+    const closeX = PANEL_X + PANEL_W;
+    const closeY = PANEL_Y;
     const closeBtn = push(this.add.image(closeX, closeY, "close_btn")
       .setDisplaySize(closeR * 2.2, closeR * 2.2)
       .setDepth(D + 4));
