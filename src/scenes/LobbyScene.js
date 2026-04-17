@@ -467,7 +467,7 @@ createTopBar() {
   _openChatPanel(width, height) {
     this._chatPanelOpen = true;
 
-    const PANEL_W = 338;
+    const PANEL_W = 340;
     const PANEL_H = 420;
     const PANEL_X = 10;
     const PANEL_Y = height / 2 - PANEL_H / 2 - 30;
