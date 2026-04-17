@@ -43,10 +43,8 @@ export default class ChatWidget {
 
     // ── Vùng tin nhắn ──────────────────────────────────────────────
     const msgBg = this.scene.add.graphics().setDepth(D);
-    msgBg.fillStyle(0x041428, 0.62);
-    msgBg.fillRoundedRect(x, y, w, MSG_H, { tl: 8, tr: 8, bl: 0, br: 0 });
-    msgBg.lineStyle(1.5, 0x2255aa, 0.5);
-    msgBg.strokeRoundedRect(x, y, w, MSG_H, { tl: 8, tr: 8, bl: 0, br: 0 });
+    msgBg.fillStyle(0x0b1f3a, 0.3);
+    msgBg.fillRoundedRect(x, y, w, MSG_H, { tl: 0, tr: 0, bl: 0, br: 0 });
     this._push(msgBg);
 
     this._chatBox = {
@@ -58,10 +56,8 @@ export default class ChatWidget {
     // ── Ô input ─────────────────────────────────────────────────────
     const inputY = y + MSG_H;
     const inputBg = this.scene.add.graphics().setDepth(D);
-    inputBg.fillStyle(0x020d1e, 0.92);
-    inputBg.fillRoundedRect(x, inputY, INPUT_W, INPUT_H, { tl: 0, tr: 0, bl: 8, br: 0 });
-    inputBg.lineStyle(1.5, 0x2255aa, 0.6);
-    inputBg.strokeRoundedRect(x, inputY, INPUT_W, INPUT_H, { tl: 0, tr: 0, bl: 8, br: 0 });
+    inputBg.fillStyle(0x061525, 0.5);
+    inputBg.fillRoundedRect(x, inputY, INPUT_W, INPUT_H, { tl: 0, tr: 0, bl: 12, br: 0 });
     this._push(inputBg);
 
     this._placeholder = this.scene.add.text(x + 12, inputY + INPUT_H / 2, "Nhập tin nhắn...", {
@@ -88,12 +84,14 @@ export default class ChatWidget {
     const drawSend = (hover) => {
       sendG.clear();
       sendG.fillGradientStyle(
-        hover ? 0x22bbff : 0x0099ff, hover ? 0x22bbff : 0x0099ff,
-        hover ? 0x0055cc : 0x0066cc, hover ? 0x0055cc : 0x0066cc, 1
+        hover ? 0x5bc0ff : 0x1a7abf, hover ? 0x5bc0ff : 0x1a7abf,
+        hover ? 0x1a7abf : 0x0d4a7a, hover ? 0x1a7abf : 0x0d4a7a, 1
       );
-      sendG.fillRoundedRect(sendX, inputY, SEND_W, INPUT_H, { tl: 0, tr: 0, bl: 0, br: 8 });
-      sendG.fillStyle(0xffffff, hover ? 0.3 : 0.18);
+      sendG.fillRoundedRect(sendX, inputY, SEND_W, INPUT_H, { tl: 0, tr: 0, bl: 0, br: 12 });
+      sendG.fillStyle(0xffffff, hover ? 0.28 : 0.18);
       sendG.fillRoundedRect(sendX + 4, inputY + 3, SEND_W - 8, INPUT_H * 0.38, 3);
+      sendG.lineStyle(1.5, 0x5bc0ff, 0.6);
+      sendG.strokeRoundedRect(sendX, inputY, SEND_W, INPUT_H, { tl: 0, tr: 0, bl: 0, br: 12 });
     };
     drawSend(false);
     this._push(sendG);
@@ -109,6 +107,12 @@ export default class ChatWidget {
     sendZone.on("pointerout",   () => drawSend(false));
     sendZone.on("pointerdown",  () => this._sendMessage());
     this._push(sendZone);
+
+    // ── Border bao toàn bộ hàng input ──
+    const rowBorder = this.scene.add.graphics().setDepth(D + 3);
+    rowBorder.lineStyle(1, 0x2255aa, 0.3);
+    rowBorder.strokeRoundedRect(x, inputY, w, INPUT_H, { tl: 0, tr: 0, bl: 12, br: 12 });
+    this._push(rowBorder);
 
     // ── Lắng nghe socket ────────────────────────────────────────────
     this._bindSocket();
