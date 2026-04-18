@@ -96,6 +96,23 @@ export function registerChatHandlers(socket, io) {
     }
   });
 
+  // ── ROOM CHAT HISTORY ─────────────────────────────────────────────────
+  socket.on("chat:room:history:get", async () => {
+    const room_id = socket.current_room_id;
+    if (!room_id) return;
+    try {
+      const history = await chatRepo.getHistory({ channel: "room", channel_id: room_id, limit: 30 });
+      socket.emit("chat:room:history", history.map(r => ({
+        user_id: r.user_id,
+        name:    r.user_name,
+        message: r.message,
+        time:    new Date(r.created_at).getTime()
+      })));
+    } catch (err) {
+      console.error("chat:room:history:get error:", err);
+    }
+  });
+
   // ── GAME CHAT ─────────────────────────────────────────────────────────
   socket.on("chat:game:send", async ({ message }) => {
     const game_id = socket.current_game_id;

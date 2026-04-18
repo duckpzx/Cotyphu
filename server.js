@@ -19,9 +19,11 @@ import characterRepo from "./src/server/repositories/character.repo.js";
 import roomService from "./src/server/services/room.service.js";
 import roomRepo from "./src/server/repositories/room.repo.js";
 import tarotService from "./src/server/services/tarot.service.js";
+import tarotRepo from "./src/server/repositories/tarot.repo.js";
 import questionsService from "./src/server/services/questions.service.js";
 import db from "./src/server/config/db.js";
 import { registerChatHandlers, startChatCleanupJob } from "./src/server/handlers/chatHandler.js";
+import { registerFriendHandlers } from "./src/server/handlers/friendHandler.js";
 
 const SECRET = process.env.JWT_SECRET;
 const app    = express();
@@ -1050,6 +1052,39 @@ io.on("connection", (socket) => {
 
   // ── CHAT ─────────────────────────────────────────────────────────────
   registerChatHandlers(socket, io);
+
+  // ── FRIEND ───────────────────────────────────────────────────────────
+  registerFriendHandlers(socket, io);
+
+  // ── PLAYER PROFILE (dùng trong RoomScene) ────────────────────────────
+  socket.on("room:player:profile", async ({ user_id: target_id }) => {
+    if (!target_id) return;
+    try {
+      const user  = await userService.getUserById(Number(target_id));
+      if (!user) return socket.emit("room:player:profile:result", { error: "Không tìm thấy người chơi" });
+
+      const chars = await characterService.getCharactersByUser(Number(target_id));
+      const ac    = chars.find(c => c.id === user.active_character_id) || chars[0];
+
+      // Lấy active tarot IDs trực tiếp từ DB rồi query tarots
+      const activeTarotIds = normalizeTarotIds(user?.active_tarot_ids);
+      const tarotCards     = activeTarotIds.length > 0
+        ? await tarotRepo.getTarotsByIds(activeTarotIds)
+        : [];
+
+      socket.emit("room:player:profile:result", {
+        user_id:        Number(target_id),
+        name:           user.name || user.username || "Player",
+        character_name: ac?.name || ac?.character_name || "Unknown",
+        skin_id:        ac?.active_skin_number || 1,
+        tarot_cards:    tarotCards.map(t => ({ tarot_id: t.id, name: t.name, icon: t.icon })),
+        total_games:    user.total_games || 0,
+        total_wins:     user.total_wins  || 0,
+      });
+    } catch (err) {
+      console.error("room:player:profile error:", err);
+    }
+  });
 
   // ── BOARD GAME join ───────────────────────────────────────────────
   socket.on("join", async (data) => {

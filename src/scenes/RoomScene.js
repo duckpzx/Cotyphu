@@ -1,6 +1,7 @@
 import { getActiveProfile } from "../server/utils/playerData.js";
 import { SERVER_URL } from "../config.js";
 import ChatWidget from "./components/ChatWidget.js";
+import PlayerProfilePanel from "./components/PlayerProfilePanel.js";
 
 export default class RoomScene extends Phaser.Scene {
 
@@ -222,6 +223,8 @@ export default class RoomScene extends Phaser.Scene {
       this._preloadPlayerSkins(data.players, () => {
         this._rebuildPlayerSlots();
         this._rebuildBottomPanel();
+        // Khởi tạo chat sau khi socket đã join room thành công
+        if (!this._chatWidget) this._rebuildChatWidget();
       });
     });
 
@@ -621,6 +624,15 @@ export default class RoomScene extends Phaser.Scene {
     }
   }
 
+  // Rebuild ChatWidget sau khi socket đã join room
+  _rebuildChatWidget() {
+    this._chatWidget?.destroy();
+    this._chatWidget = new ChatWidget(this, { channel: "room", socket: this.socket });
+    this._chatWidget.build(0, this._chatPanelY, this._chatW, this._chatPanelH);
+    this._chatWidget.addSystemMessage("Chào mừng vào phòng chờ!");
+    this._chatWidget.addSystemMessage("Nhấn Sẵn Sàng khi đã chuẩn bị.");
+  }
+
   // Rebuild phần bottom panel (nút bắt đầu / sẵn sàng)
   _rebuildBottomPanel() {
     if (this._bottomPanelGroup) {
@@ -885,7 +897,14 @@ export default class RoomScene extends Phaser.Scene {
       .setDisplaySize(45, 45)
       .setInteractive({ cursor: "pointer" });
     infoIcon.on("pointerdown", () => {
-      this._showAlert(`Người chơi: ${player.name}\nSocket: ${player.socket_id}`);
+      const { width, height } = this.scale;
+      if (this._profilePanel) this._profilePanel.destroy();
+      this._profilePanel = new PlayerProfilePanel(this, {
+        socket: this.socket,
+        depth: 500,
+      });
+      const myUserId = this._getMyPlayer()?.user_id;
+      this._profilePanel.open(width, height, player, myUserId);
     });
 
     container.add([bg, avatarBg, ...(bgImgObj ? [bgImgObj] : []), avatar, charLabel, ...vipItems, ...readyItems, infoIcon]);
@@ -1166,11 +1185,13 @@ export default class RoomScene extends Phaser.Scene {
     const chatW  = Math.floor(width * 0.32);
 
     // ── CHAT WIDGET (room channel) ────────────────────────────────
+    // ChatWidget được build lần đầu không có socket (socket chưa sẵn sàng).
+    // Sau khi room:players về, gọi _rebuildChatWidget() để gắn socket thật.
+    this._chatW = chatW;
+    this._chatPanelY = panelY;
+    this._chatPanelH = panelH;
     this._chatWidget?.destroy();
-    this._chatWidget = new ChatWidget(this, { channel: "room", socket: this.socket });
-    this._chatWidget.build(0, panelY, chatW, panelH);
-    this._chatWidget.addSystemMessage("Chào mừng vào phòng chờ!");
-    this._chatWidget.addSystemMessage("Nhấn Sẵn Sàng khi đã chuẩn bị.");
+    this._chatWidget = null;
 
     // ── DIVIDER chat | action ─────────────────────────────────────
     const dg = this.add.graphics();
@@ -1625,5 +1646,7 @@ export default class RoomScene extends Phaser.Scene {
   shutdown() {
     this._chatWidget?.destroy();
     this._chatWidget = null;
+    this._profilePanel?.destroy();
+    this._profilePanel = null;
   }
 }

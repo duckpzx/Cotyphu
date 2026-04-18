@@ -59,9 +59,9 @@ export default class ChatWidget {
     const inputY = y + MSG_H;
     const inputBg = this.scene.add.graphics().setDepth(D);
     inputBg.fillStyle(0x020d1e, 0.92);
-    inputBg.fillRoundedRect(x, inputY, INPUT_W, INPUT_H, { tl: 0, tr: 0, bl: 12, br: 0 });
+    inputBg.fillRoundedRect(x, inputY, INPUT_W, INPUT_H, { tl: 0, tr: 0, bl: 0, br: 0 });
     inputBg.lineStyle(1.5, 0x2255aa, 0.6);
-    inputBg.strokeRoundedRect(x, inputY, INPUT_W, INPUT_H, { tl: 0, tr: 0, bl: 12, br: 0 });
+    inputBg.strokeRoundedRect(x, inputY, INPUT_W, INPUT_H, { tl: 0, tr: 0, bl: 0, br: 0 });
     this._push(inputBg);
 
     this._placeholder = this.scene.add.text(x + 12, inputY + INPUT_H / 2, "Nhập tin nhắn...", {
@@ -91,7 +91,7 @@ export default class ChatWidget {
         hover ? 0x22bbff : 0x0099ff, hover ? 0x22bbff : 0x0099ff,
         hover ? 0x0055cc : 0x0066cc, hover ? 0x0055cc : 0x0066cc, 1
       );
-      sendG.fillRoundedRect(sendX, inputY, SEND_W, INPUT_H, { tl: 0, tr: 0, bl: 0, br: 8 });
+      sendG.fillRoundedRect(sendX, inputY, SEND_W, INPUT_H, { tl: 0, tr: 0, bl: 0, br: 0 });
       sendG.fillStyle(0xffffff, hover ? 0.3 : 0.18);
       sendG.fillRoundedRect(sendX + 4, inputY + 3, SEND_W - 8, INPUT_H * 0.38, 3);
     };
@@ -112,11 +112,6 @@ export default class ChatWidget {
 
     // ── Lắng nghe socket ────────────────────────────────────────────
     this._bindSocket();
-
-    // ── Join world chat nếu cần ──────────────────────────────────────
-    if (this.channel === "world") {
-      this.socket?.emit("chat:world:join");
-    }
 
     return this;
   }
@@ -206,6 +201,15 @@ export default class ChatWidget {
     this.socket.on(`chat:${this.channel}:message`, this._onMessage);
     this.socket.on(`chat:${this.channel}:history`, this._onHistory);
     this.socket.on("chat:error", this._onError);
+
+    // World chat: join để nhận history và broadcast
+    if (this.channel === "world") {
+      this.socket.emit("chat:world:join");
+    }
+    // Room chat: xin history khi vào
+    if (this.channel === "room") {
+      this.socket.emit("chat:room:history:get");
+    }
   }
 
   _unbindSocket() {
