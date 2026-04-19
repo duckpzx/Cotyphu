@@ -36,7 +36,7 @@ export default class PlayerProfilePanel {
     this._player = player;
 
     const W  = 520;
-    const H  = 360;
+    const H  = 340;
     const CX = width  / 2;
     const CY = height / 2;
     const L  = CX - W / 2;
@@ -82,25 +82,71 @@ export default class PlayerProfilePanel {
     const HALF_W = (W - GAP_WIDTH) / 2;
     const HALF_H = H - 76;
     const HALF_T = T + 38;
-    const HALF_PAD = 24;  
-    const CONTENT_PAD = 20; 
-    const BORDER_COLOR = 0xefcd95;
-    const BORDER_WIDTH = 1.5;
-    const contentT = T + 50;  
+    const HALF_PAD = 22;  
+    const CONTENT_PAD = 10; 
+    const BORDER_COLOR = 0xe5c288;
+    const BORDER_WIDTH = 1.1;
+    const contentT = T + 58;  
+
+    // Nửa trái (avatar)
+    // Helper vẽ inset 3D — cạnh trên+trái tối, dưới+phải sáng
+    const drawInset = (g, x, y, w, h, r) => {
+      // Nền
+      g.fillStyle(0xecd49a, 1);
+      g.fillRoundedRect(x, y, w, h, r);
+
+      // Viền ngoài định hình
+      g.lineStyle(1.5, 0x9a7838, 0.7);
+      g.strokeRoundedRect(x, y, w, h, r);
+
+      // Cạnh TRÊN — tối đậm (shadow)
+      for (let i = 0; i < 5; i++) {
+        const alpha = 0.28 - i * 0.05;
+        g.lineStyle(1, 0xfff8d0, alpha);
+        g.beginPath();
+        g.moveTo(x + r, y + i);
+        g.lineTo(x + w - r, y + i);
+        g.strokePath();
+      }
+
+      // Cạnh TRÁI — nhạt (highlight)
+      for (let i = 0; i < 4; i++) {
+        const alpha = 0.35 - i * 0.08;
+        g.lineStyle(1, 0xfff8d0, alpha);
+        g.beginPath();
+        g.moveTo(x + i, y + r);
+        g.lineTo(x + i, y + h - r);
+        g.strokePath();
+      }
+
+      // Cạnh DƯỚI — nhạt (highlight)
+      for (let i = 0; i < 4; i++) {
+        const alpha = 0.3 - i * 0.07;
+        g.lineStyle(1, 0xfff8d0, alpha);
+        g.beginPath();
+        g.moveTo(x + r, y + h - i);
+        g.lineTo(x + w - r, y + h - i);
+        g.strokePath();
+      }
+
+      // Cạnh PHẢI — đậm (shadow)
+      for (let i = 0; i < 5; i++) {
+        const alpha = 0.28 - i * 0.05;
+        g.lineStyle(1, 0xfff8d0, alpha);
+        g.beginPath();
+        g.moveTo(x + w - i, y + r);
+        g.lineTo(x + w - i, y + h - r);
+        g.strokePath();
+      }
+    };
 
     // Nửa trái (avatar)
     const leftHalf = push(this.scene.add.graphics().setDepth(D + 1.5));
-    leftHalf.fillStyle(0xefcf91, 0.35);
-    leftHalf.fillRoundedRect(L + HALF_PAD, HALF_T, HALF_W - HALF_PAD * 2, HALF_H, 8);
-    leftHalf.lineStyle(BORDER_WIDTH, BORDER_COLOR, 1);
-    leftHalf.strokeRoundedRect(L + HALF_PAD, HALF_T, HALF_W - HALF_PAD * 2, HALF_H, 8);
+    drawInset(leftHalf, L + HALF_PAD, HALF_T, HALF_W - HALF_PAD * 2, HALF_H, 8);
 
     // Nửa phải (stats + tarot)
     const rightHalf = push(this.scene.add.graphics().setDepth(D + 1.5));
-    rightHalf.fillStyle(0xefcf91, 0.35);
-    rightHalf.fillRoundedRect(L + HALF_W + GAP_WIDTH + HALF_PAD, HALF_T, HALF_W - HALF_PAD * 2, HALF_H, 8);
-    rightHalf.lineStyle(BORDER_WIDTH, BORDER_COLOR, 1);
-    rightHalf.strokeRoundedRect(L + HALF_W + GAP_WIDTH + HALF_PAD, HALF_T, HALF_W - HALF_PAD * 2, HALF_H, 8);
+    drawInset(rightHalf, L + HALF_W + GAP_WIDTH + HALF_PAD, HALF_T, HALF_W - HALF_PAD * 2, HALF_H, 8);
 
     // ── Nút X nhô góc trên phải ──────────────────────────────────────
     const closeX = L + W;
@@ -116,79 +162,107 @@ export default class PlayerProfilePanel {
     // ── Nửa trái: Avatar + Tên nhân vật + Tên người chơi ──────────────
     const leftCX = L + HALF_PAD + CONTENT_PAD + (HALF_W - HALF_PAD * 2 - CONTENT_PAD * 2) / 2;
     const avatarSize = 120;
-    const avatarBg = push(this.scene.add.graphics().setDepth(D + 4));
-    avatarBg.fillStyle(0x0a2a55, 0.55);
-    avatarBg.fillRoundedRect(leftCX - avatarSize / 2 - 4, contentT - 4, avatarSize + 8, avatarSize + 8, 10);
-    avatarBg.lineStyle(2, 0xc8a84b, 0.7);
-    avatarBg.strokeRoundedRect(leftCX - avatarSize / 2 - 4, contentT - 4, avatarSize + 8, avatarSize + 8, 10);
+    
+    const bgWidth = HALF_W - HALF_PAD * 2 - 10;  // Full width - 5px mỗi bên
+    const bgHeight = 180;
+    const bgTop = T + H - bgHeight - HALF_PAD - 25;  // Gần dưới cách 5px
+    
+    // Hiển thị hình background full với border-radius (không border)
+    this._buildAvatarWithBorder(L + HALF_PAD + 5 + bgWidth / 2, bgTop + bgHeight / 2, bgWidth - 10, bgHeight, player, D + 4);
 
-    this._buildAvatar(leftCX, contentT + avatarSize / 2, avatarSize, player, D + 5);
+    // ── Ngôi sao bên trái + 2 text bên phải ────────────────────────────
+    const starX = L + HALF_PAD + 30;
+    const centerY = contentT + 12;
+    const textStartX = starX + 32;
+    
+    // Ngôi sao (giữ tỷ lệ, không bóp méo)
+    push(this.scene.add.image(starX, centerY + 5, "border")
+      .setScale(0.5).setDepth(D + 4));
 
-    // ── Tên nhân vật dưới avatar ──────────────────────────────────────
+    // Tên người chơi (trên, lớn, gradient trắng-đen, viền đen nhẹ)
+    push(this.scene.add.text(textStartX, centerY - 18, player.name || "Player", {
+      fontFamily: "Signika", fontSize: "18px",
+      fontStyle: "bold", padding: { x: 1, y: 1 },
+      stroke: "#5a3200", strokeThickness: 4,
+    }).setOrigin(0).setDepth(D + 4)
+      .setFill("#ffffff")
+      .setTint(0xffffff, 0xffffff, 0xe9e9e9, 0xe9e9e9));
+
+    // Tên nhân vật (dưới, trắng, viền đen nhẹ)
     const charDisplay = (player.character_name || "").replace(/_/g, " ");
-    push(this.scene.add.text(leftCX, contentT + avatarSize + 14, charDisplay, {
+    push(this.scene.add.text(textStartX, centerY + 8, charDisplay, {
       fontFamily: "Signika", fontSize: "14px",
-      color: "#3a1a00", fontStyle: "bold",
-    }).setOrigin(0.5).setDepth(D + 4));
-
-    // Skin badge
-    push(this.scene.add.text(leftCX, contentT + avatarSize + 32, `Trang phục #${player.skin_id || 1}`, {
-      fontFamily: "Signika", fontSize: "12px", color: "#7a5a20",
-    }).setOrigin(0.5).setDepth(D + 4));
-
-    // ── Tên người chơi (to, nổi bật) ─────────────────────────────────
-    push(this.scene.add.text(leftCX, contentT + avatarSize + 54, player.name || "Player", {
-      fontFamily: "Signika", fontSize: "16px",
-      color: "#5a3200", fontStyle: "bold",
-      stroke: "#ffffff", strokeThickness: 2,
-    }).setOrigin(0.5).setDepth(D + 4));
+      color: "#ffffff", fontStyle: "bold", padding: { x: 1, y: 1 },
+      stroke: "#5a3200", strokeThickness: 3,
+    }).setOrigin(0).setDepth(D + 4));
 
     // ── Nửa phải: Stats + Tarot + Nút kết bạn ────────────────────────
-    const rightL = L + HALF_W + GAP_WIDTH + HALF_PAD + CONTENT_PAD;
-    const rightCX = L + HALF_W + GAP_WIDTH + HALF_PAD + CONTENT_PAD + (HALF_W - HALF_PAD * 2 - CONTENT_PAD * 2) / 2;
+    const rightL   = L + HALF_W + GAP_WIDTH + HALF_PAD + CONTENT_PAD;
+    const rightCX  = L + HALF_W + GAP_WIDTH + HALF_PAD + (HALF_W - HALF_PAD * 2) / 2;
+    const rightW   = HALF_W - HALF_PAD * 2 - CONTENT_PAD * 2;
 
-    // Placeholder stats (sẽ update khi server trả về)
-    this._statsTxt = push(this.scene.add.text(rightL, contentT, "Đang tải...", {
+    // Tính trước vị trí thẻ bài để stats thẳng hàng
+    const CARD_GAP   = 4;
+    const PAD_SIDE   = 2; // padding đều 2 bên
+    const cardW      = Math.floor((rightW - CARD_GAP - PAD_SIDE * 2) / 2);
+    const totalCardW = cardW * 2 + CARD_GAP;
+    const cardStartX = rightL + PAD_SIDE;
+
+    // Lưu lại để dùng trong _updateStats
+    this._rightL      = rightL;
+    this._rightW      = rightW;
+    this._rightCX     = rightCX;
+    this._cardStartX  = cardStartX;
+    this._cardW       = cardW;
+
+    // Stats — 2 cột thẳng hàng với 2 thẻ bài
+    this._statsTxt = push(this.scene.add.text(cardStartX + 8, contentT, "Đang tải...", {
       fontFamily: "Signika", fontSize: "14px", color: "#5a3200",
-      lineSpacing: 8,
-    }).setDepth(D + 4));
+    }).setOrigin(0, 0).setDepth(D + 4));
+    this._statsTxt2 = push(this.scene.add.text(cardStartX + cardW + CARD_GAP + 8, contentT, "", {
+      fontFamily: "Signika", fontSize: "14px", color: "#5a3200",
+    }).setOrigin(0, 0).setDepth(D + 4));
 
-    // Tarot cards placeholder
-    this._tarotLabel = push(this.scene.add.text(rightL, contentT + 70, "Thẻ bài:", {
-      fontFamily: "Signika", fontSize: "13px", color: "#7a5a20", fontStyle: "bold",
+    // Tarot anchor — ngay dưới stats 1 dòng
+    this._tarotLabel = push(this.scene.add.text(rightL, contentT + 28, "", {
+      fontFamily: "Signika", fontSize: "1px",
     }).setDepth(D + 4));
     this._tarotObjs = [];
 
-    // ── Nút Kết Bạn (ẩn nếu đang xem chính mình) ────────────────────
+    // ── Nút Kết Bạn — dưới cùng, căn giữa ───────────────────────────
     const isSelf = myUserId != null && Number(myUserId) === Number(player.user_id);
     if (!isSelf) {
-    const btnW = 100, btnH = 36, btnR = btnH / 2;
+    const btnW = 110, btnH = 34, btnR = 8;
     const btnX = rightCX;
-    const btnY = T + H - 28;
+    const btnY = HALF_T + HALF_H - btnH / 2 - 8;
 
     const btnG = push(this.scene.add.graphics().setDepth(D + 4));
     const drawBtn = (hover) => {
       btnG.clear();
-      btnG.fillStyle(0x000000, 0.2);
-      btnG.fillRoundedRect(btnX - btnW / 2 + 3, btnY - btnH / 2 + 5, btnW, btnH, btnR);
+      // Nền gradient xanh cyan
       btnG.fillGradientStyle(
-        hover ? 0x2288ee : 0x1a6abf,
-        hover ? 0x2288ee : 0x1a6abf,
-        hover ? 0x0055bb : 0x0044aa,
-        hover ? 0x0055bb : 0x0044aa, 1
+        hover ? 0x22bbff : 0x0099ff,
+        hover ? 0x22bbff : 0x0099ff,
+        hover ? 0x0055cc : 0x0066cc,
+        hover ? 0x0055cc : 0x0066cc, 1
       );
       btnG.fillRoundedRect(btnX - btnW / 2, btnY - btnH / 2, btnW, btnH, btnR);
-      btnG.fillStyle(0xffffff, hover ? 0.35 : 0.2);
-      btnG.fillRoundedRect(btnX - btnW / 2 + 8, btnY - btnH / 2 + 5, btnW - 16, btnH / 3, btnR - 4);
-      btnG.lineStyle(2, 0xffffff, hover ? 0.8 : 0.55);
+      // Viền ngoài tối
+      btnG.lineStyle(1, 0x006688, 0.3);
       btnG.strokeRoundedRect(btnX - btnW / 2, btnY - btnH / 2, btnW, btnH, btnR);
+      // Điểm sáng trắng góc trên phải
+      btnG.fillStyle(0xffffff, hover ? 0.45 : 0.35);
+      btnG.fillCircle(btnX + btnW / 2 - 8, btnY - btnH / 2 + 6, 6);
+      // Gloss nửa trên
+      btnG.fillStyle(0xffffff, hover ? 0.25 : 0.15);
+      btnG.fillRoundedRect(btnX - btnW / 2 + 4, btnY - btnH / 2 + 3, btnW - 8, btnH * 0.42, btnR - 2);
     };
     drawBtn(false);
 
     push(this.scene.add.text(btnX, btnY, "Kết Bạn", {
-      fontFamily: "Signika", fontSize: "14px",
+      fontFamily: "Signika", fontSize: "15px",
       color: "#ffffff", fontStyle: "bold",
-      stroke: "#003388", strokeThickness: 2,
+      stroke: "#003355", strokeThickness: 3,
     }).setOrigin(0.5).setDepth(D + 5));
 
     const btnZone = push(this.scene.add.zone(btnX, btnY, btnW, btnH)
@@ -198,7 +272,6 @@ export default class PlayerProfilePanel {
     btnZone.on("pointerdown",  () => {
       this.scene.tweens.add({ targets: btnG, alpha: 0.6, duration: 60, yoyo: true });
       this.socket?.emit("friend:request", { to_id: player.user_id });
-      // Feedback sẽ đến qua friend:request:sent hoặc friend:request:error
     });
     } // end if (!isSelf)
 
@@ -213,6 +286,7 @@ export default class PlayerProfilePanel {
     this._unbindProfileResult();
     this._objs.forEach(o => { try { o?.destroy(); } catch(e){} });
     this._objs = [];
+    this._tarotObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
     this._tarotObjs = [];
     this._open = false;
   }
@@ -222,6 +296,14 @@ export default class PlayerProfilePanel {
   _buildAvatar(cx, cy, size, player, depth) {
     const push = o => { this._objs.push(o); return o; };
     const hasChar = player.character_name && player.character_name !== "Unknown" && player.skin_id;
+
+    if (player.active_bg_id) {
+      const bgKey = `bg_${player.active_bg_id}`;
+      if (this.scene.textures.exists(bgKey)) {
+        push(this.scene.add.image(cx, cy, bgKey)
+          .setDisplaySize(size + 20, size + 20).setDepth(depth - 1));
+      }
+    }
 
     if (hasChar) {
       const frame0Key = `${player.character_name}_${player.skin_id}_idle_000`;
@@ -242,6 +324,57 @@ export default class PlayerProfilePanel {
     });
   }
 
+  _buildAvatarWithBorder(cx, cy, width, height, player, depth) {
+    const push = o => { this._objs.push(o); return o; };
+    
+    const borderRadius = 12;
+
+    // Tạo mask dùng chung cho cả bg và sprite
+    const mask = this.scene.make.graphics({ x: 0, y: 0, add: false });
+    mask.fillStyle(0xffffff);
+    mask.fillRoundedRect(cx - width / 2, cy - height / 2, width, height, borderRadius);
+    const geomMask = mask.createGeometryMask();
+    
+    // Thêm nền (background) - load từ active_bg_id
+    if (player.active_bg_id) {
+      const bgKey = `bg_${player.active_bg_id}`;
+      if (this.scene.textures.exists(bgKey)) {
+        const bgImg = push(this.scene.add.image(cx, cy, bgKey)
+          .setOrigin(0.5, 0.5).setDepth(depth));
+        
+        const texture = this.scene.textures.get(bgKey);
+        const imgAspect = texture.source[0].width / texture.source[0].height;
+        const frameAspect = width / height;
+        
+        let displayWidth, displayHeight;
+        if (imgAspect > frameAspect) {
+          displayHeight = height;
+          displayWidth = displayHeight * imgAspect;
+        } else {
+          displayWidth = width;
+          displayHeight = displayWidth / imgAspect;
+        }
+        
+        bgImg.setDisplaySize(displayWidth, displayHeight);
+        bgImg.setMask(geomMask);
+      }
+    }
+    
+    // Hiển thị nhân vật ở giữa - không bóp méo
+    const hasChar = player.character_name && player.character_name !== "Unknown" && player.skin_id;
+    if (hasChar) {
+      const frame0Key = `${player.character_name}_${player.skin_id}_idle_000`;
+      if (this.scene.textures.exists(frame0Key)) {
+        const animKey = `${player.character_name}_${player.skin_id}_idle`;
+        const charSize = Math.min(width, height) * 0.85;
+        const sprite  = push(this.scene.add.sprite(cx, cy, frame0Key)
+          .setDisplaySize(charSize, charSize).setDepth(depth + 1));
+        if (this.scene.anims.exists(animKey)) sprite.play(animKey);
+        return;
+      }
+    }
+  }
+
   _updateStats(data) {
     if (!this._statsTxt || !this._statsTxt.active) return;
 
@@ -249,9 +382,8 @@ export default class PlayerProfilePanel {
     const total  = data.total_games || 0;
     const rate   = total > 0 ? Math.round((wins / total) * 100) : 0;
 
-    this._statsTxt.setText(
-      `Số trận: ${total}\nThắng:   ${wins}\nTỉ lệ:   ${rate}%`
-    );
+    this._statsTxt.setText(`Số trận: ${total}`);
+    if (this._statsTxt2?.active) this._statsTxt2.setText(`Thắng: ${wins}`);
 
     // Tarot cards
     this._tarotObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
@@ -271,51 +403,61 @@ export default class PlayerProfilePanel {
       return;
     }
 
-    const CARD_W = 64, CARD_H = 84, GAP = 14;
-    const startX = this._tarotLabel.x;
-    const startY = this._tarotLabel.y + 22;
+    const GAP = 4;
+    const startY = this._tarotLabel.y + 4;
+
+    // Dùng lại vị trí đã tính từ open() để thẳng hàng với stats
+    const availW    = (this._rightW || 180);
+    const cardW     = this._cardW || Math.floor((availW - GAP) / 2);
+    const cardH     = Math.floor(cardW * 1.4);
+    const totalW    = cardW * 2 + GAP;
+    const startX    = this._cardStartX || (this._tarotLabel.x + (availW - totalW) / 2);
 
     const renderCards = () => {
+      // Nếu panel đã đóng thì không render
+      if (!this._open) return;
+
+      // Clear thẻ cũ trước khi render mới
+      this._tarotObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
+      this._tarotObjs = [];
+
       cards.forEach((card, i) => {
         const tarotId = card.tarot_id || card.id;
         const key     = `tarot_${tarotId}`;
-        const cx      = startX + i * (CARD_W + GAP) + CARD_W / 2;
-        const cy      = startY + CARD_H / 2;
+        const cx      = startX + i * (cardW + GAP) + cardW / 2;
+        const cy      = startY + cardH / 2;
 
-        // Khung card
-        const cg = this.scene.add.graphics().setDepth(this.depth + 4);
-        cg.fillStyle(0x3a1a00, 0.5);
-        cg.fillRoundedRect(cx - CARD_W / 2 - 2, cy - CARD_H / 2 - 2, CARD_W + 4, CARD_H + 4, 7);
-        cg.lineStyle(2, 0xffd700, 0.85);
-        cg.strokeRoundedRect(cx - CARD_W / 2 - 2, cy - CARD_H / 2 - 2, CARD_W + 4, CARD_H + 4, 7);
-        this._tarotObjs.push(cg);
-        this._objs.push(cg);
-
+        // Khung card — bỏ viền vàng bên ngoài, chỉ giữ ảnh
         if (this.scene.textures.exists(key)) {
-          // Hiển thị ảnh thật
+          const tex    = this.scene.textures.get(key);
+          const srcW   = tex.source[0].width;
+          const srcH   = tex.source[0].height;
+          const aspect = srcW / srcH;
+          let dw, dh;
+          if (aspect > cardW / cardH) {
+            dw = cardW; dh = cardW / aspect;
+          } else {
+            dh = cardH; dw = cardH * aspect;
+          }
           const img = this.scene.add.image(cx, cy, key)
-            .setDisplaySize(CARD_W, CARD_H)
+            .setDisplaySize(dw, dh)
             .setDepth(this.depth + 5);
           this._tarotObjs.push(img);
-          this._objs.push(img);
         } else {
-          // Fallback: tên thẻ
           const ct = this.scene.add.text(cx, cy, (card.name || `#${tarotId}`), {
             fontFamily: "Signika", fontSize: "10px",
             color: "#ffe0a0", fontStyle: "bold",
-            align: "center", wordWrap: { width: CARD_W - 6 }
+            align: "center", wordWrap: { width: cardW - 6 }
           }).setOrigin(0.5).setDepth(this.depth + 5);
           this._tarotObjs.push(ct);
-          this._objs.push(ct);
         }
 
         // Tên thẻ bên dưới
-        const nameTxt = this.scene.add.text(cx, cy + CARD_H / 2 + 10, card.name || `#${tarotId}`, {
+        const nameTxt = this.scene.add.text(cx, cy + cardH / 2 + 4, card.name || `#${tarotId}`, {
           fontFamily: "Signika", fontSize: "10px", color: "#5a3200",
-          align: "center", wordWrap: { width: CARD_W + GAP - 4 }
+          align: "center", wordWrap: { width: cardW + GAP - 4 }
         }).setOrigin(0.5, 0).setDepth(this.depth + 4);
         this._tarotObjs.push(nameTxt);
-        this._objs.push(nameTxt);
       });
     };
 
@@ -332,7 +474,13 @@ export default class PlayerProfilePanel {
 
     let loaded = 0;
     const total2 = toLoad.length;
-    const done = () => { if (++loaded >= total2) renderCards(); };
+    const done = () => {
+      if (++loaded >= total2) {
+        this.scene.load.off("filecomplete", done);
+        this.scene.load.off("loaderror",    done);
+        renderCards();
+      }
+    };
 
     this.scene.load.on("filecomplete", done);
     this.scene.load.on("loaderror",    done);

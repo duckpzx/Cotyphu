@@ -44,9 +44,9 @@ export default class ChatWidget {
     // ── Vùng tin nhắn ──────────────────────────────────────────────
     const msgBg = this.scene.add.graphics().setDepth(D);
     msgBg.fillStyle(0x041428, 0.62);
-    msgBg.fillRoundedRect(x, y, w, MSG_H, { tl: 0, tr: 0, bl: 0, br: 0 });
+    msgBg.fillRoundedRect(x, y, w, MSG_H, { tl: 0, tr: 10, bl: 0, br: 0 });
     msgBg.lineStyle(1.5, 0x2255aa, 0.5);
-    msgBg.strokeRoundedRect(x, y, w, MSG_H, { tl: 0, tr: 0, bl: 0, br: 0 });
+    msgBg.strokeRoundedRect(x, y, w, MSG_H, { tl: 0, tr: 10, bl: 0, br: 0 });
     this._push(msgBg);
 
     this._chatBox = {
