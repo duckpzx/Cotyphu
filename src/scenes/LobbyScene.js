@@ -26,7 +26,9 @@ export default class LobbyScene extends Phaser.Scene {
     this.load.image("tarot","assets/ui/lobby/tarot.png");
     this.load.image("friend","assets/ui/lobby/friend.png");
     this.load.image("chat_btn","assets/ui/lobby/chat.png");
-    this.load.image("close_btn","assets/ui/shared/close.png");
+    this.load.image("close_btn",  "assets/ui/shared/close.png");
+    this.load.image("add_friend", "assets/ui/shared/friend.png");
+    this.load.image("icon_search", "assets/ui/shared/icon_search.png");
   }
 
   create() {
@@ -360,6 +362,29 @@ createTopBar() {
     }
   });
 
+  // Khi bấm nút Chat trong FriendPanel → đóng FriendPanel, mở chat PM
+  this.events.off("friend:open_pm"); // tránh duplicate listener
+  this.events.on("friend:open_pm", (friend) => {
+    // Đóng FriendPanel
+    if (this._friendPanelOpen) {
+      this._destroyFriendPanel();
+    }
+    this._pmFriend = friend;
+    this._activeTab = 1;
+    // Xóa unread của người này
+    const fid = Number(friend.friend_uid ?? friend.id);
+    if (this._pmUnreadPerFriend?.has(fid)) {
+      const cleared = this._pmUnreadPerFriend.get(fid) || 0;
+      this._pmUnreadPerFriend.delete(fid);
+      this._pmUnreadTotal = Math.max(0, (this._pmUnreadTotal || 0) - cleared);
+      this._updateChatBadge?.();
+    }
+    if (this._chatPanelOpen) {
+      this._destroyChatPanel();
+    }
+    this._openChatPanel(width, height, { tab: 1, friend });
+  });
+
   const shop = this.add.image(iconStartX + gap, y - 5, "shop")
     .setScale(1)
     .setDepth(103)
@@ -445,6 +470,26 @@ createTopBar() {
       lbR
     );
 
+    // ── Badge đỏ tổng tin chưa đọc ──────────────────────────────
+    const badgeR  = 11;
+    const badgeX  = btnX + BTN_SIZE * 0.32;
+    const badgeY  = btnY - BTN_SIZE * 0.32;
+    const badgeG  = this.add.graphics().setDepth(D + 3);
+    const badgeTxt = this.add.text(badgeX, badgeY, "", {
+      fontFamily: "Signika", fontSize: "11px", color: "#ffffff", fontStyle: "bold"
+    }).setOrigin(0.5).setDepth(D + 4);
+
+    const updateBadge = () => {
+      badgeG.clear();
+      const total = this._pmUnreadTotal || 0;
+      if (total <= 0) { badgeTxt.setText(""); return; }
+      badgeG.fillStyle(0xdd2222, 1);
+      badgeG.fillCircle(badgeX, badgeY, badgeR);
+      badgeTxt.setText(total > 99 ? "99+" : String(total));
+    };
+    this._updateChatBadge = updateBadge;
+    updateBadge();
+
     // Hover
     icon.on("pointerover",  () => icon.setTint(0xddddff));
     icon.on("pointerout",   () => icon.clearTint());
@@ -461,15 +506,19 @@ createTopBar() {
     }
   }
 
-  _openChatPanel(width, height) {
+  _openChatPanel(width, height, opts = {}) {
     this._chatPanelOpen = true;
+    // opts.tab: 0=Thế Giới, 1=Bạn Bè
+    // opts.friend: object friend để mở PM ngay
+    if (opts.tab !== undefined) this._activeTab = opts.tab;
+    if (opts.friend !== undefined) this._pmFriend = opts.friend;
 
     const PANEL_W = 340;
     const PANEL_H = 420;
     const PANEL_X = 10;
     const PANEL_Y = height / 2 - PANEL_H / 2 - 30;
     const TAB_H   = 36;
-    const D       = 120;
+    const D       = 120; // thấp hơn FriendPanel (160) để FriendPanel đè lên trên
 
     const objs = [];
     const push  = o => { objs.push(o); return o; };
@@ -507,11 +556,36 @@ createTopBar() {
         }).setOrigin(0.5).setDepth(D + 2);
         tabObjs.push(tt);
 
+        // Badge đỏ trên tab "Bạn Bè" (i === 1)
+        if (i === 1) {
+          const unread = this._pmUnreadTotal || 0;
+          if (unread > 0 && !isActive) {
+            const bR = 9;
+            const bX = tx + tw / 2 + tt.width / 2 + bR + 4;
+            const bY = PANEL_Y + TAB_H / 2;
+            const bg = this.add.graphics().setDepth(D + 3);
+            bg.fillStyle(0xdd2222, 1);
+            bg.fillCircle(bX, bY, bR);
+            tabObjs.push(bg);
+            const bt = this.add.text(bX, bY, unread > 99 ? "99+" : String(unread), {
+              fontFamily: "Signika", fontSize: "10px", color: "#ffffff", fontStyle: "bold"
+            }).setOrigin(0.5).setDepth(D + 4);
+            tabObjs.push(bt);
+          }
+        }
+
         const tz = this.add.zone(tx + tw / 2, PANEL_Y + TAB_H / 2, tw, TAB_H)
           .setInteractive({ cursor: "pointer" }).setDepth(D + 3);
         tz.on("pointerdown", () => {
           if (this._activeTab === i) return;
           this._activeTab = i;
+          // Bấm tab "Bạn Bè" → xóa unread
+          if (i === 1) {
+            this._pmUnreadTotal = 0;
+            this._pmUnreadPerFriend = new Map();
+            this._updateChatBadge?.();
+          }
+          this._pmFriend = null;
           buildTabs();
           rebuildChatArea();
         });
@@ -533,21 +607,30 @@ createTopBar() {
         // World chat
         this._initWorldSocket(() => {
           currentChat = new ChatWidget(this, {
-            channel: "world", socket: this._worldSocket, depth: D + 1
+            channel: "world", socket: this._worldSocket, depth: D + 1,
+            myId: this.player?.user?.id
           });
           currentChat.build(PANEL_X, CHAT_Y, PANEL_W, CHAT_H);
           currentChat.addSystemMessage("Chat Thế Giới — Chào mừng!");
           this._currentChatWidget = currentChat;
         });
       } else {
-        // Bạn bè — placeholder
-        const ph = this.add.text(PANEL_X + PANEL_W / 2, CHAT_Y + CHAT_H / 2,
-          "Tính năng Bạn Bè\nsắp ra mắt!", {
-          fontFamily: "Signika", fontSize: "16px", color: "#7799bb",
-          align: "center"
-        }).setOrigin(0.5).setDepth(D + 1);
-        currentChat = { destroy: () => ph.destroy() };
-        this._currentChatWidget = null;
+        // Tab Bạn Bè
+        const friend = this._pmFriend; // null = xem danh sách, có = xem PM
+        if (!friend) {
+          currentChat = this._buildPMList(PANEL_X, CHAT_Y, PANEL_W, CHAT_H, D + 1, (f) => {
+            this._pmFriend = f;
+            rebuildChatArea();
+          });
+          this._currentChatWidget = currentChat; // lưu để destroy được
+        } else {
+          currentChat = this._buildPMWidget(PANEL_X, CHAT_Y, PANEL_W, CHAT_H, D + 1, friend, () => {
+            // Callback back → về danh sách
+            this._pmFriend = null;
+            rebuildChatArea();
+          });
+          this._currentChatWidget = currentChat;
+        }
       }
     };
 
@@ -570,6 +653,7 @@ createTopBar() {
     this._chatPanelObjs = objs;
     this._chatPanelTabObjs = tabObjs;
     this._chatPanelRebuild = rebuildChatArea;
+    this._chatPanelBuildTabs = buildTabs;
     this._chatPanelCurrentRef = () => currentChat;
   }
 
@@ -579,6 +663,283 @@ createTopBar() {
     this._currentChatWidget = null;
     this._chatPanelObjs?.forEach(o => { try { o?.destroy(); } catch(e){} });
     this._chatPanelObjs = null;
+  }
+
+  // ── PM LIST — danh sách conversation ────────────────────────────
+  _buildPMList(x, y, w, h, depth, onSelect) {
+    const objs = [];
+    const push = o => { objs.push(o); return o; };
+    const D = depth;
+
+    // Nền
+    const bg = push(this.add.graphics().setDepth(D));
+    bg.fillStyle(0x041428, 0.62);
+    bg.fillRoundedRect(x, y, w, h, { tl: 0, tr: 10, bl: 0, br: 0 });
+    bg.lineStyle(1.5, 0x2255aa, 0.5);
+    bg.strokeRoundedRect(x, y, w, h, { tl: 0, tr: 10, bl: 0, br: 0 });
+
+    // Mask để clip nội dung trong vùng list
+    const maskShape = this.make.graphics({ add: false });
+    maskShape.fillStyle(0xffffff);
+    maskShape.fillRect(x, y, w, h);
+    const listMask = maskShape.createGeometryMask();
+
+    const conversations = this._pmConversations;
+    const hasCached = conversations && conversations.size > 0;
+
+    if (!hasCached) {
+      push(this.add.text(x + w / 2, y + h / 2, "Chưa có tin nhắn nào.\nBấm 💬 trong danh sách\nbạn bè để nhắn tin!", {
+        fontFamily: "Signika", fontSize: "14px", color: "#7799bb", align: "center"
+      }).setOrigin(0.5).setDepth(D + 1));
+    } else {
+      const ROW_H = 52;
+      let rowY = y + 8;
+      conversations.forEach((msgs, friendId) => {
+        if (!msgs.length) return;
+        const lastMsg = msgs[msgs.length - 1];
+        const nameMatch = lastMsg.text.match(/^\[(.+?)\]/);
+        const displayName = nameMatch ? nameMatch[1] : `User ${friendId}`;
+
+        // Row nền — áp mask
+        const rowBg = push(this.add.graphics().setDepth(D + 1).setMask(listMask));
+        rowBg.fillStyle(0x0a2040, 0.8);
+        rowBg.fillRoundedRect(x + 6, rowY, w - 12, ROW_H - 4, 6);
+
+        // Tên
+        push(this.add.text(x + 16, rowY + 10, displayName, {
+          fontFamily: "Signika", fontSize: "14px", color: "#aaccff", fontStyle: "bold"
+        }).setDepth(D + 2).setMask(listMask));
+
+        // Preview tin nhắn cuối
+        const preview = lastMsg.text.replace(/^\[.+?\] /, "").slice(0, 30) + (lastMsg.text.length > 30 ? "…" : "");
+        push(this.add.text(x + 16, rowY + 28, preview, {
+          fontFamily: "Signika", fontSize: "12px", color: "#6688aa"
+        }).setDepth(D + 2).setMask(listMask));
+
+        // Zone click — chỉ trong vùng row thực tế
+        const capturedRowY = rowY;
+        const zone = push(this.add.zone(x + w / 2, capturedRowY + (ROW_H - 4) / 2, w - 12, ROW_H - 4)
+          .setInteractive({ cursor: "pointer" }).setDepth(D + 3));
+        zone.on("pointerover",  () => { rowBg.clear(); rowBg.fillStyle(0x1a4070, 0.9); rowBg.fillRoundedRect(x + 6, capturedRowY, w - 12, ROW_H - 4, 6); });
+        zone.on("pointerout",   () => { rowBg.clear(); rowBg.fillStyle(0x0a2040, 0.8); rowBg.fillRoundedRect(x + 6, capturedRowY, w - 12, ROW_H - 4, 6); });
+        zone.on("pointerdown",  () => {
+          onSelect({ friend_uid: friendId, id: friendId, name: displayName === "Bạn" ? `User ${friendId}` : displayName });
+        });
+
+        rowY += ROW_H;
+      });
+    }
+
+    return {
+      destroy: () => {
+        maskShape.destroy();
+        objs.forEach(o => { try { o?.destroy(); } catch(e){} });
+      }
+    };
+  }
+
+  // ── PM WIDGET ────────────────────────────────────────────────────
+  _buildPMWidget(x, y, w, h, depth, friend, onBack = null) {
+    const objs = [];
+    const push = o => { objs.push(o); return o; };
+    const socket = this._worldSocket;
+    const toId   = friend.friend_uid ?? friend.id;
+    const D      = depth;
+
+    // Cache conversation — lưu tin nhắn trong memory
+    if (!this._pmConversations) this._pmConversations = new Map();
+    if (!this._pmConversations.has(toId)) {
+      this._pmConversations.set(toId, []);
+    }
+    const conversation = this._pmConversations.get(toId);
+
+    const INPUT_H = 40;
+    const HEADER_H = 32;
+    const MSG_H   = h - INPUT_H - HEADER_H;
+    const SEND_W  = 52;
+    const INPUT_W = w - SEND_W;
+
+    // ── Header tên bạn + nút Back ───────────────────────────────
+    const hdrBg = push(this.add.graphics().setDepth(D));
+    hdrBg.fillStyle(0x041428, 0.85);
+    hdrBg.fillRoundedRect(x, y, w, HEADER_H, { tl: 0, tr: 10, bl: 0, br: 0 });
+
+    // Nút Back ←
+    if (onBack) {
+      const backTxt = push(this.add.text(x + 10, y + HEADER_H / 2, "◀", {
+        fontFamily: "Signika", fontSize: "18px", color: "#7799bb"
+      }).setOrigin(0, 0.5).setDepth(D + 2).setInteractive({ cursor: "pointer" }));
+      backTxt.on("pointerover",  () => backTxt.setColor("#aaccff"));
+      backTxt.on("pointerout",   () => backTxt.setColor("#7799bb"));
+      backTxt.on("pointerdown",  () => onBack());
+    }
+
+    push(this.add.text(x + w / 2, y + HEADER_H / 2, `${friend.name}`, {
+      fontFamily: "Signika", fontSize: "14px", color: "#aaccff", fontStyle: "bold"
+    }).setOrigin(0.5).setDepth(D + 1));
+
+    // ── Vùng tin nhắn ───────────────────────────────────────────
+    const msgY = y + HEADER_H;
+    const msgBg = push(this.add.graphics().setDepth(D));
+    msgBg.fillStyle(0x041428, 0.62);
+    msgBg.fillRoundedRect(x, msgY, w, MSG_H, 0);
+    msgBg.lineStyle(1.5, 0x2255aa, 0.5);
+    msgBg.strokeRoundedRect(x, msgY, w, MSG_H, 0);
+
+    const chatBox = { x: x + 8, y: msgY + 6, w: w - 16, h: MSG_H - 10, lineH: 18 };
+    const lines = [];
+
+    const appendLine = (text, color = "#ffffff", time = null, saveToCache = true) => {
+      // Lưu vào cache
+      if (saveToCache) {
+        conversation.push({ text, color, time });
+        // Giới hạn 100 tin nhắn mỗi conversation
+        if (conversation.length > 100) conversation.shift();
+      }
+
+      const maxLines = Math.floor(chatBox.h / chatBox.lineH);
+      if (lines.length >= maxLines) {
+        const old = lines.shift();
+        try { old?.ts?.destroy(); old?.msg?.destroy(); } catch(e) {}
+        lines.forEach(l => {
+          l.msg.setY(l.msg.y - chatBox.lineH);
+          l.ts?.setY(l.ts?.y - chatBox.lineH);
+        });
+      }
+      const lineY = chatBox.y + lines.length * chatBox.lineH;
+      let tsStr = "";
+      if (time) {
+        const diffMin = Math.floor((Date.now() - time) / 60000);
+        tsStr = diffMin < 1 ? "vừa xong" : diffMin < 60 ? `${diffMin}ph`
+              : new Date(time).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+      }
+      const msg = push(this.add.text(chatBox.x, lineY, text, {
+        fontFamily: "Signika", fontSize: "13px", color,
+        wordWrap: { width: chatBox.w - (tsStr ? 52 : 0) }
+      }).setDepth(D + 1));
+      let ts = null;
+      if (tsStr) {
+        ts = push(this.add.text(chatBox.x + chatBox.w, lineY, tsStr, {
+          fontFamily: "Signika", fontSize: "11px", color: "#6688aa"
+        }).setOrigin(1, 0).setDepth(D + 1));
+      }
+      lines.push({ msg, ts });
+    };
+
+    // Restore tin nhắn cũ từ cache
+    conversation.forEach(m => appendLine(m.text, m.color, m.time, false));
+
+    // ── Input ────────────────────────────────────────────────────
+    const inputY = msgY + MSG_H;
+    const inputBg = push(this.add.graphics().setDepth(D));
+    inputBg.fillStyle(0x020d1e, 0.92);
+    inputBg.fillRoundedRect(x, inputY, INPUT_W, INPUT_H, 0);
+    inputBg.lineStyle(1.5, 0x2255aa, 0.6);
+    inputBg.strokeRoundedRect(x, inputY, INPUT_W, INPUT_H, 0);
+
+    let inputText = "";
+    const placeholder = push(this.add.text(x + 12, inputY + INPUT_H / 2, "Nhập tin nhắn...", {
+      fontFamily: "Signika", fontSize: "13px", color: "#4477aa"
+    }).setOrigin(0, 0.5).setDepth(D + 1));
+    const inputDisplay = push(this.add.text(x + 12, inputY + INPUT_H / 2, "", {
+      fontFamily: "Signika", fontSize: "13px", color: "#ffffff"
+    }).setOrigin(0, 0.5).setDepth(D + 1));
+
+    const syncInput = () => {
+      inputDisplay.setText(inputText);
+      placeholder.setVisible(inputText.length === 0);
+    };
+
+    const sendMsg = () => {
+      const msg = inputText.trim();
+      if (!msg) return;
+      socket?.emit("chat:pm:send", { to_id: toId, message: msg });
+      inputText = "";
+      syncInput();
+    };
+
+    let focused = false;
+    const keyListener = (e) => {
+      if (!focused) return;
+      if (e.key === "Enter")     { sendMsg(); }
+      else if (e.key === "Backspace") { inputText = inputText.slice(0, -1); syncInput(); }
+      else if (e.key === "Escape")    { focused = false; }
+      else if (e.key.length === 1 && inputText.length < 200) { inputText += e.key; syncInput(); }
+    };
+    window.addEventListener("keydown", keyListener);
+
+    const inputZone = push(this.add.zone(x + INPUT_W / 2, inputY + INPUT_H / 2, INPUT_W, INPUT_H)
+      .setInteractive({ cursor: "text" }).setDepth(D + 2));
+    inputZone.on("pointerdown", () => { focused = true; placeholder.setVisible(false); });
+
+    // ── Nút Gửi ─────────────────────────────────────────────────
+    const sendX = x + INPUT_W;
+    const sendG = push(this.add.graphics().setDepth(D));
+    const drawSend = (hover) => {
+      sendG.clear();
+      sendG.fillGradientStyle(
+        hover ? 0x22bbff : 0x0099ff, hover ? 0x22bbff : 0x0099ff,
+        hover ? 0x0055cc : 0x0066cc, hover ? 0x0055cc : 0x0066cc, 1
+      );
+      sendG.fillRoundedRect(sendX, inputY, SEND_W, INPUT_H, 0);
+    };
+    drawSend(false);
+    push(this.add.text(sendX + SEND_W / 2, inputY + INPUT_H / 2, "Gửi", {
+      fontFamily: "Signika", fontSize: "13px", color: "#ffffff", fontStyle: "bold"
+    }).setOrigin(0.5).setDepth(D + 1));
+    const sendZone = push(this.add.zone(sendX + SEND_W / 2, inputY + INPUT_H / 2, SEND_W, INPUT_H)
+      .setInteractive({ cursor: "pointer" }).setDepth(D + 2));
+    sendZone.on("pointerover",  () => drawSend(true));
+    sendZone.on("pointerout",   () => drawSend(false));
+    sendZone.on("pointerdown",  () => sendMsg());
+
+    // ── Socket listeners ─────────────────────────────────────────
+    const myId = this.player?.user?.id;
+
+    // Xóa unread của conversation này khi mở
+    if (this._pmUnreadPerFriend?.has(Number(toId))) {
+      const cleared = this._pmUnreadPerFriend.get(Number(toId)) || 0;
+      this._pmUnreadPerFriend.delete(Number(toId));
+      this._pmUnreadTotal = Math.max(0, (this._pmUnreadTotal || 0) - cleared);
+      this._updateChatBadge?.();
+      this._chatPanelBuildTabs?.();
+    }
+
+    const onPmMessage = (data) => {
+      const isMe = Number(data.from_id) === Number(myId);
+      const isRelevant = isMe
+        ? Number(data.to_id) === Number(toId)
+        : Number(data.from_id) === Number(toId);
+      if (!isRelevant) return;
+      const label = isMe ? `[Bạn] ${data.message}` : `[${data.name}] ${data.message}`;
+      appendLine(label, isMe ? "#aaddff" : "#ffffff", data.time);
+    };
+    socket?.on("chat:pm:message", onPmMessage);
+
+    // Nhận PM từ bất kỳ ai khi widget đang mở (lưu vào cache dù không đang xem)
+    const onPmAny = (data) => {
+      const isMe = Number(data.from_id) === Number(myId);
+      const otherId = isMe ? Number(data.to_id) : Number(data.from_id);
+      if (otherId === Number(toId)) return; // đã xử lý bởi onPmMessage
+      // Lưu vào cache của conversation khác
+      if (!this._pmConversations.has(otherId)) {
+        this._pmConversations.set(otherId, []);
+      }
+      const label = isMe ? `[Bạn] ${data.message}` : `[${data.name}] ${data.message}`;
+      const cache = this._pmConversations.get(otherId);
+      cache.push({ text: label, color: isMe ? "#aaddff" : "#ffffff", time: data.time });
+      if (cache.length > 100) cache.shift();
+    };
+    socket?.on("chat:pm:message", onPmAny);
+
+    return {
+      destroy: () => {
+        window.removeEventListener("keydown", keyListener);
+        socket?.off("chat:pm:message", onPmMessage);
+        socket?.off("chat:pm:message", onPmAny);
+        objs.forEach(o => { try { o?.destroy(); } catch(e){} });
+      }
+    };
   }
 
   _initWorldSocket(cb) {
@@ -594,6 +955,31 @@ createTopBar() {
       auth: { token }
     });
     this._worldSocket.on("connect", () => cb());
+
+    // ── Lắng nghe PM đến để track unread ────────────────────────
+    this._worldSocket.on("chat:pm:message", (data) => {
+      const myId = this.player?.user?.id;
+      const isMe = Number(data.from_id) === Number(myId);
+      if (isMe) return; // tin mình gửi không tính unread
+
+      // Chỉ tăng unread nếu tab Bạn Bè không đang active với đúng người này
+      const fromId = Number(data.from_id);
+      const isViewingThisConv = this._chatPanelOpen
+        && this._activeTab === 1
+        && this._pmFriend
+        && Number(this._pmFriend.friend_uid ?? this._pmFriend.id) === fromId;
+
+      if (!isViewingThisConv) {
+        if (!this._pmUnreadTotal) this._pmUnreadTotal = 0;
+        if (!this._pmUnreadPerFriend) this._pmUnreadPerFriend = new Map();
+        this._pmUnreadTotal++;
+        this._pmUnreadPerFriend.set(fromId, (this._pmUnreadPerFriend.get(fromId) || 0) + 1);
+        this._updateChatBadge?.();
+        if (this._chatPanelOpen && this._chatPanelBuildTabs) {
+          this._chatPanelBuildTabs();
+        }
+      }
+    });
   }
 
   shutdown() {
@@ -601,6 +987,8 @@ createTopBar() {
     this._destroyFriendPanel();
     this._worldSocket?.disconnect();
     this._worldSocket = null;
+    // Xóa cache PM khi thoát game
+    this._pmConversations = null;
   }
 
   // ── FRIEND PANEL ─────────────────────────────────────────────────

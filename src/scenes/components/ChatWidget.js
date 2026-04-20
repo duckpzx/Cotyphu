@@ -1,47 +1,41 @@
 /**
- * ChatWidget — Widget chat dùng chung cho LobbyScene, RoomScene, BoardScene
- *
- * Cách dùng:
- *   this._chat = new ChatWidget(scene, { channel: "world" | "room" | "game", socket });
- *   this._chat.build(x, y, width, height);
- *   this._chat.destroy();
+ * ChatWidget — Widget chat với scrollable message area
  */
 export default class ChatWidget {
-  /**
-   * @param {Phaser.Scene} scene
-   * @param {{ channel: string, socket: import("socket.io-client").Socket, depth?: number }} opts
-   */
-  constructor(scene, { channel, socket, depth = 200 }) {
+  constructor(scene, { channel, socket, depth = 200, myId = null }) {
     this.scene   = scene;
-    this.channel = channel; // "world" | "room" | "game"
+    this.channel = channel;
     this.socket  = socket;
     this.depth   = depth;
+    this.myId    = myId ? Number(myId) : null;
 
-    this._objects      = [];
-    this._lines        = [];
-    this._inputText    = "";
-    this._keyListener  = null;
-    this._chatBox      = null;
-    this._inputDisplay = null;
-    this._placeholder  = null;
-    this._focused      = false;
+    this._objects     = [];
+    this._msgObjs     = []; // text objects trong vùng chat (bị mask)
+    this._allMessages = []; // { text, color, tsStr } — toàn bộ lịch sử
+    this._scrollOffset = 0; // số dòng scroll từ dưới lên (0 = bottom)
+    this._inputText   = "";
+    this._keyListener = null;
+    this._focused     = false;
+    this._chatBox     = null;
+    this._scrollBar   = null;
+    this._scrollThumb = null;
+    this._isDragging  = false;
   }
 
-  // ── PUBLIC ──────────────────────────────────────────────────────────
-
-  /**
-   * Dựng UI chat tại vị trí (x, y) với kích thước (w, h)
-   */
   build(x, y, w, h) {
     this._x = x; this._y = y; this._w = w; this._h = h;
 
+    const SCROLL_W = 8;
     const INPUT_H  = 40;
     const MSG_H    = h - INPUT_H;
     const SEND_W   = 52;
     const INPUT_W  = w - SEND_W;
     const D        = this.depth;
 
-    // ── Vùng tin nhắn ──────────────────────────────────────────────
+    this._MSG_H   = MSG_H;
+    this._SCROLL_W = SCROLL_W;
+
+    // ── Nền vùng tin nhắn ──────────────────────────────────────────
     const msgBg = this.scene.add.graphics().setDepth(D);
     msgBg.fillStyle(0x041428, 0.62);
     msgBg.fillRoundedRect(x, y, w, MSG_H, { tl: 0, tr: 10, bl: 0, br: 0 });
@@ -49,13 +43,72 @@ export default class ChatWidget {
     msgBg.strokeRoundedRect(x, y, w, MSG_H, { tl: 0, tr: 10, bl: 0, br: 0 });
     this._push(msgBg);
 
-    this._chatBox = {
-      x: x + 8, y: y + 6,
-      w: w - 16, h: MSG_H - 10,
-      lineH: 18, lines: []
-    };
+    // ── Mask để clip tin nhắn ──────────────────────────────────────
+    const maskGfx = this.scene.make.graphics({ add: false });
+    maskGfx.fillStyle(0xffffff);
+    maskGfx.fillRect(x + 4, y + 4, w - SCROLL_W - 12, MSG_H - 8);
+    this._maskGfx = maskGfx;
+    this._clipMask = maskGfx.createGeometryMask();
 
-    // ── Ô input ─────────────────────────────────────────────────────
+    // chatBox dimensions
+    const LINE_H = 18;
+    this._chatBox = {
+      x: x + 8,
+      y: y + 6,
+      w: w - SCROLL_W - 20,
+      h: MSG_H - 12,
+      lineH: LINE_H,
+    };
+    this._visibleLines = Math.floor(this._chatBox.h / LINE_H);
+
+    // ── Scrollbar track ────────────────────────────────────────────
+    const sbX = x + w - SCROLL_W - 2;
+    const sbY = y + 4;
+    const sbH = MSG_H - 8;
+    this._sbX = sbX; this._sbY = sbY; this._sbH = sbH;
+
+    const sbTrack = this.scene.add.graphics().setDepth(D + 1);
+    sbTrack.fillStyle(0x0a1a33, 0.8);
+    sbTrack.fillRoundedRect(sbX, sbY, SCROLL_W, sbH, 4);
+    this._push(sbTrack);
+
+    // Scrollbar thumb (sẽ được vẽ lại khi scroll)
+    this._scrollThumb = this.scene.add.graphics().setDepth(D + 2);
+    this._push(this._scrollThumb);
+
+    // Zone scroll bằng wheel trên vùng chat
+    const wheelZone = this.scene.add.zone(x + w / 2, y + MSG_H / 2, w, MSG_H)
+      .setInteractive().setDepth(D + 3);
+    wheelZone.on("wheel", (_ptr, _dx, dy) => {
+      this._scroll(dy > 0 ? -1 : 1);
+    });
+    this._push(wheelZone);
+
+    // Drag scrollbar thumb
+    const thumbZone = this.scene.add.zone(sbX + SCROLL_W / 2, sbY + sbH / 2, SCROLL_W + 6, sbH)
+      .setInteractive({ cursor: "pointer" }).setDepth(D + 4);
+    this._push(thumbZone);
+    let dragStartY = 0, dragStartOffset = 0;
+    thumbZone.on("pointerdown", (ptr) => {
+      this._isDragging = true;
+      dragStartY = ptr.y;
+      dragStartOffset = this._scrollOffset;
+    });
+    this.scene.input.on("pointermove", (ptr) => {
+      if (!this._isDragging) return;
+      const totalLines = this._allMessages.length;
+      const maxScroll  = Math.max(0, totalLines - this._visibleLines);
+      if (maxScroll === 0) return;
+      const dy = ptr.y - dragStartY;
+      const ratio = dy / (sbH - this._thumbH());
+      const delta = Math.round(ratio * maxScroll);
+      this._scrollOffset = Math.max(0, Math.min(maxScroll, dragStartOffset - delta));
+      this._renderMessages();
+      this._updateScrollbar();
+    });
+    this.scene.input.on("pointerup", () => { this._isDragging = false; });
+
+    // ── Input ──────────────────────────────────────────────────────
     const inputY = y + MSG_H;
     const inputBg = this.scene.add.graphics().setDepth(D);
     inputBg.fillStyle(0x020d1e, 0.92);
@@ -74,15 +127,12 @@ export default class ChatWidget {
     }).setOrigin(0, 0.5).setDepth(D + 1);
     this._push(this._inputDisplay);
 
-    // Zone click để focus input
     const inputZone = this.scene.add.zone(x + INPUT_W / 2, inputY + INPUT_H / 2, INPUT_W, INPUT_H)
       .setInteractive({ cursor: "text" }).setDepth(D + 2);
-    inputZone.on("pointerover", () => { this.scene.game.canvas.style.cursor = "text"; });
-    inputZone.on("pointerout",  () => { this.scene.game.canvas.style.cursor = "default"; });
     inputZone.on("pointerdown", () => this._focusInput());
     this._push(inputZone);
 
-    // ── Nút Gửi ─────────────────────────────────────────────────────
+    // ── Nút Gửi ───────────────────────────────────────────────────
     const sendX = x + INPUT_W;
     const sendG = this.scene.add.graphics().setDepth(D);
     const drawSend = (hover) => {
@@ -98,10 +148,9 @@ export default class ChatWidget {
     drawSend(false);
     this._push(sendG);
 
-    const sendTxt = this.scene.add.text(sendX + SEND_W / 2, inputY + INPUT_H / 2, "Gửi", {
+    this._push(this.scene.add.text(sendX + SEND_W / 2, inputY + INPUT_H / 2, "Gửi", {
       fontFamily: "Signika", fontSize: "13px", color: "#ffffff", fontStyle: "bold"
-    }).setOrigin(0.5).setDepth(D + 1);
-    this._push(sendTxt);
+    }).setOrigin(0.5).setDepth(D + 1));
 
     const sendZone = this.scene.add.zone(sendX + SEND_W / 2, inputY + INPUT_H / 2, SEND_W, INPUT_H)
       .setInteractive({ cursor: "pointer" }).setDepth(D + 2);
@@ -110,34 +159,117 @@ export default class ChatWidget {
     sendZone.on("pointerdown",  () => this._sendMessage());
     this._push(sendZone);
 
-    // ── Lắng nghe socket ────────────────────────────────────────────
     this._bindSocket();
-
     return this;
   }
 
-  /** Thêm tin nhắn hệ thống (không gửi lên server) */
   addSystemMessage(msg) {
     this._appendLine(`[Hệ thống] ${msg}`, "#88ccff");
   }
 
-  /** Dọn dẹp toàn bộ */
   destroy() {
-    if (this.channel === "world") {
-      this.socket?.emit("chat:world:leave");
-    }
+    if (this.channel === "world") this.socket?.emit("chat:world:leave");
     this._unbindSocket();
     this._removeKeyListener();
+    this.scene.input.off("pointermove");
+    this.scene.input.off("pointerup");
+    this._msgObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
+    this._msgObjs = [];
     this._objects.forEach(o => { try { o?.destroy(); } catch(e){} });
     this._objects = [];
-    this._lines   = [];
+    this._maskGfx?.destroy();
   }
 
-  // ── PRIVATE ─────────────────────────────────────────────────────────
+  // ── PRIVATE ─────────────────────────────────────────────────────
 
-  _push(obj) {
-    this._objects.push(obj);
-    return obj;
+  _push(obj) { this._objects.push(obj); return obj; }
+
+  _thumbH() {
+    const total = this._allMessages.length;
+    if (total <= this._visibleLines) return this._sbH;
+    return Math.max(20, Math.floor(this._sbH * this._visibleLines / total));
+  }
+
+  _updateScrollbar() {
+    const total    = this._allMessages.length;
+    const maxScroll = Math.max(0, total - this._visibleLines);
+    const thumbH   = this._thumbH();
+    const sbTrackH = this._sbH - thumbH;
+    const thumbY   = maxScroll > 0
+      ? this._sbY + sbTrackH * (1 - this._scrollOffset / maxScroll)
+      : this._sbY;
+
+    this._scrollThumb.clear();
+    if (total <= this._visibleLines) return; // không cần scrollbar
+    this._scrollThumb.fillStyle(0x4488cc, 0.85);
+    this._scrollThumb.fillRoundedRect(this._sbX, thumbY, this._SCROLL_W, thumbH, 4);
+  }
+
+  _scroll(delta) {
+    const maxScroll = Math.max(0, this._allMessages.length - this._visibleLines);
+    this._scrollOffset = Math.max(0, Math.min(maxScroll, this._scrollOffset + delta));
+    this._renderMessages();
+    this._updateScrollbar();
+  }
+
+  _renderMessages() {
+    // Xóa text objects cũ
+    this._msgObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
+    this._msgObjs = [];
+
+    const cb    = this._chatBox;
+    const total = this._allMessages.length;
+    const vis   = this._visibleLines;
+
+    // Tính index bắt đầu hiển thị
+    // scrollOffset=0 → hiện bottom, scrollOffset=max → hiện top
+    const maxScroll  = Math.max(0, total - vis);
+    const startIdx   = maxScroll - this._scrollOffset;
+    const endIdx     = Math.min(total, startIdx + vis);
+
+    for (let i = startIdx; i < endIdx; i++) {
+      const m    = this._allMessages[i];
+      const lineY = cb.y + (i - startIdx) * cb.lineH;
+
+      const msg = this.scene.add.text(cb.x, lineY, m.text, {
+        fontFamily: "Signika", fontSize: "13px", color: m.color,
+        wordWrap: { width: cb.w - (m.tsStr ? 52 : 0) }
+      }).setDepth(this.depth + 1).setMask(this._clipMask);
+      this._msgObjs.push(msg);
+
+      if (m.tsStr) {
+        const ts = this.scene.add.text(cb.x + cb.w, lineY, m.tsStr, {
+          fontFamily: "Signika", fontSize: "11px", color: "#6688aa"
+        }).setOrigin(1, 0).setDepth(this.depth + 1).setMask(this._clipMask);
+        this._msgObjs.push(ts);
+      }
+    }
+  }
+
+  _appendLine(text, color = "#ffffff", time = null) {
+    // Format timestamp
+    let tsStr = "";
+    if (time) {
+      const d = new Date(time);
+      const diffMin = Math.floor((Date.now() - time) / 60000);
+      if (diffMin < 1)       tsStr = "vừa xong";
+      else if (diffMin < 60) tsStr = `${diffMin}ph`;
+      else if (d.toDateString() === new Date().toDateString())
+        tsStr = d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+      else
+        tsStr = d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
+    }
+
+    this._allMessages.push({ text, color, tsStr });
+
+    // Giới hạn 200 tin
+    if (this._allMessages.length > 200) this._allMessages.shift();
+
+    // Auto-scroll xuống bottom khi đang ở bottom
+    if (this._scrollOffset === 0) {
+      this._renderMessages();
+    }
+    this._updateScrollbar();
   }
 
   _focusInput() {
@@ -146,18 +278,11 @@ export default class ChatWidget {
     if (!this._keyListener) {
       this._keyListener = (e) => {
         if (!this._focused) return;
-        if (e.key === "Enter") {
-          this._sendMessage();
-        } else if (e.key === "Backspace") {
-          this._inputText = this._inputText.slice(0, -1);
-          this._syncInput();
-        } else if (e.key === "Escape") {
-          this._focused = false;
-        } else if (e.key.length === 1) {
-          if (this._inputText.length < 200) {
-            this._inputText += e.key;
-            this._syncInput();
-          }
+        if (e.key === "Enter")          { this._sendMessage(); }
+        else if (e.key === "Backspace") { this._inputText = this._inputText.slice(0, -1); this._syncInput(); }
+        else if (e.key === "Escape")    { this._focused = false; }
+        else if (e.key.length === 1 && this._inputText.length < 200) {
+          this._inputText += e.key; this._syncInput();
         }
       };
       window.addEventListener("keydown", this._keyListener);
@@ -183,33 +308,34 @@ export default class ChatWidget {
     this._inputText = "";
     this._syncInput();
     this._placeholder?.setVisible(true);
+    // Scroll về bottom khi gửi
+    this._scrollOffset = 0;
+    this._renderMessages();
+    this._updateScrollbar();
   }
 
   _bindSocket() {
     if (!this.socket) return;
-
     this._onMessage = (data) => {
-      this._appendLine(`[${data.name}] ${data.message}`, "#ffffff", data.time);
+      const isMe = this.myId && Number(data.user_id) === this.myId;
+      const label = isMe ? `[Bạn] ${data.message}` : `[${data.name}] ${data.message}`;
+      this._appendLine(label, isMe ? "#aaddff" : "#ffffff", data.time);
     };
     this._onHistory = (history) => {
-      history.forEach(d => this._appendLine(`[${d.name}] ${d.message}`, "#ffffff", d.time));
+      history.forEach(d => {
+        const isMe = this.myId && Number(d.user_id) === this.myId;
+        const label = isMe ? `[Bạn] ${d.message}` : `[${d.name}] ${d.message}`;
+        this._appendLine(label, isMe ? "#aaddff" : "#ffffff", d.time);
+      });
     };
     this._onError = (data) => {
       this._appendLine(`⚠ ${data.message}`, "#ff8888");
     };
-
     this.socket.on(`chat:${this.channel}:message`, this._onMessage);
     this.socket.on(`chat:${this.channel}:history`, this._onHistory);
     this.socket.on("chat:error", this._onError);
-
-    // World chat: join để nhận history và broadcast
-    if (this.channel === "world") {
-      this.socket.emit("chat:world:join");
-    }
-    // Room chat: xin history khi vào
-    if (this.channel === "room") {
-      this.socket.emit("chat:room:history:get");
-    }
+    if (this.channel === "world") this.socket.emit("chat:world:join");
+    if (this.channel === "room")  this.socket.emit("chat:room:history:get");
   }
 
   _unbindSocket() {
@@ -217,56 +343,5 @@ export default class ChatWidget {
     if (this._onMessage) this.socket.off(`chat:${this.channel}:message`, this._onMessage);
     if (this._onHistory) this.socket.off(`chat:${this.channel}:history`, this._onHistory);
     if (this._onError)   this.socket.off("chat:error", this._onError);
-  }
-
-  _appendLine(text, color = "#ffffff", time = null) {
-    if (!this._chatBox) return;
-    const cb = this._chatBox;
-    const maxLines = Math.floor(cb.h / cb.lineH);
-
-    if (this._lines.length >= maxLines) {
-      const old = this._lines.shift();
-      try { old?.ts?.destroy(); old?.msg?.destroy(); } catch(e) {}
-      this._lines.forEach(l => {
-        l.msg.setY(l.msg.y - cb.lineH);
-        l.ts?.setY(l.ts.y - cb.lineH);
-      });
-    }
-
-    const lineY = cb.y + this._lines.length * cb.lineH;
-
-    // Timestamp — format thông minh
-    let tsStr = "";
-    if (time) {
-      const d   = new Date(time);
-      const now = new Date();
-      const diffMin = Math.floor((Date.now() - time) / 60000);
-      if (diffMin < 1) {
-        tsStr = "vừa xong";
-      } else if (diffMin < 60) {
-        tsStr = `${diffMin}ph`;
-      } else if (d.toDateString() === now.toDateString()) {
-        tsStr = d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
-      } else {
-        tsStr = d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
-      }
-    }
-
-    const msg = this.scene.add.text(cb.x, lineY, text, {
-      fontFamily: "Signika", fontSize: "13px", color,
-      wordWrap: { width: cb.w - (tsStr ? 52 : 0) }
-    }).setDepth(this.depth + 1);
-
-    let ts = null;
-    if (tsStr) {
-      ts = this.scene.add.text(cb.x + cb.w, lineY, tsStr, {
-        fontFamily: "Signika", fontSize: "11px", color: "#6688aa"
-      }).setOrigin(1, 0).setDepth(this.depth + 1);
-      this._objects.push(ts);
-    }
-
-    const entry = { msg, ts };
-    this._lines.push(entry);
-    this._objects.push(msg);
   }
 }

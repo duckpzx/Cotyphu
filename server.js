@@ -55,6 +55,10 @@ io.use((socket, next) => {
 // ===== GAME STATE =====
 const players = {};
 const gameStates = {};
+
+// ===== ONLINE USER TRACKING =====
+// Map<user_id, Set<socket_id>> — một user có thể mở nhiều tab
+const onlineUserSockets = new Map();
 const PLANET_COLORS = ["red", "blue", "purple", "orange"];
 const SKILL_CELLS   = [0, 9, 18, 28]; // ô kỹ năng — không mua/thuê
 
@@ -1050,11 +1054,18 @@ function emitGameStateSync(room_id) {
 io.on("connection", (socket) => {
   console.log(`\n✅ Connected: ${socket.id} | user_id: ${socket.user_id}`);
 
+  // ── Track online user ────────────────────────────────────────────────
+  const userId = Number(socket.user_id);
+  if (!onlineUserSockets.has(userId)) {
+    onlineUserSockets.set(userId, new Set());
+  }
+  onlineUserSockets.get(userId).add(socket.id);
+
   // ── CHAT ─────────────────────────────────────────────────────────────
   registerChatHandlers(socket, io);
 
   // ── FRIEND ───────────────────────────────────────────────────────────
-  registerFriendHandlers(socket, io);
+  registerFriendHandlers(socket, io, { onlineUserSockets, gameStates });
 
   // ── PLAYER PROFILE (dùng trong RoomScene) ────────────────────────────
   socket.on("room:player:profile", async ({ user_id: target_id }) => {
@@ -1072,14 +1083,50 @@ io.on("connection", (socket) => {
         ? await tarotRepo.getTarotsByIds(activeTarotIds)
         : [];
 
+      // Kiểm tra trạng thái kết bạn giữa mình và target
+      const me = socket.user_id;
+      let friend_status = "none"; // none | pending_sent | pending_received | accepted
+      if (me && Number(target_id) !== me) {
+        const [fsRows] = await db.query(
+          `SELECT user_id, status FROM friendships
+           WHERE ((user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?))
+           LIMIT 1`,
+          [me, Number(target_id), Number(target_id), me]
+        );
+        if (fsRows.length > 0) {
+          const row = fsRows[0];
+          if (row.status === "accepted") {
+            friend_status = "accepted";
+          } else if (row.status === "pending") {
+            friend_status = row.user_id === me ? "pending_sent" : "pending_received";
+          }
+        }
+      }
+
+      // Lấy bg path nếu có active_bg_id
+      let active_bg_path = null;
+      if (user.active_bg_id) {
+        const [bgRows] = await db.query(
+          "SELECT image_path FROM backgrounds WHERE id = ? LIMIT 1",
+          [user.active_bg_id]
+        );
+        if (bgRows[0]) {
+          const raw = bgRows[0].image_path;
+          active_bg_path = raw?.startsWith("assets/") ? raw : `assets/ui/bg/${raw}`;
+        }
+      }
+
       socket.emit("room:player:profile:result", {
         user_id:        Number(target_id),
         name:           user.name || user.username || "Player",
         character_name: ac?.name || ac?.character_name || "Unknown",
         skin_id:        ac?.active_skin_number || 1,
+        active_bg_id:   user.active_bg_id || null,
+        active_bg_path,
         tarot_cards:    tarotCards.map(t => ({ tarot_id: t.id, name: t.name, icon: t.icon })),
         total_games:    user.total_games || 0,
         total_wins:     user.total_wins  || 0,
+        friend_status,
       });
     } catch (err) {
       console.error("room:player:profile error:", err);
@@ -2228,6 +2275,15 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     await handleLeaveRoom(socket);
     delete players[socket.id];
     io.emit("playerDisconnected", socket.id);
+
+    // ── Untrack online user ──────────────────────────────────────────
+    const uid = Number(socket.user_id);
+    if (onlineUserSockets.has(uid)) {
+      onlineUserSockets.get(uid).delete(socket.id);
+      if (onlineUserSockets.get(uid).size === 0) {
+        onlineUserSockets.delete(uid);
+      }
+    }
   });
 
 

@@ -211,15 +211,67 @@ export default class PlayerProfilePanel {
         icoImg.setDisplaySize(ICO_SIZE, ICO_SIZE);
       }
 
+      // Toast nhỏ hiển thị ngay trong panel
+      const showPanelToast = (msg, color = "#ffffff") => {
+        const existing = this._panelToast;
+        if (existing?.active) { try { existing.destroy(); } catch(e){} }
+        const t = this.scene.add.text(L + W / 2, T + H - 18, msg, {
+          fontFamily: "Signika", fontSize: "13px", color,
+          fontStyle: "bold", stroke: "#000000", strokeThickness: 3,
+          backgroundColor: "#00000088", padding: { x: 10, y: 5 },
+        }).setOrigin(0.5, 1).setDepth(D + 8).setAlpha(0);
+        this._objs.push(t);
+        this._panelToast = t;
+        this.scene.tweens?.add({
+          targets: t, alpha: 1, duration: 180,
+          onComplete: () => {
+            this.scene.time?.delayedCall(2000, () => {
+              this.scene.tweens?.add({ targets: t, alpha: 0, duration: 300,
+                onComplete: () => { try { t.destroy(); } catch(e){} }
+              });
+            });
+          }
+        });
+      };
+
+      let _sent = false;
       const _icoBaseScaleX = icoImg.scaleX, _icoBaseScaleY = icoImg.scaleY;
-      push(this.scene.add.zone(icoX, icoY, ICO_SIZE + 8, ICO_SIZE + 8)
-        .setInteractive({ cursor: "pointer" }).setDepth(D + 7))
-        .on("pointerover",  () => icoImg.setScale(_icoBaseScaleX * 1.05, _icoBaseScaleY * 1.05))
+
+      const icoZone = push(this.scene.add.zone(icoX, icoY, ICO_SIZE + 8, ICO_SIZE + 8)
+        .setInteractive({ cursor: "pointer" }).setDepth(D + 7));
+
+      // Hàm đổi icon sang grayscale (đã gửi / đã là bạn)
+      const setGrayscale = () => {
+        _sent = true;
+        icoImg.setTint(0x888888);
+        icoImg.setAlpha(0.6);
+        icoZone.disableInteractive();
+      };
+      this._setFriendIconGrayscale = setGrayscale;
+
+      icoZone
+        .on("pointerover",  () => { if (!_sent) icoImg.setScale(_icoBaseScaleX * 1.05, _icoBaseScaleY * 1.05); })
         .on("pointerout",   () => icoImg.setScale(_icoBaseScaleX, _icoBaseScaleY))
         .on("pointerdown",  () => {
+          if (_sent) return;
           this.scene.tweens?.add({ targets: icoImg, alpha: 0.5, duration: 60, yoyo: true });
           this.socket?.emit("friend:request", { to_id: player.user_id });
         });
+
+      // Override callbacks để cập nhật icon + toast trong panel
+      this._onFriendSent = () => {
+        setGrayscale();
+        showPanelToast("✓ Đã gửi lời mời kết bạn!", "#44ff88");
+        this.scene._showToast?.("Đã gửi lời mời kết bạn!");
+      };
+      this._onFriendError = (d) => {
+        // Nếu lỗi vì đã gửi rồi hoặc đã là bạn → grayscale icon
+        if (d.message && (d.message.includes("Đã gửi") || d.message.includes("đã là bạn"))) {
+          setGrayscale();
+        }
+        showPanelToast("✗ " + (d.message || "Lỗi"), "#ff6666");
+        this.scene._showToast?.(d.message);
+      };
     }
 
     this._bindProfileResult();
@@ -245,9 +297,15 @@ export default class PlayerProfilePanel {
     mask.fillRoundedRect(cx - width / 2, cy - height / 2, width, height, 10);
     const geomMask = mask.createGeometryMask();
 
+    // Lưu params để _onProfileResult có thể load bg sau
+    this._avatarParams = { cx, cy, width, height, depth };
+    this._avatarMask   = geomMask;
+
+    // Bg sẽ được load sau khi nhận profile result (có active_bg_path)
+    // Nếu texture đã có sẵn (mở từ RoomScene) thì render ngay
     if (player.active_bg_id) {
       const bgKey = `bg_${player.active_bg_id}`;
-      if (this.scene.textures.exists(bgKey)) {
+      if (this.scene.textures.exists(bgKey) && this.scene.textures.get(bgKey).key !== '__MISSING') {
         const bgImg = push(this.scene.add.image(cx, cy, bgKey).setOrigin(0.5).setDepth(depth));
         const tex   = this.scene.textures.get(bgKey);
         const ia    = tex.source[0].width / tex.source[0].height;
@@ -265,12 +323,14 @@ export default class PlayerProfilePanel {
         const sz = Math.min(width, height) * 0.85;
         const sp = push(this.scene.add.sprite(cx, cy, fk).setDisplaySize(sz, sz).setDepth(depth + 1));
         if (this.scene.anims.exists(ak)) sp.play(ak);
+        this._avatarSprite = sp;
         return;
       }
     }
     const sz  = Math.min(width, height) * 0.7;
     const img = push(this.scene.add.image(cx, cy, "avatar_default")
       .setDisplaySize(sz, sz).setAlpha(0.7).setDepth(depth));
+    this._avatarSprite = img;
     this.scene.tweens?.add({ targets: img, y: cy - 8, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
   }
 
@@ -360,12 +420,50 @@ export default class PlayerProfilePanel {
 
   _bindProfileResult() {
     this._onProfileResult = (data) => {
-      if (data.user_id !== this._player?.user_id) return;
+      if (Number(data.user_id) !== Number(this._player?.user_id)) return;
       if (data.error) { this._badge1?.setText?.(data.error); return; }
+      console.log("[Profile] bg_id:", data.active_bg_id, "| bg_path:", data.active_bg_path);
+      if (data.friend_status === "pending_sent" || data.friend_status === "accepted") {
+        this._setFriendIconGrayscale?.();
+      }
+      // Load bg nếu có và chưa được render
+      if (data.active_bg_id && data.active_bg_path && this._avatarParams) {
+        const { cx, cy, width, height, depth } = this._avatarParams;
+        const bgKey  = `bg_${data.active_bg_id}`;
+        const bgPath = data.active_bg_path;
+        const geomMask = this._avatarMask;
+        const push = o => { this._objs.push(o); return o; };
+
+        const renderBg = () => {
+          if (!this.scene.textures.exists(bgKey)) return;
+          const tex = this.scene.textures.get(bgKey);
+          if (tex.key === '__MISSING') return;
+          const bgImg = push(this.scene.add.image(cx, cy, bgKey).setOrigin(0.5).setDepth(depth));
+          const ia = tex.source[0].width / tex.source[0].height;
+          const fa = width / height;
+          bgImg.setDisplaySize(ia > fa ? height * ia : width, ia > fa ? height : width / ia);
+          if (geomMask) bgImg.setMask(geomMask);
+          // Đưa bg xuống dưới nhân vật
+          bgImg.setDepth(depth);
+          // Đưa sprite nhân vật lên trên
+          this._avatarSprite?.setDepth(depth + 1);
+        };
+
+        if (this.scene.textures.exists(bgKey) && this.scene.textures.get(bgKey).key !== '__MISSING') {
+          renderBg();
+        } else {
+          if (this.scene.textures.exists(bgKey)) this.scene.textures.remove(bgKey);
+          this.scene.load.once(`filecomplete-image-${bgKey}`, renderBg);
+          this.scene.load.image(bgKey, bgPath);
+          this.scene.load.start();
+        }
+      }
       this._updateStats(data);
     };
-    this._onFriendSent  = () => this.scene._showToast?.("Đã gửi lời mời kết bạn!");
-    this._onFriendError = (d) => this.scene._showToast?.(d.message);
+    // _onFriendSent / _onFriendError được set từ open() nếu !isSelf,
+    // fallback ở đây cho trường hợp isSelf (không dùng nhưng cần để unbind)
+    if (!this._onFriendSent)  this._onFriendSent  = () => this.scene._showToast?.("Đã gửi lời mời kết bạn!");
+    if (!this._onFriendError) this._onFriendError = (d) => this.scene._showToast?.(d.message);
     this.socket?.on("room:player:profile:result", this._onProfileResult);
     this.socket?.on("friend:request:sent",        this._onFriendSent);
     this.socket?.on("friend:request:error",       this._onFriendError);

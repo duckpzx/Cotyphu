@@ -3,6 +3,8 @@
  * Phong cách: nền vàng kem BagScene, tab kiểu BagScene, nút X kiểu Chat (close_btn nhô góc)
  * Tabs: D.S Bạn Bè | Y.C Kết Bạn | Mời Bạn
  */
+import PlayerProfilePanel from "./PlayerProfilePanel.js";
+
 export default class FriendPanel {
   /**
    * @param {Phaser.Scene} scene
@@ -20,6 +22,7 @@ export default class FriendPanel {
     this._search    = [];
     this._listObjs  = [];
     this._open      = false;
+    this._myUserId  = playerData?.user?.id || playerData?.id || null;
   }
 
   // ── PUBLIC ──────────────────────────────────────────────────────
@@ -65,6 +68,12 @@ export default class FriendPanel {
     bg.fillRoundedRect(L, T, W, H, R);
     bg.lineStyle(3, 0xffffff, 1);
     bg.strokeRoundedRect(L, T, W, H, R);
+    // Cạnh dưới màu trắng nhẹ (đè lên border dưới)
+    bg.lineStyle(3, 0xe9d5a8, 0.25);
+    bg.beginPath();
+    bg.moveTo(L + R, T + H);
+    bg.lineTo(L + W - R, T + H);
+    bg.strokePath();
     // Gloss
     bg.fillStyle(0xffffff, 0.18);
     bg.fillRoundedRect(L + 6, T + 4, W - 12, 22, 8);
@@ -127,10 +136,11 @@ export default class FriendPanel {
     this._buildToolbar(L, T, W, H, BAR_Y, BAR_H, PAD, D);
 
     // ── Vùng danh sách (cách viền đứt PAD mỗi bên) ───────────────
-    this._listTop  = BAR_Y + BAR_H + 8;
-    this._listH    = H - (BAR_Y - T) - BAR_H - 8 - PAD - 20;
-    this._listL    = L + PAD;
-    this._listW    = W - PAD * 2;
+    this._listTop      = BAR_Y + BAR_H + 36;  // tăng gap để có chỗ cho nét đứt
+    this._listH        = H - (BAR_Y - T) - BAR_H - 36 - PAD - 20;
+    this._listL        = L + PAD;
+    this._listW        = W - PAD * 2;
+    this._listDashY    = BAR_Y + BAR_H + 18;  // giữa khoảng trống
 
     // ── Footer đếm bạn ───────────────────────────────────────────
     this._footerTxt = push(this.scene.add.text(L + W - PAD, T + H - 10, "", {
@@ -140,9 +150,33 @@ export default class FriendPanel {
     // ── Bind socket ──────────────────────────────────────────────
     this._bindSocket();
 
-    // ── Load dữ liệu tab đầu ─────────────────────────────────────
-    this.socket?.emit("friend:list");
-    this.socket?.emit("friend:requests");
+    // ── Preload icon nút — đợi load xong mới emit để rebuildList có texture ──
+    const iconsToLoad = [
+      { key: "fr_chat",  path: "assets/ui/shared/fr_chat.png"  },
+      { key: "fr_close", path: "assets/ui/shared/fr_close.png" },
+      { key: "fr_join",  path: "assets/ui/shared/fr_join.png"  },
+    ];
+    const missing = iconsToLoad.filter(i => !this.scene.textures.exists(i.key));
+
+    const doEmit = () => {
+      this.socket?.emit("friend:list");
+      this.socket?.emit("friend:requests");
+    };
+
+    if (missing.length > 0) {
+      let loaded = 0;
+      const onOne = () => {
+        loaded++;
+        if (loaded >= missing.length) doEmit();
+      };
+      missing.forEach(i => {
+        this.scene.load.once(`filecomplete-image-${i.key}`, onOne);
+        this.scene.load.image(i.key, i.path);
+      });
+      this.scene.load.start();
+    } else {
+      doEmit();
+    }
 
     return this;
   }
@@ -151,6 +185,8 @@ export default class FriendPanel {
     this._open = false;
     this._unbindSocket();
     this._clearList();
+    this._profilePanel?.destroy();
+    this._profilePanel = null;
     this._objs.forEach(o => { try { o?.destroy(); } catch(e){} });
     this._objs = [];
     this.scene._friendPanelOpen = false;
@@ -237,31 +273,31 @@ export default class FriendPanel {
     const sortG = push(this.scene.add.graphics().setDepth(D + 2));
     const sortTxt = push(this.scene.add.text(SORT_X + SORT_BW / 2 - 8, SORT_Y + SORT_BH / 2, "", {
       fontFamily: "Signika", fontSize: "14px",
-      color: "#c4f562ff", fontStyle: "bold",
-      stroke: "#2d4f00", strokeThickness: 2
+      color: "#5a3200", fontStyle: "bold",
+      stroke: "#f8e8b0", strokeThickness: 2
     }).setOrigin(0.5).setDepth(D + 3));
     const arrowTxt = push(this.scene.add.text(SORT_X + SORT_BW - 14, SORT_Y + SORT_BH / 2, "▶", {
-      fontFamily: "Signika", fontSize: "16px", color: "#f5a800",
-      stroke: "#a0500099", strokeThickness: 2
+      fontFamily: "Signika", fontSize: "16px",
+      color: "#5a3200",
+      stroke: "#f8e8b0", strokeThickness: 1.5
     }).setOrigin(0.5).setDepth(D + 3));
 
     const drawSort = () => {
-      sortG.clear();
-      sortG.fillStyle(0x6b4a10, 0.5);
-      sortG.fillRoundedRect(SORT_X + 1, SORT_Y + 1.5, SORT_BW, SORT_BH, 8);
-        sortG.fillGradientStyle(
-        0xffffff,
-        0xf8fdff,
-        0xbfe9ff,
-        0x9edcff,
-        1
-        );
+        sortG.clear();
+        // Bóng đổ
+        sortG.fillStyle(0x5a3a00, 0.35);
+        sortG.fillRoundedRect(SORT_X + 2, SORT_Y + 2, SORT_BW, SORT_BH, 8);
+        // Nền gradient vàng nâu
+        sortG.fillGradientStyle(0xf0c84a, 0xf0c84a, 0xb87820, 0xb87820, 1);
         sortG.fillRoundedRect(SORT_X, SORT_Y, SORT_BW, SORT_BH, 8);
-      sortG.fillStyle(0xffffff, 0.6);
-      sortG.fillRoundedRect(SORT_X + 4, SORT_Y + 3, SORT_BW - 8, SORT_BH * 0.35, 6);
-      sortG.fillRoundedRect(SORT_X + 6, SORT_Y + 3, SORT_BW - 12, SORT_BH * 0.35, 5);
-      sortTxt.setText(this._sortMode === "status" ? "TRẠNG THÁI" : "TÊN A-Z");
-    };
+        // Viền vàng sáng
+        sortG.lineStyle(1.5, 0xf8e090, 0.9);
+        sortG.strokeRoundedRect(SORT_X, SORT_Y, SORT_BW, SORT_BH, 8);
+        // Gloss trên
+        sortG.fillStyle(0xffffff, 0.28);
+        sortG.fillRoundedRect(SORT_X + 4, SORT_Y + 3, SORT_BW - 8, SORT_BH * 0.38, 5);
+        sortTxt.setText(this._sortMode === "status" ? "TRẠNG THÁI" : "TÊN A-Z");
+      };
     drawSort();
 
     const sortZone = push(this.scene.add.zone(SORT_X + SORT_BW / 2, SORT_Y + SORT_BH / 2, SORT_BW, SORT_BH)
@@ -279,22 +315,29 @@ export default class FriendPanel {
     const SH = BAR_H;
 
     const sbg = push(this.scene.add.graphics().setDepth(D + 2));
-    sbg.fillStyle(0xfff8e8, 0.9);
+    // Bóng nhẹ
+    sbg.fillStyle(0x5a3a00, 0.18);
+    sbg.fillRoundedRect(SX + 2, SY + 2, SW, SH, 8);
+    // Nền kem sáng
+    sbg.fillStyle(0xe8d8a0, 1);
     sbg.fillRoundedRect(SX, SY, SW, SH, 8);
-    sbg.lineStyle(1.5, 0x906a2e, 0.6);
+    // Viền vàng nâu đồng bộ với nút sort
+    sbg.lineStyle(1.5, 0xc8922e, 0.85);
     sbg.strokeRoundedRect(SX, SY, SW, SH, 8);
+    // Gloss nhẹ trên
+    sbg.fillStyle(0xffffff, 0.35);
+    sbg.fillRoundedRect(SX + 4, SY + 3, SW - 8, SH * 0.35, 5);
 
     this._searchPh = push(this.scene.add.text(SX + 12, SY + SH / 2, "Tìm theo tên", {
-      fontFamily: "Signika", fontSize: "13px", color: "#b8922e"
+      fontFamily: "Signika", fontSize: "14px", color: "#b8922e"
     }).setOrigin(0, 0.5).setDepth(D + 3));
 
     this._searchTxt = push(this.scene.add.text(SX + 12, SY + SH / 2, "", {
-      fontFamily: "Signika", fontSize: "13px", color: "#502700"
+      fontFamily: "Signika", fontSize: "14px", color: "#502700"
     }).setOrigin(0, 0.5).setDepth(D + 3));
 
-    push(this.scene.add.text(SX + SW - 10, SY + SH / 2, "🔍", {
-      fontSize: "14px"
-    }).setOrigin(1, 0.5).setDepth(D + 3));
+    push(this.scene.add.image(SX + SW - 16, SY + SH / 2, "icon_search")
+      .setDisplaySize(24, 24).setOrigin(0.9, 0.5).setDepth(D + 3));
 
     const zone = push(this.scene.add.zone(SX + SW / 2, SY + SH / 2, SW, SH)
       .setInteractive({ cursor: "text" }).setDepth(D + 4));
@@ -340,7 +383,23 @@ export default class FriendPanel {
     const L = this._listL, W = this._listW;
     let T = this._listTop;
     const ROW_H = 58;
+    const ROW_GAP = 8; 
     const q = (this._searchQuery || "").toLowerCase();
+
+    // ── Đường nét đứt phân cách toolbar / danh sách ──────────────
+    const dashG = this.scene.add.graphics().setDepth(D + 2);
+    dashG.lineStyle(1.65, 0x9d7d48, 0.7);
+    const dashY      = this._listDashY ?? (T - 6);
+    const dashLen    = 9, dashGap = 6;
+    const dashTotalW = W * 0.69;
+    const dashStartX = L + (W - dashTotalW) / 2;
+    for (let x = dashStartX; x < dashStartX + dashTotalW; x += dashLen + dashGap) {
+      dashG.beginPath();
+      dashG.moveTo(x, dashY);
+      dashG.lineTo(Math.min(x + dashLen, dashStartX + dashTotalW), dashY);
+      dashG.strokePath();
+    }
+    this._listObjs.push(dashG);
 
     if (this._tabIdx === 0) {
       // ── D.S Bạn Bè ──────────────────────────────────────────────
@@ -348,7 +407,14 @@ export default class FriendPanel {
       if (q) list = list.filter(f => (f.name || "").toLowerCase().includes(q));
       // Sắp xếp
       if (this._sortMode === "status") {
-        list.sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0));
+        // Online=3, Trong phòng=2, Trong trận=1, Offline=0
+        list.sort((a, b) => {
+          const rank = f => f.online && !f.in_game && !f.in_room ? 3
+                          : f.in_room ? 2
+                          : f.in_game ? 1
+                          : 0;
+          return rank(b) - rank(a);
+        });
       } else {
         list.sort((a, b) => (a.name || "").localeCompare(b.name || "", "vi"));
       }
@@ -356,7 +422,7 @@ export default class FriendPanel {
       if (!list.length) {
         this._pushListText(L + W / 2, T + 60, "Chưa có bạn bè nào", "#b8922e", D);
       } else {
-        list.forEach((f, i) => this._buildFriendRow(L, T + i * ROW_H, W, ROW_H, f, D));
+        list.forEach((f, i) => this._buildFriendRow(L, T + i * (ROW_H + ROW_GAP), W, ROW_H, f, D));
       }
 
       this._footerTxt?.setText(`${this._friends.length}/100 bạn`);
@@ -367,7 +433,7 @@ export default class FriendPanel {
       if (!list.length) {
         this._pushListText(L + W / 2, T + 60, "Không có lời mời nào", "#b8922e", D);
       } else {
-        list.forEach((r, i) => this._buildRequestRow(L, T + i * ROW_H, W, ROW_H, r, D));
+        list.forEach((r, i) => this._buildRequestRow(L, T + i * (ROW_H + ROW_GAP), W, ROW_H, r, D));
       }
       this._footerTxt?.setText("");
 
@@ -377,7 +443,7 @@ export default class FriendPanel {
       if (!list.length) {
         this._pushListText(L + W / 2, T + 60, "Nhập tên để tìm kiếm", "#b8922e", D);
       } else {
-        list.forEach((u, i) => this._buildSearchRow(L, T + i * ROW_H, W, ROW_H, u, D));
+        list.forEach((u, i) => this._buildSearchRow(L, T + i * (ROW_H + ROW_GAP), W, ROW_H, u, D));
       }
       this._footerTxt?.setText("");
     }
@@ -390,66 +456,178 @@ export default class FriendPanel {
     this._listObjs.push(t);
   }
 
-  /** Row bạn bè: avatar circle + tên + online + nút Chat + nút Mời + nút Xóa */
+  /** Row bạn bè: giống _buildRequestRow — avatar nhân vật + tên + online + nút Chat + Mời + Xóa */
   _buildFriendRow(L, rowY, W, H, friend, D) {
     const midY = rowY + H / 2;
     const push = o => { this._listObjs.push(o); return o; };
 
-    // Nền row xen kẽ
+    // ── Nền row (giống _buildRequestRow) ─────────────────────────
     const rowBg = push(this.scene.add.graphics().setDepth(D + 1));
-    rowBg.fillStyle(0x000000, 0.04);
+    rowBg.fillStyle(0xe0c089, 1);
     rowBg.fillRoundedRect(L, rowY + 2, W, H - 4, 8);
 
-    // Avatar circle
+    const bx = L, by = rowY + 2, bw = W, bh = H - 4, br = 8;
+    rowBg.lineStyle(2, 0x9d7d48, 1);
+    rowBg.beginPath();
+    rowBg.arc(bx + br,      by + br,      br, Math.PI,       Math.PI * 1.5, false);
+    rowBg.lineTo(bx + bw - br, by);
+    rowBg.arc(bx + bw - br, by + br,      br, Math.PI * 1.5, 0,             false);
+    rowBg.strokePath();
+    rowBg.lineStyle(1.5, 0xffffff, 0.45);
+    rowBg.beginPath();
+    rowBg.arc(bx + bw - br, by + bh - br, br, 0,             Math.PI * 0.5, false);
+    rowBg.lineTo(bx + br,   by + bh);
+    rowBg.arc(bx + br,      by + bh - br, br, Math.PI * 0.5, Math.PI,       false);
+    rowBg.strokePath();
+    const STEPS = 12;
+    const sideTop = by + br, sideBot = by + bh, sideH = sideBot - sideTop;
+    for (let i = 0; i < STEPS; i++) {
+      const t0 = i / STEPS, t1 = (i + 1) / STEPS;
+      rowBg.lineStyle(1.5, t0 < 0.5 ? 0x9d7d48 : 0xffffff, Math.max(0, 1 - t0 * (1 - 0.45) * 2));
+      rowBg.beginPath(); rowBg.moveTo(bx,      sideTop + t0 * sideH); rowBg.lineTo(bx,      sideTop + t1 * sideH); rowBg.strokePath();
+      rowBg.beginPath(); rowBg.moveTo(bx + bw, sideTop + t0 * sideH); rowBg.lineTo(bx + bw, sideTop + t1 * sideH); rowBg.strokePath();
+    }
+
+    // ── Avatar circle với ảnh nhân vật ───────────────────────────
     const avR = 22;
     const avX = L + 14 + avR;
+
     const avCircle = push(this.scene.add.graphics().setDepth(D + 2));
-    avCircle.fillStyle(friend.online ? 0x22aa55 : 0x888888, 1);
-    avCircle.fillCircle(avX, midY, avR + 2);
-    avCircle.fillStyle(0xc4a865, 1);
-    avCircle.fillCircle(avX, midY, avR);
+    avCircle.lineStyle(2.5, 0x9d7d48, 1);
+    avCircle.strokeCircle(avX, midY, avR);
 
-    // Chữ viết tắt tên trong avatar
-    const initials = (friend.name || "?").slice(0, 2).toUpperCase();
-    push(this.scene.add.text(avX, midY, initials, {
-      fontFamily: "Signika", fontSize: "14px", color: "#ffffff", fontStyle: "bold"
-    }).setOrigin(0.5).setDepth(D + 3));
+    // Chấm trạng thái
+    const dotColor = friend.in_game ? 0xe05030
+                   : friend.in_room ? 0xe8a020
+                   : friend.online  ? 0x3db85a
+                   : 0x8a7a60;
+    const dotBorder = friend.in_game ? 0xb83820
+                    : friend.in_room ? 0xc07810
+                    : friend.online  ? 0x2a9444
+                    : 0x6a5a40;
+    const dotG = push(this.scene.add.graphics().setDepth(D + 4));
+    dotG.fillStyle(dotColor, 1);
+    dotG.fillCircle(avX + avR - 4, midY + avR - 4, 6);
+    dotG.lineStyle(1.5, dotBorder, 1);
+    dotG.strokeCircle(avX + avR - 4, midY + avR - 4, 6);
 
-    // Tên
-    push(this.scene.add.text(avX + avR + 12, midY - 10, friend.name || "?", {
+    const charName = friend.character_name;
+    const skinId   = friend.skin_id || 1;
+    const frameKey = charName ? `${charName}_${skinId}_idle_000` : null;
+    const imgPath  = charName
+      ? `assets/characters/${charName}/${charName}_${skinId}/PNG/PNG Sequences/Idle Blinking/0_${charName}_Idle Blinking_000.png`
+      : null;
+
+    const renderAvatar = (key) => {
+      if (key && this.scene.textures.exists(key)) {
+        const maskG = this.scene.make.graphics({ add: false });
+        maskG.fillStyle(0xffffff);
+        maskG.fillCircle(avX, midY, avR - 1);
+        const mask = maskG.createGeometryMask();
+        const tex = this.scene.textures.get(key);
+        const nat = tex.source[0];
+        const scale = (avR * 2 / nat.width) * 2;
+        const img = push(this.scene.add.image(avX, midY, key)
+          .setOrigin(0.48, 0.45).setScale(scale).setDepth(D + 3));
+        img.setMask(mask);
+      } else {
+        const avFill = push(this.scene.add.graphics().setDepth(D + 2));
+        avFill.fillStyle(0xc4a865, 1);
+        avFill.fillCircle(avX, midY, avR - 1);
+        push(this.scene.add.text(avX, midY, (friend.name || "?").slice(0, 2).toUpperCase(), {
+          fontFamily: "Signika", fontSize: "14px", color: "#ffffff", fontStyle: "bold"
+        }).setOrigin(0.5).setDepth(D + 3));
+      }
+    };
+
+    if (frameKey && !this.scene.textures.exists(frameKey) && imgPath) {
+      const onDone = () => {
+        this.scene.load.off("filecomplete-image-" + frameKey, onDone);
+        this.scene.load.off("loaderror", onDone);
+        renderAvatar(frameKey);
+      };
+      this.scene.load.once("filecomplete-image-" + frameKey, onDone);
+      this.scene.load.once("loaderror", onDone);
+      this.scene.load.image(frameKey, imgPath);
+      this.scene.load.start();
+      const avFill = push(this.scene.add.graphics().setDepth(D + 2));
+      avFill.fillStyle(0xc4a865, 1);
+      avFill.fillCircle(avX, midY, avR - 1);
+    } else {
+      renderAvatar(frameKey);
+    }
+
+    // ── Tên + trạng thái ─────────────────────────────────────────
+    push(this.scene.add.text(avX + avR + 12, midY - 9, friend.name || "?", {
       fontFamily: "Signika", fontSize: "15px", color: "#3a2000", fontStyle: "bold"
     }).setOrigin(0, 0.5).setDepth(D + 2));
 
-    // Online/Offline
-    push(this.scene.add.text(avX + avR + 12, midY + 10, friend.online ? "Online" : "Offline", {
+    push(this.scene.add.text(avX + avR + 12, midY + 9,
+      friend.in_game ? "Trong trận"
+    : friend.in_room ? "Trong phòng"
+    : friend.online  ? "Online"
+    : "Offline", {
       fontFamily: "Signika", fontSize: "12px",
-      color: friend.online ? "#22aa55" : "#aa4422"
+      color: friend.in_game ? "#e05030"
+           : friend.in_room ? "#c88010"
+           : friend.online  ? "#2a9444"
+           : "#7a6a50"
     }).setOrigin(0, 0.5).setDepth(D + 2));
 
-    // Nút Chat riêng
-    const btnW = 36, btnH = 30;
-    const btn1X = L + W - 14 - btnW * 3 - 8;
-    this._buildIconBtn(btn1X, midY, btnW, btnH, "💬", "#1a6abf", D, () => {
-      this.scene.events.emit("friend:open_pm", friend);
-    });
+    // ── Click avatar/tên → mở PlayerProfilePanel ─────────────────
+    const openProfile = () => {
+      if (this._profilePanel) { this._profilePanel.destroy(); this._profilePanel = null; }
+      const { width, height } = this.scene.scale;
+      this._profilePanel = new PlayerProfilePanel(this.scene, {
+        socket: this.socket,
+        depth:  this.depth + 50,
+      });
+      this._profilePanel.open(width, height, {
+        user_id:        friend.friend_uid ?? friend.id,
+        name:           friend.name,
+        character_name: friend.character_name || "Unknown",
+        skin_id:        friend.skin_id || 1,
+      }, this._myUserId);
+    };
+    const clickW = avR * 2 + 12 + 120;
+    push(this.scene.add.zone(L + 14 + clickW / 2, midY, clickW, H - 8)
+      .setInteractive({ cursor: "pointer" }).setDepth(D + 5))
+      .on("pointerdown", openProfile);
 
-    // Nút Mời phòng (chỉ hiện nếu online)
-    const btn2X = btn1X + btnW + 4;
+    // ── Nút Chat (icon) + Mời (icon) + Xóa (icon) ───────────────
+    const iconSize = 38;
+    const btnGap = 10;
+
+    // Xóa — sát phải
+    const btn3X = L + W - 14 - iconSize / 2;
+    // Mời — giữa
+    const btn2X = btn3X - iconSize - btnGap;
+    // Chat — trái nhất
+    const btn1X = btn2X - iconSize - btnGap;
+
+    // Nút Chat — chỉ active khi online
     if (friend.online) {
-      this._buildIconBtn(btn2X, midY, btnW, btnH, "📨", "#1a8a3f", D, () => {
+      this._buildImgIconBtn(btn1X, midY, iconSize, "fr_chat", D, () => {
+        this.scene.events.emit("friend:open_pm", friend);
+      });
+    } else {
+      this._buildImgIconBtn(btn1X, midY, iconSize, "fr_chat", D, null, true);
+    }
+
+    // Nút Mời phòng — chỉ active khi bạn online và không trong trận/phòng
+    if (friend.online && !friend.in_game && !friend.in_room) {
+      this._buildImgIconBtn(btn2X, midY, iconSize, "fr_join", D, () => {
         const roomId = this.scene.registry.get("currentRoomId");
         if (!roomId) { this.scene._showToast?.("Bạn chưa ở trong phòng nào!"); return; }
         this.socket?.emit("room:invite", { to_id: friend.friend_uid ?? friend.id, room_id: roomId });
         this.scene._showToast?.(`Đã mời ${friend.name} vào phòng!`);
       });
     } else {
-      // Nút mờ disabled
-      this._buildIconBtn(btn2X, midY, btnW, btnH, "📨", "#888888", D, null, true);
+      this._buildImgIconBtn(btn2X, midY, iconSize, "fr_join", D, null, true);
     }
 
-    // Nút Xóa bạn
-    const btn3X = btn2X + btnW + 4;
-    this._buildIconBtn(btn3X, midY, btnW, btnH, "✕", "#cc3333", D, () => {
+    // Nút Xóa bạn — icon
+    this._buildImgIconBtn(btn3X, midY, iconSize, "fr_close", D, () => {
       this.scene._showConfirm?.(`Xóa bạn ${friend.name}?`, () => {
         this.socket?.emit("friend:remove", { friend_id: friend.friend_uid ?? friend.id });
         this._friends = this._friends.filter(f => (f.friend_uid ?? f.id) !== (friend.friend_uid ?? friend.id));
@@ -458,41 +636,189 @@ export default class FriendPanel {
     });
   }
 
-  /** Row lời mời kết bạn: tên + nút Đồng ý + Từ chối */
+  /** Row lời mời kết bạn: avatar nhân vật + tên + nút Đồng ý + Từ chối */
   _buildRequestRow(L, rowY, W, H, req, D) {
     const midY = rowY + H / 2;
     const push = o => { this._listObjs.push(o); return o; };
 
+    // Nền row
     const rowBg = push(this.scene.add.graphics().setDepth(D + 1));
-    rowBg.fillStyle(0x000000, 0.04);
+    rowBg.fillStyle(0xe0c089, 1);
     rowBg.fillRoundedRect(L, rowY + 2, W, H - 4, 8);
 
-    const avR = 22, avX = L + 14 + avR;
-    const avCircle = push(this.scene.add.graphics().setDepth(D + 2));
-    avCircle.fillStyle(0x888888, 1);
-    avCircle.fillCircle(avX, midY, avR + 2);
-    avCircle.fillStyle(0xc4a865, 1);
-    avCircle.fillCircle(avX, midY, avR);
-    push(this.scene.add.text(avX, midY, (req.from_name || "?").slice(0, 2).toUpperCase(), {
-      fontFamily: "Signika", fontSize: "14px", color: "#ffffff", fontStyle: "bold"
-    }).setOrigin(0.5).setDepth(D + 3));
+    // Border thủ công gradient: trên đậm (0x9d7d48 alpha 1), dưới trắng nhẹ (0xffffff alpha 0.45)
+    const bx = L, by = rowY + 2, bw = W, bh = H - 4, br = 8;
 
+    // -- Cạnh trên + 2 góc trên: màu đậm
+    rowBg.lineStyle(2, 0x9d7d48, 1);
+    rowBg.beginPath();
+    rowBg.arc(bx + br,      by + br,      br, Math.PI,        Math.PI * 1.5, false); // góc trên trái
+    rowBg.lineTo(bx + bw - br, by);                                                   // cạnh trên
+    rowBg.arc(bx + bw - br, by + br,      br, Math.PI * 1.5,  0,             false); // góc trên phải
+    rowBg.strokePath();
+
+    // -- Cạnh dưới + 2 góc dưới: màu trắng nhẹ
+    rowBg.lineStyle(1.5, 0xffffff, 0.45);
+    rowBg.beginPath();
+    rowBg.arc(bx + bw - br, by + bh - br, br, 0,              Math.PI * 0.5, false); // góc dưới phải
+    rowBg.lineTo(bx + br,   by + bh);                                                 // cạnh dưới
+    rowBg.arc(bx + br,      by + bh - br, br, Math.PI * 0.5,  Math.PI,       false); // góc dưới trái
+    rowBg.strokePath();
+
+    // -- Cạnh trái: gradient đậm → nhẹ
+    // -- Cạnh phải: gradient đậm → nhẹ
+    const STEPS = 12;
+    const sideTop = by + br, sideBot = by + bh, sideH = sideBot - sideTop;
+    for (let i = 0; i < STEPS; i++) {
+      const t0 = i / STEPS, t1 = (i + 1) / STEPS;
+      const alpha = 1 - t0 * (1 - 0.0);
+      const color = t0 < 0.5 ? 0x9d7d48 : 0xcfa975;
+      const a     = t0 < 0.5 ? (1 - t0 * 2) * 1.0 + t0 * 2 * 0.45 : 0.45;
+      rowBg.lineStyle(1.5, color, Math.max(0, 1 - t0 * (1 - 0.45) * 2));
+      // cạnh trái
+      rowBg.beginPath();
+      rowBg.moveTo(bx, sideTop + t0 * sideH);
+      rowBg.lineTo(bx, sideTop + t1 * sideH);
+      rowBg.strokePath();
+      // cạnh phải
+      rowBg.beginPath();
+      rowBg.moveTo(bx + bw, sideTop + t0 * sideH);
+      rowBg.lineTo(bx + bw, sideTop + t1 * sideH);
+      rowBg.strokePath();
+    }
+
+    // ── Avatar circle với ảnh nhân vật ───────────────────────────
+    const avR = 22;
+    const avX = L + 14 + avR;
+
+    // Viền circle
+    const avCircle = push(this.scene.add.graphics().setDepth(D + 2));
+    avCircle.lineStyle(2.5, 0xaa8a54, 0.5);
+    avCircle.strokeCircle(avX, midY, avR);
+
+    const charName = req.character_name;
+    const skinId   = req.skin_id || 1;
+    // Key và path giống hệt RoomScene._preloadPlayerSkins
+    const frameKey = charName ? `${charName}_${skinId}_idle_000` : null;
+    const imgPath  = charName
+      ? `assets/characters/${charName}/${charName}_${skinId}/PNG/PNG Sequences/Idle Blinking/0_${charName}_Idle Blinking_000.png`
+      : null;
+
+    const renderAvatar = (key) => {
+      if (key && this.scene.textures.exists(key)) {
+        const maskG = this.scene.make.graphics({ add: false });
+        maskG.fillStyle(0xffffff);
+        maskG.fillCircle(avX, midY, avR - 1);
+        const mask = maskG.createGeometryMask();
+
+        const tex = this.scene.textures.get(key);
+        const nat = tex.source[0];
+        const scale = (avR * 2 / nat.width) * 2;
+        const img = push(this.scene.add.image(avX, midY, key)
+          .setOrigin(0.48, 0.45).setScale(scale).setDepth(D + 3));
+        img.setMask(mask);
+      } else {
+        const avFill = push(this.scene.add.graphics().setDepth(D + 2));
+        avFill.fillStyle(0xc4a865, 1);
+        avFill.fillCircle(avX, midY, avR - 1);
+        push(this.scene.add.text(avX, midY, (req.from_name || "?").slice(0, 2).toUpperCase(), {
+          fontFamily: "Signika", fontSize: "14px", color: "#ffffff", fontStyle: "bold"
+        }).setOrigin(0.5).setDepth(D + 3));
+      }
+    };
+
+    if (frameKey && !this.scene.textures.exists(frameKey) && imgPath) {
+      // Load ảnh rồi render
+      const onDone = () => {
+        this.scene.load.off("filecomplete-image-" + frameKey, onDone);
+        this.scene.load.off("loaderror", onDone);
+        renderAvatar(frameKey);
+      };
+      this.scene.load.once("filecomplete-image-" + frameKey, onDone);
+      this.scene.load.once("loaderror", onDone);
+      this.scene.load.image(frameKey, imgPath);
+      this.scene.load.start();
+      // Hiện fallback trong lúc chờ load
+      const avFill = push(this.scene.add.graphics().setDepth(D + 2));
+      avFill.fillStyle(0xc4a865, 1);
+      avFill.fillCircle(avX, midY, avR - 1);
+    } else {
+      renderAvatar(frameKey);
+    }
+
+    // Tên
     push(this.scene.add.text(avX + avR + 12, midY, req.from_name || "?", {
       fontFamily: "Signika", fontSize: "15px", color: "#3a2000", fontStyle: "bold"
     }).setOrigin(0, 0.5).setDepth(D + 2));
 
-    const btnW = 70, btnH = 30;
-    // Đồng ý
-    this._buildTextBtn(L + W - 14 - btnW * 2 - 6, midY, btnW, btnH, "Đồng ý", 0x22aa55, D, () => {
-      this.socket?.emit("friend:accept", { from_id: req.from_id });
-      this._requests = this._requests.filter(r => r.from_id !== req.from_id);
+    // ── Click avatar hoặc tên → mở PlayerProfilePanel ────────────
+    const openProfile = () => {
+      if (this._profilePanel) { this._profilePanel.destroy(); this._profilePanel = null; }
+      const { width, height } = this.scene.scale;
+      this._profilePanel = new PlayerProfilePanel(this.scene, {
+        socket: this.socket,
+        depth:  this.depth + 50,
+      });
+      this._profilePanel.open(width, height, {
+        user_id:        req.from_id ?? req.user_id,
+        name:           req.from_name,
+        character_name: req.character_name || "Unknown",
+        skin_id:        req.skin_id || 1,
+      }, this._myUserId);
+    };
+    // Zone phủ avatar + tên (nửa trái row)
+    const clickW = avR * 2 + 12 + 120;
+    push(this.scene.add.zone(L + 14 + clickW / 2, midY, clickW, H - 8)
+      .setInteractive({ cursor: "pointer" }).setDepth(D + 5))
+      .on("pointerdown", openProfile);
+
+    // ── Nút Đồng ý + Từ chối (pill style) ───────────────────────
+    const btnW = 88, btnH = 32, btnGap = 8;
+    const btn2X = L + W - 14 - btnW / 2;
+    const btn1X = btn2X - btnW - btnGap;
+
+    this._buildPillBtnList(btn1X, midY, btnW, btnH, 0x18a84a, 0x24d166, "Đồng ý", D, () => {
+      this.socket?.emit("friend:accept", { from_id: req.from_id ?? req.user_id });
+      this._requests = this._requests.filter(r => (r.from_id ?? r.user_id) !== (req.from_id ?? req.user_id));
       this._rebuildList();
     });
-    // Từ chối
-    this._buildTextBtn(L + W - 14 - btnW, midY, btnW, btnH, "Từ chối", 0xcc3333, D, () => {
-      this.socket?.emit("friend:decline", { from_id: req.from_id });
-      this._requests = this._requests.filter(r => r.from_id !== req.from_id);
+    this._buildPillBtnList(btn2X, midY, btnW, btnH, 0xc63a4a, 0xef5b6a, "Từ chối", D, () => {
+      this.socket?.emit("friend:decline", { from_id: req.from_id ?? req.user_id });
+      this._requests = this._requests.filter(r => (r.from_id ?? r.user_id) !== (req.from_id ?? req.user_id));
       this._rebuildList();
+    });
+  }
+
+  /** Pill button dùng trong list (giống RoomListScene._buildPillBtn) */
+  _buildPillBtnList(bx, by, bw, bh, c1, c2, label, D, cb) {
+    const push = o => { this._listObjs.push(o); return o; };
+    const br = bh / 2;
+    const g  = push(this.scene.add.graphics().setDepth(D + 2));
+    const draw = (hover = false) => {
+      g.clear();
+      g.fillStyle(c1, 0.18);
+      g.fillRoundedRect(bx - bw/2 - 3, by - bh/2 - 3, bw + 6, bh + 6, br + 2);
+      g.fillStyle(0x000000, 0.25);
+      g.fillRoundedRect(bx - bw/2 + 2, by - bh/2 + 4, bw, bh, br);
+      g.fillGradientStyle(c1, c1, c2, c2, 1);
+      g.fillRoundedRect(bx - bw/2, by - bh/2, bw, bh, br);
+      g.fillStyle(0xffffff, hover ? 0.38 : 0.22);
+      g.fillRoundedRect(bx - bw/2 + 6, by - bh/2 + 4, bw - 12, bh * 0.35, br - 3);
+      g.lineStyle(1.5, 0xffffff, hover ? 0.7 : 0.45);
+      g.strokeRoundedRect(bx - bw/2, by - bh/2, bw, bh, br);
+    };
+    draw(false);
+    push(this.scene.add.text(bx, by, label, {
+      fontFamily: "Signika", fontSize: "14px", color: "#ffffff",
+      fontStyle: "bold", stroke: "#000000", strokeThickness: 2.5,
+    }).setOrigin(0.5).setDepth(D + 3));
+    const zone = push(this.scene.add.zone(bx, by, bw, bh)
+      .setInteractive({ cursor: "pointer" }).setDepth(D + 4));
+    zone.on("pointerover",  () => draw(true));
+    zone.on("pointerout",   () => draw(false));
+    zone.on("pointerdown",  () => {
+      this.scene.tweens?.add({ targets: g, alpha: 0.6, duration: 60, yoyo: true });
+      cb();
     });
   }
 
@@ -547,6 +873,27 @@ export default class FriendPanel {
       zone.on("pointerover",  () => draw(true));
       zone.on("pointerout",   () => draw(false));
       zone.on("pointerdown",  () => { this.scene.tweens.add({ targets: g, alpha: 0.5, duration: 60, yoyo: true }); cb(); });
+    }
+  }
+
+  /** Nút icon dạng ảnh — không nền, chỉ icon + hover effect */
+  _buildImgIconBtn(cx, cy, size, textureKey, D, cb, disabled = false) {
+    const push = o => { this._listObjs.push(o); return o; };
+
+    const img = push(this.scene.add.image(cx, cy, textureKey)
+      .setDisplaySize(size, size)
+      .setAlpha(disabled ? 0.35 : 1)
+      .setDepth(D + 3));
+
+    if (!disabled && cb) {
+      const zone = push(this.scene.add.zone(cx, cy, size, size)
+        .setInteractive({ cursor: "pointer" }).setDepth(D + 4));
+      zone.on("pointerover",  () => img.setAlpha(0.75));
+      zone.on("pointerout",   () => img.setAlpha(1));
+      zone.on("pointerdown",  () => {
+        this.scene.tweens.add({ targets: img, alpha: 0.4, duration: 60, yoyo: true });
+        cb();
+      });
     }
   }
 

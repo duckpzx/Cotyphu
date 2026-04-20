@@ -628,7 +628,9 @@ export default class RoomScene extends Phaser.Scene {
   // Rebuild ChatWidget sau khi socket đã join room
   _rebuildChatWidget() {
     this._chatWidget?.destroy();
-    this._chatWidget = new ChatWidget(this, { channel: "room", socket: this.socket });
+    const playerData = this.registry.get("playerData") || JSON.parse(localStorage.getItem("playerData") || "null");
+    const myId = playerData?.user?.id || playerData?.id;
+    this._chatWidget = new ChatWidget(this, { channel: "room", socket: this.socket, myId });
     this._chatWidget.build(0, this._chatPanelY, this._chatW, this._chatPanelH);
     this._chatWidget.addSystemMessage("Chào mừng vào phòng chờ!");
     this._chatWidget.addSystemMessage("Nhấn Sẵn Sàng khi đã chuẩn bị.");

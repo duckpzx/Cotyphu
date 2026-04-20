@@ -159,6 +159,35 @@ export function registerChatHandlers(socket, io) {
   socket.on("chat:world:leave", () => {
     socket.leave("chat:world");
   });
+
+  // ── PRIVATE MESSAGE (PM) — real-time only, không lưu DB ─────────────
+  socket.on("chat:pm:send", async ({ to_id, message }) => {
+    const msg = sanitize(message);
+    if (!msg || !to_id) return;
+    if (isRateLimited(user_id)) {
+      socket.emit("chat:error", { message: "Gửi quá nhanh, chờ chút!" });
+      return;
+    }
+    try {
+      const name = await getUserName(user_id, socket.player_name);
+      const payload = {
+        from_id: user_id,
+        to_id:   Number(to_id),
+        name,
+        message: msg,
+        time:    Date.now(),
+      };
+      // Gửi cho tất cả socket của người nhận
+      const allSockets = await io.fetchSockets();
+      allSockets
+        .filter(s => Number(s.user_id) === Number(to_id))
+        .forEach(s => s.emit("chat:pm:message", payload));
+      // Gửi lại cho người gửi
+      socket.emit("chat:pm:message", payload);
+    } catch (err) {
+      console.error("chat:pm:send error:", err);
+    }
+  });
 }
 
 /**

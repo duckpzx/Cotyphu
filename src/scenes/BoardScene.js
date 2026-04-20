@@ -4257,23 +4257,104 @@ this.input.keyboard.on("keydown-Y", () => {
   }
 
   _buildGameChat(width, height) {
-    const chatW = Math.min(300, Math.floor(width * 0.22));
-    const chatH = 180;
-    const chatX = 0;
-    const chatY = height - chatH - 10;
+    const BTN_SIZE = 80;
+    const btnX     = 14 + BTN_SIZE / 2;
+    const btnY     = height - 100;
+    const D        = 55;
 
+    // ── Icon chat_btn ─────────────────────────────────────────────
+    const icon = this.add.image(btnX, btnY, "chat_btn")
+      .setDisplaySize(BTN_SIZE, BTN_SIZE)
+      .setDepth(D)
+      .setInteractive({ cursor: "pointer" });
+
+    const label = this.add.text(btnX, btnY + BTN_SIZE / 2 - 2, "Chat", {
+      fontFamily: "Signika", fontSize: "14px", color: "#dff8ff",
+      fontStyle: "bold", stroke: "#111111", strokeThickness: 3,
+    }).setOrigin(0.5, 0).setDepth(D + 1);
+
+    icon.on("pointerover",  () => icon.setTint(0xddddff));
+    icon.on("pointerout",   () => icon.clearTint());
+    icon.on("pointerdown",  () => this._toggleGameChatPanel(width, height));
+
+    this._gameChatBtnObjs = [icon, label];
+    this._gameChatPanelOpen = false;
+  }
+
+  _toggleGameChatPanel(width, height) {
+    if (this._gameChatPanelOpen) {
+      this._destroyGameChatPanel();
+    } else {
+      this._openGameChatPanel(width, height);
+    }
+  }
+
+  _openGameChatPanel(width, height) {
+    this._gameChatPanelOpen = true;
+
+    const PANEL_W = Math.min(320, Math.floor(width * 0.26));
+    const PANEL_H = 320;
+    const PANEL_X = 10;
+    const PANEL_Y = height - PANEL_H - 190;  // dịch lên cao hơn, không che icon
+    const D       = 60;
+
+    const objs = [];
+    const push  = o => { objs.push(o); return o; };
+
+    // ── Nền panel ─────────────────────────────────────────────────
+    const bg = push(this.add.graphics().setDepth(D));
+    bg.fillStyle(0x041428, 0.92);
+    bg.fillRoundedRect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 10);
+    bg.lineStyle(1.5, 0x2255aa, 0.7);
+    bg.strokeRoundedRect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 10);
+
+    // ── Tiêu đề ───────────────────────────────────────────────────
+    const TAB_H = 32;
+    const tabBg = push(this.add.graphics().setDepth(D + 1));
+    tabBg.fillStyle(0x0a2040, 1);
+    tabBg.fillRoundedRect(PANEL_X, PANEL_Y, PANEL_W, TAB_H, { tl: 10, tr: 10, bl: 0, br: 0 });
+    tabBg.lineStyle(1, 0x2255aa, 0.5);
+    tabBg.strokeRoundedRect(PANEL_X, PANEL_Y, PANEL_W, TAB_H, { tl: 10, tr: 10, bl: 0, br: 0 });
+
+    push(this.add.text(PANEL_X + PANEL_W / 2, PANEL_Y + TAB_H / 2, "💬 Chat Trong Trận", {
+      fontFamily: "Signika", fontSize: "14px", color: "#aaddff", fontStyle: "bold",
+    }).setOrigin(0.5).setDepth(D + 2));
+
+    // ── Nút đóng (close_btn icon) ─────────────────────────────────
+    const closeR  = 16;
+    const closeX  = PANEL_X + PANEL_W - closeR + 4;
+    const closeY  = PANEL_Y + TAB_H / 2;
+    const closeBtn = push(this.add.image(closeX, closeY, "close_btn")
+      .setDisplaySize(closeR * 2, closeR * 2).setDepth(D + 3)
+      .setInteractive({ cursor: "pointer" }));
+    closeBtn.on("pointerover",  () => closeBtn.setAlpha(0.8));
+    closeBtn.on("pointerout",   () => closeBtn.setAlpha(1));
+    closeBtn.on("pointerdown",  () => this._destroyGameChatPanel());
+
+    // ── ChatWidget channel "game" ──────────────────────────────────
     this._gameChat?.destroy();
     this._gameChat = new ChatWidget(this, {
       channel: "game",
       socket:  this.socket,
-      depth:   50
+      depth:   D + 1,
     });
-    this._gameChat.build(chatX, chatY, chatW, chatH);
+    this._gameChat.build(PANEL_X, PANEL_Y + TAB_H, PANEL_W, PANEL_H - TAB_H);
     this._gameChat.addSystemMessage("Chat trong trận — Chúc vui!");
+
+    this._gameChatPanelObjs = objs;
+  }
+
+  _destroyGameChatPanel() {
+    this._gameChatPanelOpen = false;
+    this._gameChat?.destroy();
+    this._gameChat = null;
+    this._gameChatPanelObjs?.forEach(o => { try { o?.destroy(); } catch(e){} });
+    this._gameChatPanelObjs = [];
   }
 
   shutdown() {
-    this._gameChat?.destroy();
-    this._gameChat = null;
+    this._destroyGameChatPanel();
+    this._gameChatBtnObjs?.forEach(o => { try { o?.destroy(); } catch(e){} });
+    this._gameChatBtnObjs = [];
   }
 }
