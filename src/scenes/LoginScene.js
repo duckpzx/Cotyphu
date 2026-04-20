@@ -1,4 +1,5 @@
 import { SERVER_URL } from "../config.js";
+import { setupClickSound } from "../utils/clickSound.js";
 export default class LoginScene extends Phaser.Scene {
 
   constructor() {
@@ -8,10 +9,12 @@ export default class LoginScene extends Phaser.Scene {
   preload() {
     this.load.image("bg_account", "assets/nen_24.png");
     this.load.image("icon", "assets/ui/cotyphu.png");
+    this.load.audio("lobby_bgm", "assets/music/lobby/lobbyscene.mp3");
   }
 
   create() {
     const { width, height } = this.scale;
+    setupClickSound(this);
 
     // ── Background ──────────────────────────────────────────────
     const bg = this.add.image(width / 2, height / 2, "bg_account");
@@ -187,6 +190,15 @@ export default class LoginScene extends Phaser.Scene {
 
   _goTo(sceneName, data = {}) {
     if (this.form) this.form.remove();
+
+    // Play nhạc lobby ngay trong interaction context (user vừa click)
+    if (sceneName === "LobbyScene" && !this.sound.get("lobby_bgm")) {
+      try {
+        const bgm = this.sound.add("lobby_bgm", { loop: true, volume: 0.4 });
+        bgm.play();
+      } catch(e) {}
+    }
+
     // Flash trắng rồi fade đen
     const { width, height } = this.scale;
     const flash = this.add.rectangle(width/2, height/2, width, height, 0xffffff, 0).setDepth(500);

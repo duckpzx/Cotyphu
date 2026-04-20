@@ -2869,16 +2869,44 @@ this.input.keyboard.on("keydown-Y", () => {
       shadow: { offsetX: 0, offsetY: 1, color: "#001339ff", blur: 6, fill: true }
     }).setOrigin(0, 0.5).setDepth(63);
 
-    // ── infoText — bottom center, to hơn ──────────────────────────
-    this.infoText = this.add.text(width/2, height - 36*S, "⏳", {
+    // ── infoText — bottom center, gradient bar style ──────────────
+    const INFO_Y = height - 44 * S;
+    const INFO_W = Math.floor(420 * S);
+    const INFO_H = Math.floor(40 * S);
+
+    // Nền: gradient fade 2 bên, đen transparent ở giữa
+    this._infoBarGfx = this.add.graphics().setDepth(59);
+    const _drawInfoBar = () => {
+      const g = this._infoBarGfx;
+      g.clear();
+      const bx = width / 2 - INFO_W / 2;
+      const by = INFO_Y - INFO_H / 2;
+      // Nền giữa đen transparent
+      g.fillStyle(0x000000, 0.62);
+      g.fillRect(bx, by, INFO_W, INFO_H);
+      // Gradient trái: fade từ transparent → đen
+      for (let i = 0; i < 40; i++) {
+        const alpha = (1 - i / 40) * 0.62;
+        g.fillStyle(0x000000, alpha);
+        g.fillRect(bx - (40 - i), by, 1, INFO_H);
+      }
+      // Gradient phải: fade từ đen → transparent
+      for (let i = 0; i < 40; i++) {
+        const alpha = (i / 40) * 0.62;
+        g.fillStyle(0x000000, alpha);
+        g.fillRect(bx + INFO_W + i, by, 1, INFO_H);
+      }
+    };
+    _drawInfoBar();
+    this._drawInfoBar = _drawInfoBar;
+
+    this.infoText = this.add.text(width / 2, INFO_Y, "⏳", {
       fontFamily: "Signika",
-      fontSize: Math.floor(26*S) + "px",
+      fontSize: Math.floor(20 * S) + "px",
       color: "#facc15",
       fontStyle: "bold",
       stroke: "#000000",
-      strokeThickness: Math.floor(5*S),
-      backgroundColor: "#000000bb",
-      padding: { x: 20*S, y: 9*S }
+      strokeThickness: Math.floor(3 * S),
     }).setOrigin(0.5).setDepth(60);
 
     // ── cellInfoText — ẩn ─────────────────────────────────────────
@@ -4216,15 +4244,34 @@ this.input.keyboard.on("keydown-Y", () => {
   
   _showToast(message, color = "#ffffff", duration = 2500) {
     const { width, height } = this.scale;
-    const toast = this.add.text(width / 2, height - 130, message, {
-      fontFamily: "Signika", fontSize: "16px", color,
-      backgroundColor: "#000000bb", padding: { x: 18, y: 10 },
-    }).setOrigin(0.5).setDepth(200).setAlpha(0);
+    const S = Math.min(width / this.originalWidth, height / this.originalHeight);
+    const toastY = height - 90 * S;
+    const BAR_W  = Math.min(Math.floor(500 * S), width * 0.7);
+    const BAR_H  = Math.floor(38 * S);
+
+    // Nền gradient
+    const g = this.add.graphics().setDepth(200).setAlpha(0);
+    const bx = width / 2 - BAR_W / 2;
+    const by = toastY - BAR_H / 2;
+    g.fillStyle(0x000000, 0.65);
+    g.fillRect(bx, by, BAR_W, BAR_H);
+    for (let i = 0; i < 36; i++) {
+      g.fillStyle(0x000000, (1 - i / 36) * 0.65);
+      g.fillRect(bx - (36 - i), by, 1, BAR_H);
+      g.fillStyle(0x000000, (i / 36) * 0.65);
+      g.fillRect(bx + BAR_W + i, by, 1, BAR_H);
+    }
+
+    const toast = this.add.text(width / 2, toastY, message, {
+      fontFamily: "Signika", fontSize: Math.floor(16 * S) + "px", color,
+      fontStyle: "bold", stroke: "#000000", strokeThickness: Math.floor(3 * S),
+    }).setOrigin(0.5).setDepth(201).setAlpha(0);
+
     this.tweens.add({
-      targets: toast, alpha: 1, y: height - 140, duration: 200,
+      targets: [g, toast], alpha: 1, duration: 200,
       onComplete: () => this.time.delayedCall(duration, () => {
-        this.tweens.add({ targets: toast, alpha: 0, duration: 300,
-          onComplete: () => { try { toast.destroy(); } catch(e){} } });
+        this.tweens.add({ targets: [g, toast], alpha: 0, duration: 300,
+          onComplete: () => { try { g.destroy(); toast.destroy(); } catch(e){} } });
       })
     });
   }

@@ -2,6 +2,7 @@ import { getActiveProfile } from "../server/utils/playerData.js";
 import { SERVER_URL } from "../config.js";
 import ChatWidget from "./components/ChatWidget.js";
 import PlayerProfilePanel from "./components/PlayerProfilePanel.js";
+import { setupClickSound } from "../utils/clickSound.js";
 
 export default class RoomScene extends Phaser.Scene {
 
@@ -109,6 +110,7 @@ export default class RoomScene extends Phaser.Scene {
 
   create() {
     const { width, height } = this.scale;
+    setupClickSound(this);
 
     // PHẢI khởi tạo trước để _rebuildBottomPanel không crash
     this._bottomPanelGroup = [];

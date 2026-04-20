@@ -4,6 +4,7 @@ import BoardScene from "./scenes/BoardScene.js";
 import TarotScene from "./scenes/TarotScene.js";
 import RegisterScene from "./scenes/RegisterScene.js";
 import LoginScene from "./scenes/LoginScene.js";
+import SplashScene from "./scenes/SplashScene.js";
 import CreateCharacterScene from "./scenes/CreateCharacterScene.js";
 import RoomListScene from "./scenes/RoomListScene.js";
 import RoomScene from "./scenes/RoomScene.js"
@@ -45,8 +46,7 @@ window.onload = async function () {
             } catch { startScene = "LobbyScene"; }
           } else {
             startScene = "LobbyScene";
-          }
-        }
+          }        }
       }
     } catch {
       // Network lỗi hoặc token hết hạn → về LoginScene
@@ -64,7 +64,7 @@ window.onload = async function () {
       width: rect.width,
       height: rect.height,
     },
-    scene: [LoginScene, BoardScene, RegisterScene, RoomScene, LobbyScene, RoomListScene, CreateCharacterScene, TarotScene, BagScene, ShopScene, RatingScene, LabScene],
+    scene: [LoginScene, SplashScene, BoardScene, RegisterScene, RoomScene, LobbyScene, RoomListScene, CreateCharacterScene, TarotScene, BagScene, ShopScene, RatingScene, LabScene],
     physics: {
       default: "arcade",
       arcade: { debug: false },
@@ -77,7 +77,8 @@ window.onload = async function () {
   game.events.once("ready", () => {
     if (startScene !== "LoginScene") {
       game.scene.stop("LoginScene");
-      game.scene.start(startScene);
+      // Auto-login → qua SplashScene để lấy interaction trước khi play nhạc
+      game.scene.start(startScene === "LobbyScene" ? "SplashScene" : startScene);
     }
   });
 

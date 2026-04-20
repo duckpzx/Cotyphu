@@ -3,6 +3,7 @@ import EcoinManager from "../server/utils/ecoinManager.js";
 import ChatWidget from "./components/ChatWidget.js";
 import FriendPanel from "./components/FriendPanel.js";
 import { SERVER_URL } from "../config.js";
+import { setupClickSound } from "../utils/clickSound.js";
 
 // src/scenes/LobbyScene.js
 export default class LobbyScene extends Phaser.Scene {
@@ -29,6 +30,11 @@ export default class LobbyScene extends Phaser.Scene {
     this.load.image("close_btn",  "assets/ui/shared/close.png");
     this.load.image("add_friend", "assets/ui/shared/friend.png");
     this.load.image("icon_search", "assets/ui/shared/icon_search.png");
+
+    // Nhạc sảnh
+    if (!this.cache.audio.exists("lobby_bgm")) {
+      this.load.audio("lobby_bgm", "assets/music/lobby/lobbyscene.mp3");
+    }
   }
 
   create() {
@@ -42,6 +48,12 @@ export default class LobbyScene extends Phaser.Scene {
 
     this.playerSkin = activeProfile.skin_id;
     this.characterName = activeProfile.characterName;
+
+    // ── Nhạc nền sảnh ────────────────────────────────────────────
+    // Nhạc đã được play từ LoginScene trong interaction context
+    // Chỉ cần lấy reference để stop khi rời scene
+    this._bgm = this.sound.get("lobby_bgm") || null;
+    setupClickSound(this);
 
     // ===== NỀN SẢNH =====
     const bg = this.add.image(width / 2, height / 2, "lobby-bg");
@@ -983,6 +995,8 @@ createTopBar() {
   }
 
   shutdown() {
+    this._bgm?.stop();
+    this._bgm = null;
     this._destroyChatPanel();
     this._destroyFriendPanel();
     this._worldSocket?.disconnect();
