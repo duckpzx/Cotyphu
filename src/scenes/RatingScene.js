@@ -1,3 +1,4 @@
+import { setupClickSound } from "../utils/clickSound.js";
 export default class RatingScene extends Phaser.Scene {
     constructor() { super("RatingScene"); }
 
@@ -8,6 +9,7 @@ export default class RatingScene extends Phaser.Scene {
 
     create() {
         const { width, height } = this.scale;
+        setupClickSound(this);
 
         const bg = this.add.image(width / 2, height / 2, "rating-bg");
         bg.setScale(Math.max(width / bg.width, height / bg.height));

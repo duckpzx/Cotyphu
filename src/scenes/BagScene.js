@@ -1,5 +1,6 @@
 ﻿import { getPlayerData, setPlayerData } from "../server/utils/playerData.js";
 import { SERVER_URL } from "../config.js";
+import { setupClickSound } from "../utils/clickSound.js";
 
 export default class BagScene extends Phaser.Scene {
     constructor() {
@@ -49,6 +50,7 @@ export default class BagScene extends Phaser.Scene {
 
     async create() {
         const { width, height } = this.scale;
+        setupClickSound(this);
 
         this.playerData = getPlayerData(this) || {};
         this.playerUserId = this.playerData?.user_id || this.playerData?.user?.id || null;

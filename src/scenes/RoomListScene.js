@@ -1,4 +1,5 @@
 import { SERVER_URL } from "../config.js";
+import { setupClickSound } from "../utils/clickSound.js";
 export default class RoomListScene extends Phaser.Scene {
 
   constructor() {
@@ -27,6 +28,7 @@ export default class RoomListScene extends Phaser.Scene {
 
   create() {
     const { width, height } = this.scale;
+    setupClickSound(this);
 
     // Khởi tạo rỗng, sẽ load từ API
     this.allRooms = [];

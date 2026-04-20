@@ -41,7 +41,7 @@ export default class SplashScene extends Phaser.Scene {
     // Click bất kỳ đâu → play nhạc + vào Lobby
     this.input.once("pointerdown", () => {
       if (!this.sound.get("lobby_bgm")) {
-        const bgm = this.sound.add("lobby_bgm", { loop: true, volume: 0.4 });
+        const bgm = this.sound.add("lobby_bgm", { loop: true, volume: 0.15 });
         bgm.play();
       }
       this.cameras.main.fadeOut(300, 0, 0, 0);

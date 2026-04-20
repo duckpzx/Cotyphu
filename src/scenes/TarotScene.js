@@ -1,4 +1,5 @@
 import { SERVER_URL } from "../config.js";
+import { setupClickSound } from "../utils/clickSound.js";
 export default class TarotScene extends Phaser.Scene {
     constructor() {
         super("TarotScene");
@@ -26,6 +27,7 @@ export default class TarotScene extends Phaser.Scene {
 
     async create() {
         const { width, height } = this.scale;
+        setupClickSound(this);
 
         try {
             this.playerData = JSON.parse(localStorage.getItem("playerData"));

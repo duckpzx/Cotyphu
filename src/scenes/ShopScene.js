@@ -1,6 +1,7 @@
 import EcoinManager from "../server/utils/ecoinManager.js";
 import { getPlayerData, setPlayerData } from "../server/utils/playerData.js";
 import { SERVER_URL } from "../config.js";
+import { setupClickSound } from "../utils/clickSound.js";
 
 // src/scenes/ShopScene.js
 export default class ShopScene extends Phaser.Scene {
@@ -56,6 +57,7 @@ export default class ShopScene extends Phaser.Scene {
 
     async create() {
         const { width, height } = this.scale;
+        setupClickSound(this);
 
         EcoinManager.init(this);
         this.playerData = getPlayerData(this) || {};
