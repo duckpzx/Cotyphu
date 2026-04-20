@@ -67,7 +67,8 @@ export default class RoomScene extends Phaser.Scene {
     this.load.image("icon_music",    "assets/ui/shared/music.png");
     this.load.image("versus2",       "assets/ui/shared/versus3.png");
     this.load.image("author",        "assets/ui/shared/author.png");
-
+    this.load.image("add_friend",    "assets/ui/shared/friend.png");
+    
     // Pre-load idle frames của người chơi hiện tại từ localStorage
     const activeProfile = getActiveProfile(this);
     const myCharName = activeProfile.characterName;
