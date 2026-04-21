@@ -1,7 +1,7 @@
 import EcoinManager from "../server/utils/ecoinManager.js";
 import { getPlayerData, setPlayerData } from "../server/utils/playerData.js";
 import { SERVER_URL } from "../config.js";
-import { setupClickSound } from "../utils/clickSound.js";
+import { setupClickSound, playTabSound, playOutSound } from "../utils/clickSound.js";
 
 // src/scenes/ShopScene.js
 export default class ShopScene extends Phaser.Scene {
@@ -101,6 +101,7 @@ export default class ShopScene extends Phaser.Scene {
         // ── Header: Back + "CỬA HÀNG" ─────────────────────────────────
         const backBtn = this.add.image(48, 48, "out").setScale(1).setDepth(200).setInteractive({ cursor: "pointer" });
         backBtn.on("pointerdown", () => {
+            playOutSound(this);
             this.tweens.add({ targets: backBtn, scale: 0.7, duration: 80, yoyo: true });
             this.time.delayedCall(160, () => {
                 this.cameras.main.fadeOut(200);
@@ -901,6 +902,7 @@ export default class ShopScene extends Phaser.Scene {
                 .setInteractive({ cursor: "pointer" }).setDepth(17))
                 .on("pointerdown", () => {
                     if (this.activeTab === ids[i]) return;
+                    playTabSound(this);
                     this.activeTab = ids[i];
                     this._autoSelectFirstForTab();
                     this._drawAllTabs(startX, tabY, tabW, tabH, gap);

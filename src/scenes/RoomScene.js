@@ -2,7 +2,7 @@ import { getActiveProfile } from "../server/utils/playerData.js";
 import { SERVER_URL } from "../config.js";
 import ChatWidget from "./components/ChatWidget.js";
 import PlayerProfilePanel from "./components/PlayerProfilePanel.js";
-import { setupClickSound } from "../utils/clickSound.js";
+import { setupClickSound, playOutSound } from "../utils/clickSound.js";
 
 export default class RoomScene extends Phaser.Scene {
 
@@ -1031,6 +1031,7 @@ export default class RoomScene extends Phaser.Scene {
 
     const backBtn = this.add.image(48, 48, "back").setScale(1).setInteractive({ cursor: "pointer" });
     backBtn.on("pointerdown", () => {
+      playOutSound(this);
       this.tweens.add({ targets: backBtn, scale: 0.6, duration: 80, yoyo: true });
       this.time.delayedCall(160, () => {
         if (this.isHost) {

@@ -1,5 +1,5 @@
 import { SERVER_URL } from "../config.js";
-import { setupClickSound } from "../utils/clickSound.js";
+import { setupClickSound, playOutSound } from "../utils/clickSound.js";
 export default class TarotScene extends Phaser.Scene {
     constructor() {
         super("TarotScene");
@@ -63,6 +63,7 @@ export default class TarotScene extends Phaser.Scene {
         // ── Header: Back + "THẺ BÀI" ─────────────────────────────────
         const backBtn = this.add.image(48, 48, "out").setScale(1).setDepth(200).setInteractive({ cursor: "pointer" });
         backBtn.on("pointerdown", () => {
+            playOutSound(this);
             this.tweens.add({ targets: backBtn, scale: 0.7, duration: 80, yoyo: true });
             this.time.delayedCall(160, () => {
                 this.cameras.main.fadeOut(200);

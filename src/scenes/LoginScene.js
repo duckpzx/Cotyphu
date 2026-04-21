@@ -194,7 +194,7 @@ export default class LoginScene extends Phaser.Scene {
     // Play nhạc lobby ngay trong interaction context (user vừa click)
     if (sceneName === "LobbyScene" && !this.sound.get("lobby_bgm")) {
       try {
-        const bgm = this.sound.add("lobby_bgm", { loop: true, volume: 0.15 });
+        const bgm = this.sound.add("lobby_bgm", { loop: true, volume: 0.28 });
         bgm.play();
       } catch(e) {}
     }

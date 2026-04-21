@@ -1,5 +1,5 @@
 import { SERVER_URL } from "../config.js";
-import { setupClickSound } from "../utils/clickSound.js";
+import { setupClickSound, playTabSound, playOutSound } from "../utils/clickSound.js";
 export default class RoomListScene extends Phaser.Scene {
 
   constructor() {
@@ -183,6 +183,7 @@ export default class RoomListScene extends Phaser.Scene {
   _buildBackBtn(width, height) {
     const backBtn = this.add.image(48, 48, "back").setScale(1).setInteractive({ cursor: "pointer" });
     backBtn.on("pointerdown", () => {
+      playOutSound(this);
       this.tweens.add({ targets: backBtn, scale: 0.6, duration: 80, yoyo: true });
       this.time.delayedCall(160, () => this.scene.start("LobbyScene"));
     });
@@ -219,6 +220,7 @@ export default class RoomListScene extends Phaser.Scene {
       this.add.zone(tx + tabW / 2, tabY + tabH / 2, tabW, tabH)
         .setInteractive({ cursor: "pointer" })
         .on("pointerdown", () => {
+          playTabSound(this);
           this.currentTab  = i; this.currentPage = 0;
           this._drawAllTabs(startX, tabY, tabW, tabH, gap);
           const roomTypes = ["pho_thong", "tan_thu", "cao_thu", "bac_thay"];

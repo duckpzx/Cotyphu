@@ -4,6 +4,7 @@
  * Tabs: D.S Bạn Bè | Y.C Kết Bạn | Mời Bạn
  */
 import PlayerProfilePanel from "./PlayerProfilePanel.js";
+import { playTabSound } from "../../utils/clickSound.js";
 
 export default class FriendPanel {
   /**
@@ -107,6 +108,7 @@ export default class FriendPanel {
         .setInteractive({ cursor: "pointer" }).setDepth(D + 1));
       zone.on("pointerdown", () => {
         if (this._tabIdx !== i) {
+          playTabSound(this.scene);
           this._tabIdx = i;
           this._drawTabs(TAB_START, TAB_Y, TAB_W, TAB_H, TAB_GAP);
           this._rebuildList();
@@ -842,7 +844,7 @@ export default class FriendPanel {
     }).setOrigin(0.5).setDepth(D + 3));
 
     push(this.scene.add.text(avX + avR + 12, midY - 8, user.name || "?", {
-      fontFamily: "Signika", fontSize: "15px", color: "#3a2000", fontStyle: "bold"
+      fontFamily: "Signika", fontSize: "15px", color: "#  3a2000", fontStyle: "bold"
     }).setOrigin(0, 0.5).setDepth(D + 2));
     push(this.scene.add.text(avX + avR + 12, midY + 8, `@${user.username || ""}`, {
       fontFamily: "Signika", fontSize: "12px", color: "#8a6a30"

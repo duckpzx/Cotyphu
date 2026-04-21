@@ -3,7 +3,7 @@ import EcoinManager from "../server/utils/ecoinManager.js";
 import ChatWidget from "./components/ChatWidget.js";
 import FriendPanel from "./components/FriendPanel.js";
 import { SERVER_URL } from "../config.js";
-import { setupClickSound } from "../utils/clickSound.js";
+import { setupClickSound, playTabSound } from "../utils/clickSound.js";
 
 // src/scenes/LobbyScene.js
 export default class LobbyScene extends Phaser.Scene {
@@ -590,6 +590,7 @@ createTopBar() {
           .setInteractive({ cursor: "pointer" }).setDepth(D + 3);
         tz.on("pointerdown", () => {
           if (this._activeTab === i) return;
+          playTabSound(this);
           this._activeTab = i;
           // Bấm tab "Bạn Bè" → xóa unread
           if (i === 1) {
