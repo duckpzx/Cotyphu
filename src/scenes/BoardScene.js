@@ -2870,32 +2870,47 @@ this.input.keyboard.on("keydown-Y", () => {
     }).setOrigin(0, 0.5).setDepth(63);
 
     // ── infoText — bottom center, gradient bar style ──────────────
-    const INFO_Y = height - 44 * S;
-    const INFO_W = Math.floor(420 * S);
-    const INFO_H = Math.floor(40 * S);
+    const INFO_Y = height - 100 * S;
+    const INFO_W = Math.floor(520 * S);
+    const INFO_H = Math.floor(46 * S);
+    const GRAD_W = 80; // độ rộng gradient 2 bên
+    const BORDER_C = 0x0088ff; // xanh dương đậm
 
-    // Nền: gradient fade 2 bên, đen transparent ở giữa
+    // Nền: gradient fade 2 bên, đen transparent ở giữa + border trên/dưới
     this._infoBarGfx = this.add.graphics().setDepth(59);
     const _drawInfoBar = () => {
       const g = this._infoBarGfx;
       g.clear();
       const bx = width / 2 - INFO_W / 2;
       const by = INFO_Y - INFO_H / 2;
+
       // Nền giữa đen transparent
-      g.fillStyle(0x000000, 0.62);
+      g.fillStyle(0x000000, 0.60);
       g.fillRect(bx, by, INFO_W, INFO_H);
+
       // Gradient trái: fade từ transparent → đen
-      for (let i = 0; i < 40; i++) {
-        const alpha = (1 - i / 40) * 0.62;
+      for (let i = 0; i < GRAD_W; i++) {
+        const alpha = (i / GRAD_W) * 0.60;
         g.fillStyle(0x000000, alpha);
-        g.fillRect(bx - (40 - i), by, 1, INFO_H);
+        g.fillRect(bx - GRAD_W + i, by, 1, INFO_H);
       }
       // Gradient phải: fade từ đen → transparent
-      for (let i = 0; i < 40; i++) {
-        const alpha = (i / 40) * 0.62;
+      for (let i = 0; i < GRAD_W; i++) {
+        const alpha = (1 - i / GRAD_W) * 0.60;
         g.fillStyle(0x000000, alpha);
         g.fillRect(bx + INFO_W + i, by, 1, INFO_H);
       }
+
+      // Border trên + dưới xanh dương đậm
+      g.lineStyle(Math.max(1, Math.floor(1.5 * S)), BORDER_C, 0.9);
+      g.beginPath();
+      g.moveTo(bx - GRAD_W, by);
+      g.lineTo(bx + INFO_W + GRAD_W, by);
+      g.strokePath();
+      g.beginPath();
+      g.moveTo(bx - GRAD_W, by + INFO_H);
+      g.lineTo(bx + INFO_W + GRAD_W, by + INFO_H);
+      g.strokePath();
     };
     _drawInfoBar();
     this._drawInfoBar = _drawInfoBar;
@@ -3784,6 +3799,70 @@ this.input.keyboard.on("keydown-Y", () => {
       const name = cur?.name || "...";
       this.infoText.setText(`⏸ Lượt của ${name}...`).setColor("#aaaaaa");
     }
+    this._updateDiceBubble();
+  }
+
+  _updateDiceBubble() {
+    if (this._diceBubbleObjs) {
+      this._diceBubbleObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
+      this._diceBubbleObjs = null;
+    }
+    if (!this.currentTurnSocketId) return;
+
+    const { width, height } = this.scale;
+    const minRatio = Math.min(width / this.originalWidth, height / this.originalHeight);
+
+    let sprite = null;
+    if (this.socket?.id === this.currentTurnSocketId) {
+      sprite = this.player;
+    } else {
+      sprite = this.otherPlayers[this.currentTurnSocketId];
+    }
+    if (!sprite) return;
+
+    const sx = sprite.x;
+    const sy = sprite.y - sprite.displayHeight * 0.9;
+
+    const D = 50;
+    const objs = [];
+    const push = o => { objs.push(o); return o; };
+
+    const txt = "Đổ xúc xắc";
+    const fontSize = Math.floor(20 * minRatio);
+    const pad = { x: 18, y: 10 };
+    const bR = 8;
+    const TIP_W = 9;
+    const TIP_H = 9;
+
+    const t = push(this.add.text(0, 0, txt, {
+      fontFamily: "Signika", fontSize: fontSize + "px",
+      color: "#111111", fontStyle: "bold",
+    }).setOrigin(0.5, 0.5).setDepth(D + 2));
+
+    const bW = t.width + pad.x * 2;
+    const bH = t.height + pad.y * 2;
+    const bX = sx - bW / 2;
+    const bY = sy - bH - TIP_H;
+
+    const g = push(this.add.graphics().setDepth(D + 1));
+
+    // Nền trắng đậm, không border
+    g.fillStyle(0xffffff, 0.9);
+    g.fillRoundedRect(bX, bY, bW, bH, bR);
+
+    // Tam giác chỉ xuống ở giữa đáy — cùng màu nền, liền mạch
+    const tipX = sx;
+    const tipBaseY = bY + bH;
+    g.fillStyle(0xffffff, 0.95);
+    g.fillTriangle(
+      tipX - TIP_W, tipBaseY,
+      tipX + TIP_W, tipBaseY,
+      tipX,         tipBaseY + TIP_H
+    );
+
+    t.setPosition(bX + bW / 2, bY + bH / 2);
+
+    this._diceBubbleObjs = objs;
   }
 
   _showTurnBanner(message, color="#ffffff") {
@@ -4245,22 +4324,29 @@ this.input.keyboard.on("keydown-Y", () => {
   _showToast(message, color = "#ffffff", duration = 2500) {
     const { width, height } = this.scale;
     const S = Math.min(width / this.originalWidth, height / this.originalHeight);
-    const toastY = height - 90 * S;
-    const BAR_W  = Math.min(Math.floor(500 * S), width * 0.7);
-    const BAR_H  = Math.floor(38 * S);
+    const toastY = height - 150 * S;
+    const BAR_W  = Math.min(Math.floor(560 * S), width * 0.75);
+    const BAR_H  = Math.floor(42 * S);
+    const GRAD_W = 70;
+    const BORDER_C = 0x0088ff;
 
     // Nền gradient
     const g = this.add.graphics().setDepth(200).setAlpha(0);
     const bx = width / 2 - BAR_W / 2;
     const by = toastY - BAR_H / 2;
-    g.fillStyle(0x000000, 0.65);
+
+    g.fillStyle(0x000000, 0.60);
     g.fillRect(bx, by, BAR_W, BAR_H);
-    for (let i = 0; i < 36; i++) {
-      g.fillStyle(0x000000, (1 - i / 36) * 0.65);
-      g.fillRect(bx - (36 - i), by, 1, BAR_H);
-      g.fillStyle(0x000000, (i / 36) * 0.65);
+    for (let i = 0; i < GRAD_W; i++) {
+      g.fillStyle(0x000000, (i / GRAD_W) * 0.60);
+      g.fillRect(bx - GRAD_W + i, by, 1, BAR_H);
+      g.fillStyle(0x000000, (1 - i / GRAD_W) * 0.60);
       g.fillRect(bx + BAR_W + i, by, 1, BAR_H);
     }
+    // Border trên + dưới
+    g.lineStyle(Math.max(1, Math.floor(1.5 * S)), BORDER_C, 0.9);
+    g.beginPath(); g.moveTo(bx - GRAD_W, by); g.lineTo(bx + BAR_W + GRAD_W, by); g.strokePath();
+    g.beginPath(); g.moveTo(bx - GRAD_W, by + BAR_H); g.lineTo(bx + BAR_W + GRAD_W, by + BAR_H); g.strokePath();
 
     const toast = this.add.text(width / 2, toastY, message, {
       fontFamily: "Signika", fontSize: Math.floor(16 * S) + "px", color,
@@ -4304,19 +4390,29 @@ this.input.keyboard.on("keydown-Y", () => {
   }
 
   _buildGameChat(width, height) {
-    const BTN_SIZE = 80;
-    const btnX     = 14 + BTN_SIZE / 2;
-    const btnY     = height - 100;
+    const BTN_SIZE = 72;
+    const btnX     = BTN_SIZE / 2;  // sát viền trái
+    const btnY     = height / 2;
     const D        = 55;
 
+    // ── Nền đen transparent — bo góc chỉ bên phải, bám viền trái ──
+    const bgPad = 10;
+    const bgW   = BTN_SIZE + bgPad + 4; // không pad bên trái
+    const bgH   = BTN_SIZE + 24 + bgPad * 2;
+    const bgX   = 0; // sát viền trái
+    const bgY   = btnY - bgH / 2;
+    const bgG   = this.add.graphics().setDepth(D - 1);
+    bgG.fillStyle(0x2a2a2a, 0.72);
+    bgG.fillRoundedRect(bgX, bgY, bgW, bgH, { tl: 0, tr: 14, bl: 0, br: 14 });
+
     // ── Icon chat_btn ─────────────────────────────────────────────
-    const icon = this.add.image(btnX, btnY, "chat_btn")
+    const icon = this.add.image(btnX + 4, btnY - 8, "chat_btn")
       .setDisplaySize(BTN_SIZE, BTN_SIZE)
       .setDepth(D)
       .setInteractive({ cursor: "pointer" });
 
-    const label = this.add.text(btnX, btnY + BTN_SIZE / 2 - 2, "Chat", {
-      fontFamily: "Signika", fontSize: "14px", color: "#dff8ff",
+    const label = this.add.text(btnX + 4, btnY + BTN_SIZE / 2 - 4, "Chat", {
+      fontFamily: "Signika", fontSize: "13px", color: "#dff8ff",
       fontStyle: "bold", stroke: "#111111", strokeThickness: 3,
     }).setOrigin(0.5, 0).setDepth(D + 1);
 
@@ -4324,7 +4420,7 @@ this.input.keyboard.on("keydown-Y", () => {
     icon.on("pointerout",   () => icon.clearTint());
     icon.on("pointerdown",  () => this._toggleGameChatPanel(width, height));
 
-    this._gameChatBtnObjs = [icon, label];
+    this._gameChatBtnObjs = [bgG, icon, label];
     this._gameChatPanelOpen = false;
   }
 
@@ -4341,8 +4437,8 @@ this.input.keyboard.on("keydown-Y", () => {
 
     const PANEL_W = Math.min(320, Math.floor(width * 0.26));
     const PANEL_H = 320;
-    const PANEL_X = 10;
-    const PANEL_Y = height - PANEL_H - 190;  // dịch lên cao hơn, không che icon
+    const PANEL_X = 14 + 72 + 10; // bên phải nút chat
+    const PANEL_Y = height / 2 - PANEL_H / 2;
     const D       = 60;
 
     const objs = [];
@@ -4363,20 +4459,22 @@ this.input.keyboard.on("keydown-Y", () => {
     tabBg.lineStyle(1, 0x2255aa, 0.5);
     tabBg.strokeRoundedRect(PANEL_X, PANEL_Y, PANEL_W, TAB_H, { tl: 10, tr: 10, bl: 0, br: 0 });
 
-    push(this.add.text(PANEL_X + PANEL_W / 2, PANEL_Y + TAB_H / 2, "💬 Chat Trong Trận", {
+    push(this.add.text(PANEL_X + PANEL_W / 2, PANEL_Y + TAB_H / 2, "Chat Trong Trận", {
       fontFamily: "Signika", fontSize: "14px", color: "#aaddff", fontStyle: "bold",
     }).setOrigin(0.5).setDepth(D + 2));
 
-    // ── Nút đóng (close_btn icon) ─────────────────────────────────
-    const closeR  = 16;
-    const closeX  = PANEL_X + PANEL_W - closeR + 4;
-    const closeY  = PANEL_Y + TAB_H / 2;
+    // ── Nút đóng X — nhô ra góc trên phải giống LobbyScene ────────
+    const closeR  = 18;
+    const closeX  = PANEL_X + PANEL_W;
+    const closeY  = PANEL_Y;
     const closeBtn = push(this.add.image(closeX, closeY, "close_btn")
-      .setDisplaySize(closeR * 2, closeR * 2).setDepth(D + 3)
+      .setDisplaySize(closeR * 2.2, closeR * 2.2).setDepth(D + 5)
       .setInteractive({ cursor: "pointer" }));
+    const closeZone = push(this.add.zone(closeX, closeY, closeR * 2.6, closeR * 2.6)
+      .setInteractive({ cursor: "pointer" }).setDepth(D + 6));
     closeBtn.on("pointerover",  () => closeBtn.setAlpha(0.8));
     closeBtn.on("pointerout",   () => closeBtn.setAlpha(1));
-    closeBtn.on("pointerdown",  () => this._destroyGameChatPanel());
+    closeZone.on("pointerdown", () => this._destroyGameChatPanel());
 
     // ── ChatWidget channel "game" ──────────────────────────────────
     this._gameChat?.destroy();
@@ -4384,6 +4482,7 @@ this.input.keyboard.on("keydown-Y", () => {
       channel: "game",
       socket:  this.socket,
       depth:   D + 1,
+      myId:    this._myUserId(),
     });
     this._gameChat.build(PANEL_X, PANEL_Y + TAB_H, PANEL_W, PANEL_H - TAB_H);
     this._gameChat.addSystemMessage("Chat trong trận — Chúc vui!");
