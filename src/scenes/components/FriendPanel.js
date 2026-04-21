@@ -154,9 +154,9 @@ export default class FriendPanel {
 
     // ── Preload icon nút — đợi load xong mới emit để rebuildList có texture ──
     const iconsToLoad = [
-      { key: "fr_chat",  path: "assets/ui/shared/fr_chat.png"  },
-      { key: "fr_close", path: "assets/ui/shared/fr_close.png" },
-      { key: "fr_join",  path: "assets/ui/shared/fr_join.png"  },
+      { key: "fr_chat",  path: "assets/ui/shared/f_chat.png"  },
+      { key: "fr_close", path: "assets/ui/shared/f_close.png" },
+      { key: "fr_join",  path: "assets/ui/shared/f_join.png"  },
     ];
     const missing = iconsToLoad.filter(i => !this.scene.textures.exists(i.key));
 
@@ -469,26 +469,30 @@ export default class FriendPanel {
     rowBg.fillRoundedRect(L, rowY + 2, W, H - 4, 8);
 
     const bx = L, by = rowY + 2, bw = W, bh = H - 4, br = 8;
+    // Border trên (vàng đậm)
     rowBg.lineStyle(2, 0x9d7d48, 1);
     rowBg.beginPath();
     rowBg.arc(bx + br,      by + br,      br, Math.PI,       Math.PI * 1.5, false);
     rowBg.lineTo(bx + bw - br, by);
     rowBg.arc(bx + bw - br, by + br,      br, Math.PI * 1.5, 0,             false);
     rowBg.strokePath();
+    // Border dưới (trắng nhẹ)
     rowBg.lineStyle(1.5, 0xffffff, 0.45);
     rowBg.beginPath();
     rowBg.arc(bx + bw - br, by + bh - br, br, 0,             Math.PI * 0.5, false);
     rowBg.lineTo(bx + br,   by + bh);
     rowBg.arc(bx + br,      by + bh - br, br, Math.PI * 0.5, Math.PI,       false);
     rowBg.strokePath();
-    const STEPS = 12;
-    const sideTop = by + br, sideBot = by + bh, sideH = sideBot - sideTop;
-    for (let i = 0; i < STEPS; i++) {
-      const t0 = i / STEPS, t1 = (i + 1) / STEPS;
-      rowBg.lineStyle(1.5, t0 < 0.5 ? 0x9d7d48 : 0xffffff, Math.max(0, 1 - t0 * (1 - 0.45) * 2));
-      rowBg.beginPath(); rowBg.moveTo(bx,      sideTop + t0 * sideH); rowBg.lineTo(bx,      sideTop + t1 * sideH); rowBg.strokePath();
-      rowBg.beginPath(); rowBg.moveTo(bx + bw, sideTop + t0 * sideH); rowBg.lineTo(bx + bw, sideTop + t1 * sideH); rowBg.strokePath();
-    }
+    // Border 2 bên — full chiều cao, vàng đậm
+    rowBg.lineStyle(2, 0x9d7d48, 1);
+    rowBg.beginPath();
+    rowBg.moveTo(bx,      by + br);
+    rowBg.lineTo(bx,      by + bh - br);
+    rowBg.strokePath();
+    rowBg.beginPath();
+    rowBg.moveTo(bx + bw, by + br);
+    rowBg.lineTo(bx + bw, by + bh - br);
+    rowBg.strokePath();
 
     // ── Avatar circle với ảnh nhân vật ───────────────────────────
     const avR = 22;
@@ -667,8 +671,6 @@ export default class FriendPanel {
     rowBg.arc(bx + br,      by + bh - br, br, Math.PI * 0.5,  Math.PI,       false); // góc dưới trái
     rowBg.strokePath();
 
-    // -- Cạnh trái: gradient đậm → nhẹ
-    // -- Cạnh phải: gradient đậm → nhẹ
     const STEPS = 12;
     const sideTop = by + br, sideBot = by + bh, sideH = sideBot - sideTop;
     for (let i = 0; i < STEPS; i++) {

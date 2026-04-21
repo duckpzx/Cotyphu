@@ -1148,6 +1148,10 @@ io.on("connection", (socket) => {
           p.is_connected = true;
           assignedColor = p.planet_color;
           console.log(`🔄 Updated socket_id & color for User ${user_id}`);
+          // Rejoin game room để nhận chat và events
+          socket.join(`game_${room_id}`);
+          socket.game_room_id = room_id;
+          socket.current_game_id = room_id;
         }
       }
 

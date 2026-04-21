@@ -3821,7 +3821,7 @@ this.input.keyboard.on("keydown-Y", () => {
     if (!sprite) return;
 
     const sx = sprite.x;
-    const sy = sprite.y - sprite.displayHeight * 0.9;
+    const sy = sprite.y - sprite.displayHeight * 0.7;
 
     const D = 50;
     const objs = [];
@@ -4402,7 +4402,7 @@ this.input.keyboard.on("keydown-Y", () => {
     const bgX   = 0; // sát viền trái
     const bgY   = btnY - bgH / 2;
     const bgG   = this.add.graphics().setDepth(D - 1);
-    bgG.fillStyle(0x2a2a2a, 0.72);
+    bgG.fillStyle(0x2a363d, 0.9);
     bgG.fillRoundedRect(bgX, bgY, bgW, bgH, { tl: 0, tr: 14, bl: 0, br: 14 });
 
     // ── Icon chat_btn ─────────────────────────────────────────────
