@@ -86,7 +86,7 @@ export default class FriendPanel {
       .setInteractive().setDepth(D + 1));
 
     // ── Tabs (BagScene style: tabW=160, tabH=46, gap=8) ──────────
-    const TAB_LABELS = ["D.S Bạn Bè", "Y.C Kết Bạn", "Mời Bạn"];
+    const TAB_LABELS = ["D.S Bạn Bè", "Y.C Kết Bạn", "Tìm Kiếm"];
     const TAB_W = 160;
     const TAB_GAP = 8;
     const TAB_TOTAL = TAB_LABELS.length * TAB_W + (TAB_LABELS.length - 1) * TAB_GAP;

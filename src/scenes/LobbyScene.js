@@ -1011,6 +1011,120 @@ createTopBar() {
     });
   }
 
+  // ── Confirm dialog — dùng chung cho FriendPanel và các nơi khác ──
+  _showConfirm(message, onConfirm, onCancel = null) {
+    // Xóa confirm cũ nếu có
+    if (this._confirmObjs) {
+      this._confirmObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
+      this._confirmObjs = null;
+      this._confirmDomBtns?.forEach(b => b.remove());
+      this._confirmDomBtns = null;
+    }
+
+    const { width, height } = this.scale;
+    const D = 400;
+    const w = 280, h = 120;
+    const x = width / 2 - w / 2;
+    const y = height / 2 - h / 2;
+    const ui = [];
+
+    // Blocker
+    const blocker = this.add.rectangle(width/2, height/2, width, height, 0x000000, 0.40)
+      .setDepth(D - 1).setInteractive();
+    ui.push(blocker);
+
+    // Hộp — cùng style panel bạn bè (vàng kem)
+    const box = this.add.graphics().setDepth(D);
+    // Bóng
+    box.fillStyle(0x7a5a20, 0.22);
+    box.fillRoundedRect(x + 3, y + 4, w, h, 14);
+    // Nền gradient
+    box.fillGradientStyle(0xf6eac6, 0xf6eac6, 0xede0b0, 0xede0b0, 1);
+    box.fillRoundedRect(x, y, w, h, 14);
+    // Viền vàng nâu
+    box.lineStyle(2, 0xb89040, 1);
+    box.strokeRoundedRect(x, y, w, h, 14);
+    // Gloss
+    box.fillStyle(0xffffff, 0.22);
+    box.fillRoundedRect(x + 6, y + 5, w - 12, 16, 6);
+    // Viền inset
+    box.lineStyle(1, 0xfff0c0, 0.35);
+    box.strokeRoundedRect(x + 1, y + 1, w - 2, h - 2, 13);
+    ui.push(box);
+
+    // Nội dung
+    ui.push(this.add.text(x + w / 2, y + h / 2 - 18, message, {
+      fontFamily: "Signika", fontSize: "15px",
+      color: "#502700", fontStyle: "bold",
+      align: "center", wordWrap: { width: w - 28 }
+    }).setOrigin(0.5).setDepth(D + 1));
+
+    const btnY    = y + h - 24;
+    const confirmX = x + w / 2 - 60;
+    const cancelX  = x + w / 2 + 60;
+
+    // Visual buttons Phaser
+    const makeBtn = (cx, label, c1, c2) => {
+      const g = this.add.graphics().setDepth(D + 1);
+      g.fillStyle(0x000000, 0.2);
+      g.fillRoundedRect(cx - 46, btnY - 14 + 3, 92, 28, 14);
+      g.fillGradientStyle(c1, c1, c2, c2, 1);
+      g.fillRoundedRect(cx - 46, btnY - 14, 92, 28, 14);
+      g.fillStyle(0xffffff, 0.22);
+      g.fillRoundedRect(cx - 40, btnY - 10, 80, 9, 6);
+      g.lineStyle(1.5, 0xffffff, 0.5);
+      g.strokeRoundedRect(cx - 46, btnY - 14, 92, 28, 14);
+      const t = this.add.text(cx, btnY, label, {
+        fontFamily: "Signika", fontSize: "14px",
+        color: "#ffffff", fontStyle: "bold",
+        stroke: "#001122", strokeThickness: 2
+      }).setOrigin(0.5).setDepth(D + 2);
+      ui.push(g, t);
+      return g;
+    };
+
+    const gConfirm = makeBtn(confirmX, "Xác nhận", 0xc63a4a, 0xef5b6a);
+    const gCancel  = makeBtn(cancelX,  "Hủy",      0x1a5fa8, 0x2e8fe8);
+
+    // DOM hit areas
+    const canvas = this.game.canvas;
+    const cRect  = canvas.getBoundingClientRect();
+    const sx     = cRect.width  / this.scale.width;
+    const sy     = cRect.height / this.scale.height;
+
+    const makeDomHit = (cx, g, cb) => {
+      const btn = document.createElement("div");
+      btn.style.cssText = `
+        position:fixed;
+        left:${cRect.left+(cx-46)*sx}px;top:${cRect.top+(btnY-14)*sy}px;
+        width:${92*sx}px;height:${28*sy}px;
+        border-radius:${14*sy}px;cursor:pointer;z-index:99999;background:transparent;
+      `;
+      btn.onmouseenter = () => g.setAlpha(0.78);
+      btn.onmouseleave = () => g.setAlpha(1);
+      btn.onmousedown  = () => g.setAlpha(0.55);
+      btn.onclick = () => {
+        this._confirmObjs?.forEach(o => { try { o?.destroy(); } catch(e){} });
+        this._confirmObjs = null;
+        this._confirmDomBtns?.forEach(b => b.remove());
+        this._confirmDomBtns = null;
+        cb();
+      };
+      document.body.appendChild(btn);
+      this._confirmDomBtns = this._confirmDomBtns || [];
+      this._confirmDomBtns.push(btn);
+    };
+
+    makeDomHit(confirmX, gConfirm, () => onConfirm?.());
+    makeDomHit(cancelX,  gCancel,  () => onCancel?.());
+
+    // Fade in
+    ui.forEach(o => { if (o.setAlpha) o.setAlpha(0); });
+    this.tweens.add({ targets: ui.filter(o => o.setAlpha), alpha: 1, duration: 160 });
+
+    this._confirmObjs = ui;
+  }
+
   // ── Logout confirm panel ─────────────────────────────────────────
   _showLogoutConfirm(width, height) {
     this._destroyLogoutConfirm();
