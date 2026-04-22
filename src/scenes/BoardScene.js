@@ -5,6 +5,11 @@ import CardSystem        from "./components/CardSystem.js";
 import { SERVER_URL }    from "../config.js";
 import { getActiveProfile, getPlayerData } from "../server/utils/playerData.js";
 import ChatWidget        from "./components/ChatWidget.js";
+import {
+  playBoardBuySound, playBoardErrSound, playBoardHunterSound,
+  playBoardIncreaseSound, playBoardTeacherSound, playBoardSkillSound,
+  playBoardBGM, playBoardAnswerSound, playBoardCoinSound
+} from "../utils/clickSound.js";
 
 export default class BoardScene extends Phaser.Scene {
   constructor() {
@@ -196,6 +201,12 @@ _closeTarotModal() { this.tarotModal?.close(); }
       this.canRoll = this.isMyTurn;
       this.gameRoomId = data.room_id || this.gameRoomId;
       this.serverClockOffsetMs = Number(data.server_now_ms || Date.now()) - Date.now();
+      // Nhạc nền khi vào trận — dừng nhạc lobby nếu còn chạy
+      try {
+        const lobbyBgm = this.sound.get("lobby_bgm");
+        if (lobbyBgm?.isPlaying) lobbyBgm.stop();
+      } catch(e) {}
+      playBoardBGM(this);
 
       this.createPlayerPanels(this.minRatio);
       this._refreshPlayerPanelsFromGameState();
@@ -339,6 +350,7 @@ _closeTarotModal() { this.tarotModal?.close(); }
     // ── game:error ────────────────────────────────────────────────
     this.socket.on("game:error", (data) => {
       console.warn("game:error:", data.message);
+      playBoardErrSound(this);
       this.infoText.setText(`❌ ${data.message}`);
       this.infoText.setColor("#ff4444");
       this.canRoll = this.isMyTurn;
@@ -443,6 +455,7 @@ _closeTarotModal() { this.tarotModal?.close(); }
         ? `✅ Bạn đã đặt tinh cầu ô ${data.cell_index}! (-${this._formatMoney(data.build_cost)})`
         : `🏗 ${data.owner_name} đặt tinh cầu ô ${data.cell_index}`;
       this._showToast(msg, data.owner_user_id === myUid ? "#00ff88" : "#ffffff");
+      if (data.owner_user_id === myUid) playBoardBuySound(this);
       this._refreshPlayerPanelsFromGameState();
       // Cập nhật T.mặt & T.sản ngay
       this._updatePlayerStatsInUI();
@@ -481,9 +494,10 @@ _closeTarotModal() { this.tarotModal?.close(); }
         this.time.delayedCall(500, () => this.paintCellGlow(cell, hex, 0.5));
       }
 
-      if (data.payer_user_id === myUid)
+      if (data.payer_user_id === myUid) {
+        playBoardCoinSound(this);
         this._showToast(`💸 Trả ${this._formatMoney(data.rent)} cho ${data.owner_name}`, "#ff8800");
-      else if (data.owner_user_id === myUid)
+      } else if (data.owner_user_id === myUid)
         this._showToast(`💰 Nhận ${this._formatMoney(data.rent)} từ ${data.payer_name}`, "#ffdd00");
       else
         this._showToast(`${data.payer_name} trả thuê ô ${data.cell_index}`, "#aaaaaa");
@@ -814,6 +828,7 @@ _closeTarotModal() { this.tarotModal?.close(); }
 
   this.socket.on("game:tax_boost", (data) => {
     if (!data.boosts || data.boosts.length === 0) return;
+    playBoardIncreaseSound(this);
     if (!this._taxBadges) this._taxBadges = {};
 
     data.boosts.forEach(b => {
@@ -962,6 +977,7 @@ _closeTarotModal() { this.tarotModal?.close(); }
 
   this.socket.on("game:quiz_result", (data) => {
     if (data.correct) {
+      playBoardAnswerSound(this);
       this._showToast(`✅ Trả lời đúng! +${this._formatMoney(data.reward)}`, "#66ff99");
       if (data.user_id === this._myUserId() && this.gamePlayers) {
         const me = this.gamePlayers.find(p => p.user_id === this._myUserId());
@@ -972,6 +988,7 @@ _closeTarotModal() { this.tarotModal?.close(); }
         }
       }
     } else {
+      if (data.user_id === this._myUserId()) playBoardErrSound(this);
       if (data.locked_out) {
         this._showToast("❌ Sai 2 lần — bị trả về ô xuất phát!", "#ff4444");
       } else {
@@ -2861,7 +2878,7 @@ this.input.keyboard.on("keydown-Y", () => {
     // Chữ "LƯỢT" — nhỏ hơn, nằm bên phải số
     this._turnLabelText = this.add.text(width/2 + 4, 36*S, "LƯỢT", {
       fontFamily: "Signika",
-      fontSize: Math.floor(28*S) + "px",
+      fontSize: Math.floor(42*S) + "px",
       color: "#e8f4ff",
       fontStyle: "bold",
       stroke: "#001339ff",
@@ -2944,10 +2961,12 @@ this.input.keyboard.on("keydown-Y", () => {
   // =====================
   handleSpacePress() {
     if (!this.isMyTurn) {
+      playBoardErrSound(this);
       this.infoText.setText("⏸ Chưa tới lượt của bạn").setColor("#ff8800");
       return;
     }
     if (!this.canRoll) {
+      playBoardErrSound(this);
       this.infoText.setText("⏳ Đang xử lý...").setColor("#ff8800");
       return;
     }
@@ -3000,6 +3019,11 @@ this.input.keyboard.on("keydown-Y", () => {
   _movePlayerSteps(steps, onDone) {
     if (this.isMoving) return;
     this.isMoving = true;
+    // Tắt bubble "Đổ xúc xắc" ngay khi bắt đầu di chuyển
+    if (this._diceBubbleObjs) {
+      this._diceBubbleObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
+      this._diceBubbleObjs = null;
+    }
     const { width, height } = this.scale;
     const totalCells = this.boardPath.length;
     let stepsLeft = steps;
@@ -3082,7 +3106,11 @@ this.input.keyboard.on("keydown-Y", () => {
     this.socket.emit("move", { index:this.currentIndex });
     this.hideTargetArrow();
     this.highlightCurrentCell();
-    // Hiệu ứng ô 28 được xử lý qua game:monster_target từ server (đồng bộ tất cả client)
+
+    // Âm thanh theo ô đặc biệt
+    if (cell.index === 28) playBoardHunterSound(this);
+    else if (cell.index === 18) playBoardTeacherSound(this);
+    else if (cell.index === 9) playBoardSkillSound(this);
   }
 
   _triggerCell28FireDestruction() {
@@ -4390,29 +4418,33 @@ this.input.keyboard.on("keydown-Y", () => {
   }
 
   _buildGameChat(width, height) {
-    const BTN_SIZE = 72;
-    const btnX     = BTN_SIZE / 2;  // sát viền trái
-    const btnY     = height / 2;
-    const D        = 55;
+    const BTN_SIZE  = 90;
+    const LABEL_H   = 18;
+    const GAP       = 0;
+    const TOTAL_H   = BTN_SIZE + GAP + LABEL_H;
+    const btnX      = BTN_SIZE / 2 - 6; // dịch vào trái hơn
+    const centerY   = height / 2;
+    const iconY     = centerY - (LABEL_H + GAP) / 2;
+    const labelY    = iconY + BTN_SIZE / 2 + GAP;
+    const D         = 55;
 
-    // ── Nền đen transparent — bo góc chỉ bên phải, bám viền trái ──
-    const bgPad = 10;
-    const bgW   = BTN_SIZE + bgPad + 4; // không pad bên trái
-    const bgH   = BTN_SIZE + 24 + bgPad * 2;
-    const bgX   = 0; // sát viền trái
-    const bgY   = btnY - bgH / 2;
+    // ── Nền — bám viền trái, bo góc phải ──────────────────────────
+    const PAD_V = 6;
+    const bgH   = TOTAL_H + PAD_V * 2;
+    const bgW   = BTN_SIZE / 2 + 8;
     const bgG   = this.add.graphics().setDepth(D - 1);
     bgG.fillStyle(0x2a363d, 0.9);
-    bgG.fillRoundedRect(bgX, bgY, bgW, bgH, { tl: 0, tr: 14, bl: 0, br: 14 });
+    bgG.fillRoundedRect(0, centerY - bgH / 2, bgW, bgH, { tl: 0, tr: 14, bl: 0, br: 14 });
 
-    // ── Icon chat_btn ─────────────────────────────────────────────
-    const icon = this.add.image(btnX + 4, btnY - 8, "chat_btn")
+    // ── Icon ──────────────────────────────────────────────────────
+    const icon = this.add.image(btnX, iconY, "chat_btn")
       .setDisplaySize(BTN_SIZE, BTN_SIZE)
       .setDepth(D)
       .setInteractive({ cursor: "pointer" });
 
-    const label = this.add.text(btnX + 4, btnY + BTN_SIZE / 2 - 4, "Chat", {
-      fontFamily: "Signika", fontSize: "13px", color: "#dff8ff",
+    // ── Label sát icon ────────────────────────────────────────────
+    const label = this.add.text(btnX, labelY, "Chat", {
+      fontFamily: "Signika", fontSize: "14px", color: "#dff8ff",
       fontStyle: "bold", stroke: "#111111", strokeThickness: 3,
     }).setOrigin(0.5, 0).setDepth(D + 1);
 
@@ -4499,6 +4531,8 @@ this.input.keyboard.on("keydown-Y", () => {
   }
 
   shutdown() {
+    // Dừng nhạc nền board
+    try { this.sound.get("board_bgm")?.stop(); } catch(e) {}
     this._destroyGameChatPanel();
     this._gameChatBtnObjs?.forEach(o => { try { o?.destroy(); } catch(e){} });
     this._gameChatBtnObjs = [];

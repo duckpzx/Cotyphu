@@ -50,9 +50,11 @@ export default class LobbyScene extends Phaser.Scene {
     this.characterName = activeProfile.characterName;
 
     // ── Nhạc nền sảnh ────────────────────────────────────────────
-    // Nhạc đã được play từ LoginScene trong interaction context
-    // Chỉ cần lấy reference để stop khi rời scene
+    // Lấy reference hoặc play lại nếu đã bị dừng (ví dụ sau khi thoát trận)
     this._bgm = this.sound.get("lobby_bgm") || null;
+    if (this._bgm && !this._bgm.isPlaying) {
+      this._bgm.play();
+    }
     setupClickSound(this);
 
     // ===== NỀN SẢNH =====

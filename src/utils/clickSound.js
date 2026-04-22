@@ -66,10 +66,73 @@ export function playBuySound(scene) {
   } catch(e) {}
 }
 
-function _playOnce(scene, key) {
+// ── Board game sounds ────────────────────────────────────────────
+export function playBoardBuySound(scene) {
+  _playBoardSound(scene, "board_buy", "assets/music/board/buy_1.mp3");
+}
+
+export function playBoardErrSound(scene) {
+  _playBoardSound(scene, "board_err", "assets/music/board/err.mp3");
+}
+
+export function playBoardHunterSound(scene) {
+  _playBoardSound(scene, "board_hunter", "assets/music/board/hunter.mp3");
+}
+
+export function playBoardIncreaseSound(scene) {
+  _playBoardSound(scene, "board_increase", "assets/music/board/increase.mp3");
+}
+
+export function playBoardTeacherSound(scene) {
+  _playBoardSound(scene, "board_teacher", "assets/music/board/teacher.mp3");
+}
+
+export function playBoardSkillSound(scene) {
+  _playBoardSound(scene, "board_skill", "assets/music/board/skill.mp3");
+}
+
+export function playBoardAnswerSound(scene) {
+  _playBoardSound(scene, "board_answer", "assets/music/board/answer.mp3");
+}
+
+export function playBoardCoinSound(scene) {
+  _playBoardSound(scene, "board_coin", "assets/music/board/coin.mp3");
+}
+export function playBoardBGM(scene) {
+  try {
+    if (!scene?.sound) return;
+    if (!scene.cache.audio.exists("board_bgm")) {
+      scene.load.audio("board_bgm", "assets/music/board/game.mp3");
+      scene.load.once("complete", () => {
+        const bgm = scene.sound.add("board_bgm", { loop: true, volume: 0.22 });
+        bgm.play();
+      });
+      scene.load.start();
+    } else {
+      let bgm = scene.sound.get("board_bgm");
+      if (!bgm) bgm = scene.sound.add("board_bgm", { loop: true, volume: 0.22 });
+      if (!bgm.isPlaying) bgm.play();
+    }
+  } catch(e) {}
+}
+
+function _playBoardSound(scene, key, path) {
+  try {
+    if (!scene?.sound) return;
+    if (!scene.cache.audio.exists(key)) {
+      scene.load.audio(key, path);
+      scene.load.once("complete", () => _playOnce(scene, key, 0.6));
+      scene.load.start();
+    } else {
+      _playOnce(scene, key, 0.6);
+    }
+  } catch(e) {}
+}
+
+function _playOnce(scene, key, volume = 0.5) {
   try {
     let sfx = scene.sound.get(key);
-    if (!sfx) sfx = scene.sound.add(key, { volume: 0.55 });
+    if (!sfx) sfx = scene.sound.add(key, { volume });
     if (sfx && !sfx.isPlaying) sfx.play();
   } catch(e) {}
 }
