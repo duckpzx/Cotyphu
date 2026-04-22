@@ -53,6 +53,19 @@ export function playUseSound(scene) {
   } catch(e) {}
 }
 
+export function playBuySound(scene) {
+  try {
+    if (!scene?.sound) return;
+    if (!scene.cache.audio.exists("buy_sfx")) {
+      scene.load.audio("buy_sfx", "assets/music/shared/buy.mp3");
+      scene.load.once("complete", () => _playOnce(scene, "buy_sfx"));
+      scene.load.start();
+    } else {
+      _playOnce(scene, "buy_sfx");
+    }
+  } catch(e) {}
+}
+
 function _playOnce(scene, key) {
   try {
     let sfx = scene.sound.get(key);

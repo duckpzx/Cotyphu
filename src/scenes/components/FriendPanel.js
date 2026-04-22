@@ -470,21 +470,21 @@ export default class FriendPanel {
 
     const bx = L, by = rowY + 2, bw = W, bh = H - 4, br = 8;
     // Border trên (vàng đậm)
-    rowBg.lineStyle(2, 0x9d7d48, 1);
+    rowBg.lineStyle(1.5, 0x9d7d48, 0.9);
     rowBg.beginPath();
     rowBg.arc(bx + br,      by + br,      br, Math.PI,       Math.PI * 1.5, false);
     rowBg.lineTo(bx + bw - br, by);
     rowBg.arc(bx + bw - br, by + br,      br, Math.PI * 1.5, 0,             false);
     rowBg.strokePath();
     // Border dưới (trắng nhẹ)
-    rowBg.lineStyle(1.5, 0xffffff, 0.45);
+    rowBg.lineStyle(1.5, 0xffffff, 0.7);
     rowBg.beginPath();
     rowBg.arc(bx + bw - br, by + bh - br, br, 0,             Math.PI * 0.5, false);
     rowBg.lineTo(bx + br,   by + bh);
     rowBg.arc(bx + br,      by + bh - br, br, Math.PI * 0.5, Math.PI,       false);
     rowBg.strokePath();
-    // Border 2 bên — full chiều cao, vàng đậm
-    rowBg.lineStyle(2, 0x9d7d48, 1);
+    // Border 2 bên — mỏng, màu vàng nhạt tương đồng cạnh trên
+    rowBg.lineStyle(1.35, 0xb69660, 0.9);
     rowBg.beginPath();
     rowBg.moveTo(bx,      by + br);
     rowBg.lineTo(bx,      by + bh - br);
@@ -662,6 +662,8 @@ export default class FriendPanel {
     rowBg.lineTo(bx + bw - br, by);                                                   // cạnh trên
     rowBg.arc(bx + bw - br, by + br,      br, Math.PI * 1.5,  0,             false); // góc trên phải
     rowBg.strokePath();
+
+    rowBg.lineStyle(1, 0xffffff, 0.4); // mỏng + nhạt
 
     // -- Cạnh dưới + 2 góc dưới: màu trắng nhẹ
     rowBg.lineStyle(1.5, 0xffffff, 0.45);

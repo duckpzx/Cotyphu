@@ -1,7 +1,7 @@
 import EcoinManager from "../server/utils/ecoinManager.js";
 import { getPlayerData, setPlayerData } from "../server/utils/playerData.js";
 import { SERVER_URL } from "../config.js";
-import { setupClickSound, playTabSound, playOutSound } from "../utils/clickSound.js";
+import { setupClickSound, playTabSound, playOutSound, playBuySound } from "../utils/clickSound.js";
 
 // src/scenes/ShopScene.js
 export default class ShopScene extends Phaser.Scene {
@@ -1293,6 +1293,7 @@ export default class ShopScene extends Phaser.Scene {
                 if (json.success) {
                     // Cập nhật ecoin qua EcoinManager
                     EcoinManager.set(this, json.ecoin);
+                    playBuySound(this);
 
                     // Cập nhật owned characters cho ShopScene
                     this.ownedCharacters.push({
@@ -1340,6 +1341,7 @@ export default class ShopScene extends Phaser.Scene {
                 const json = await res.json();
                 if (json.success) {
                     EcoinManager.set(this, json.ecoin);
+                    playBuySound(this);
                     // Thêm vào owned skins
                     this.ownedSkins.push({ skin_id: item.skinId });
 
@@ -1373,6 +1375,7 @@ export default class ShopScene extends Phaser.Scene {
                 const json = await res.json();
                 if (json.success) {
                     EcoinManager.set(this, json.ecoin);
+                    playBuySound(this);
                     this.ownedBgIds.push(item.id);
 
                     if (this.playerData) {
