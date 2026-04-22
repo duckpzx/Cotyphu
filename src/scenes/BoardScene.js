@@ -2734,7 +2734,7 @@ this.input.keyboard.on("keydown-Y", () => {
         const cY = card1Y + ci * (CARD_H + CARD_GAP);
 
         const cardShadow = this.add.graphics().setDepth(DEPTH + 1);
-        cardShadow.fillStyle(0x000000, 0.1);
+        cardShadow.fillStyle(0x000000, 0.04);
         cardShadow.fillRoundedRect(
           cardX + 2 * minRatio,
           cY + 3 * minRatio,
@@ -2783,7 +2783,7 @@ this.input.keyboard.on("keydown-Y", () => {
 
         const slotRadius = 6 * minRatio;
 
-        // Lớp đen mờ ở phần trên thẻ
+        // Lớp đen mờ phủ toàn thẻ khi cooldown
         const cooldownOverlay = this.add.graphics().setDepth(DEPTH + 6);
         cooldownOverlay.fillStyle(0x000000, 0.58);
         cooldownOverlay.fillRoundedRect(
@@ -2803,18 +2803,18 @@ this.input.keyboard.on("keydown-Y", () => {
           CARD_H * 0.18
         );
 
-        // Số lượt còn chờ
+        // Số lượt còn chờ — to, căn giữa thẻ
         const cooldownText = this.add.text(
           cardX + CARD_W / 2,
-          cY + CARD_H * 0.17,
+          cY + CARD_H / 2,
           "0",
           {
             fontFamily: "Signika",
-            fontSize: Math.floor(16 * minRatio) + "px",
+            fontSize: Math.floor(36 * minRatio) + "px",
             color: "#ffffff",
             fontStyle: "bold",
             stroke: "#000000",
-            strokeThickness: 3
+            strokeThickness: Math.floor(4 * minRatio)
           }
         ).setOrigin(0.5).setDepth(DEPTH + 7);
 
@@ -3972,6 +3972,7 @@ this.input.keyboard.on("keydown-Y", () => {
       this._buildPanelObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
       this._buildPanelObjs = [];
     }
+    this._stopDarkMapEffect?.();
   }
 
   drawDashedBorder(g, x, y, w, h, radius, color = 0xc8a060, lineWidth = 2) {
@@ -4048,6 +4049,9 @@ this.input.keyboard.on("keydown-Y", () => {
     }
     this._buildPanelObjs = [];
     if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
+
+    // Làm tối map
+    this._startDarkMapEffect?.();
 
     const shell = { D, addObj: (o) => { this._buildPanelObjs.push(o); return o; } };
     const push  = (o) => shell.addObj(o);
@@ -4448,17 +4452,22 @@ this.input.keyboard.on("keydown-Y", () => {
     const LABEL_H   = 18;
     const GAP       = 0;
     const TOTAL_H   = BTN_SIZE + GAP + LABEL_H;
-    const btnX      = BTN_SIZE / 2 + 8;
+    const PAD_V     = 8;
+    const PAD_R     = 10; // padding bên phải
+    const D         = 55;
+
     const centerY   = height / 2;
     const iconY     = centerY - (LABEL_H + GAP) / 2;
     const labelY    = iconY + BTN_SIZE / 2 + GAP;
-    const D         = 56;
+
+    // Icon căn giữa theo chiều ngang của nền
+    // Nền bắt đầu từ x=0, rộng đủ bao icon
+    const bgH   = TOTAL_H + PAD_V * 2;
+    const bgW   = BTN_SIZE + PAD_R;  // đủ bao toàn bộ icon
+    const btnX  = bgW / 2;           // icon căn giữa nền
 
     // ── Nền — bám viền trái, bo góc phải ──────────────────────────
-    const PAD_V = 6;
-    const bgH   = TOTAL_H + PAD_V * 2;
-    const bgW   = BTN_SIZE / 2 + 18;
-    const bgG   = this.add.graphics().setDepth(D - 1);
+    const bgG = this.add.graphics().setDepth(D - 1);
     bgG.fillStyle(0x2a363d, 0.9);
     bgG.fillRoundedRect(0, centerY - bgH / 2, bgW, bgH, { tl: 0, tr: 14, bl: 0, br: 14 });
 

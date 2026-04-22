@@ -3,7 +3,7 @@ import EcoinManager from "../server/utils/ecoinManager.js";
 import ChatWidget from "./components/ChatWidget.js";
 import FriendPanel from "./components/FriendPanel.js";
 import { SERVER_URL } from "../config.js";
-import { setupClickSound, playTabSound } from "../utils/clickSound.js";
+import { setupClickSound, playTabSound, playOutSound } from "../utils/clickSound.js";
 
 // src/scenes/LobbyScene.js
 export default class LobbyScene extends Phaser.Scene {
@@ -30,6 +30,7 @@ export default class LobbyScene extends Phaser.Scene {
     this.load.image("close_btn",  "assets/ui/shared/close.png");
     this.load.image("add_friend", "assets/ui/shared/friend.png");
     this.load.image("icon_search", "assets/ui/shared/icon_search.png");
+    this.load.image("lobby_return", "assets/ui/shared/return.png");
 
     // Nhạc sảnh
     if (!this.cache.audio.exists("lobby_bgm")) {
@@ -452,12 +453,31 @@ createTopBar() {
 
   // ── WORLD CHAT ────────────────────────────────────────────────────
   this._buildChatButton(width, height);
+
+  // ── Nút Return — góc trên trái, về LoginScene ─────────────────────
+  const retBtn = this.add.image(48, 48, "lobby_return")
+    .setScale(1).setDepth(110).setInteractive({ cursor: "pointer" });
+  retBtn.on("pointerover",  () => retBtn.setTint(0xddddff));
+  retBtn.on("pointerout",   () => retBtn.clearTint());
+  retBtn.on("pointerdown",  () => {
+    playOutSound(this);
+    this.tweens.add({ targets: retBtn, scale: 0.7, duration: 80, yoyo: true });
+    this.time.delayedCall(160, () => {
+      this._bgm?.stop();
+      this.cameras.main.fadeOut(200);
+      this.cameras.main.once("camerafadeoutcomplete", () => {
+        // Xóa token để về màn đăng nhập
+        localStorage.removeItem("playerData");
+        this.scene.start("LoginScene");
+      });
+    });
+  });
   }
 
   _buildChatButton(width, height) {
     const BTN_SIZE = 90;
     const LABEL_H  = 22;
-    const btnX     = 22 + BTN_SIZE / 2;
+    const btnX     = 12 + BTN_SIZE / 2;
     const btnY     = height - 170;
     const D        = 110;
 
