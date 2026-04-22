@@ -1426,27 +1426,46 @@ export default class RoomScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     const tick = () => {
-      this.tweens.add({ targets: cTxt, scaleX: 1.4, scaleY: 1.4, duration: 250, yoyo: true });
+      // Tween chỉ visual — không ảnh hưởng logic
+      if (this.tweens) {
+        this.tweens.add({ targets: cTxt, scaleX: 1.4, scaleY: 1.4, duration: 250, yoyo: true });
+      }
       n--;
-      this.time.delayedCall(1000, () => {
+      // Dùng setTimeout native — không bị throttle khi tab ẩn
+      setTimeout(() => {
+        if (!cTxt?.active) return;
         if (n > 0) {
           cTxt.setText(String(n));
           tick();
         } else {
           cTxt.setText("BẮT ĐẦU!");
           cTxt.setStyle({ color: "#00ff88", stroke: "#005522" });
-          this.tweens.add({ targets: cTxt, scaleX: 1.5, scaleY: 1.5, duration: 300, yoyo: true });
-          this.time.delayedCall(700, () => {
-            // Lưu socket vào registry để BoardScene tái sử dụng
-            // Xóa current_room_id để handleLeaveRoom không chạy khi disconnect
-            if (this.socket) {
-              this.socket.current_room_id = null; // ngăn handleLeaveRoom xóa phòng
-              this.registry.set("gameSocket", this.socket);
-            }
-            this.scene.start("BoardScene", { roomData: this.roomData });
-          });
+          setTimeout(() => {
+            this._showPreGameLoading(width, height);
+            setTimeout(() => {
+              if (this.socket) {
+                this.socket.current_room_id = null;
+                this.registry.set("gameSocket", this.socket);
+              }
+              const boardData = {
+                roomData: this.roomData,
+                players:  this.players.filter(Boolean).map(p => ({
+                  user_id:        p.user_id,
+                  name:           p.name,
+                  character_name: p.character_name,
+                  skin_id:        p.skin_id,
+                  active_bg_path: p.active_bg_path || null,
+                }))
+              };
+              this.scene.launch("BoardScene", boardData);
+              setTimeout(() => {
+                this.game.canvas.style.filter = "";
+                this.scene.stop("RoomScene");
+              }, 200);
+            }, 400);
+          }, 700);
         }
-      });
+      }, 1000);
     };
     tick();
   }
@@ -1454,6 +1473,80 @@ export default class RoomScene extends Phaser.Scene {
   // ══════════════════════════════════════════════════════════════════════
   // SHARED HELPERS
   // ══════════════════════════════════════════════════════════════════════
+
+  // ── Pre-game loading overlay ──────────────────────────────────────────
+  _showPreGameLoading(width, height) {
+    const S = Math.min(width / 1280, height / 720);
+    const D = 500;
+    const myUid = (() => {
+      try { return JSON.parse(localStorage.getItem("playerData"))?.user?.id ?? null; } catch { return null; }
+    })();
+
+    // Blur canvas
+    this.game.canvas.style.filter = "blur(3px)";
+
+    // Overlay tối nhẹ
+    this.add.rectangle(width/2, height/2, width, height, 0x000000, 0.35).setDepth(D);
+
+    const players = this.players.filter(Boolean);
+    const CARD_W  = Math.floor(Math.min(200 * S, (width - 80) / Math.max(players.length, 1) - 20));
+    const CARD_H  = Math.floor(CARD_W * 1.25);
+    const GAP     = Math.floor(24 * S);
+    const totalW  = players.length * CARD_W + (players.length - 1) * GAP;
+    const startX  = width / 2 - totalW / 2;
+    const cardY   = height / 2 - 10 * S;
+
+    players.forEach((p, i) => {
+      const cx   = startX + i * (CARD_W + GAP) + CARD_W / 2;
+      const left = cx - CARD_W / 2;
+      const top  = cardY - CARD_H / 2;
+      const bR   = 12 * S;
+
+      // Khung card
+      const g = this.add.graphics().setDepth(D + 1);
+      g.fillStyle(0x4ab8e8, 0.9);
+      g.fillRoundedRect(left, top, CARD_W, CARD_H, bR);
+      g.lineStyle(3 * S, 0xf5c542, 1);
+      g.strokeRoundedRect(left, top, CARD_W, CARD_H, bR);
+      g.fillStyle(0xffffff, 0.15);
+      g.fillRoundedRect(left + 4*S, top + 4*S, CARD_W - 8*S, CARD_H * 0.3, bR - 2*S);
+
+      // Avatar nhân vật
+      const charName = p.character_name || "Dark_Oracle";
+      const skinId   = p.skin_id || 1;
+      const frameKey = `${charName}_${skinId}_idle_000`;
+      if (this.textures.exists(frameKey)) {
+        const tex = this.textures.get(frameKey);
+        const nat = tex.source[0];
+        const scale = Math.min((CARD_W * 0.85) / nat.width, (CARD_H * 0.72) / nat.height);
+        this.add.image(cx, cardY + CARD_H * 0.05, frameKey)
+          .setScale(scale).setOrigin(0.5, 0.5).setDepth(D + 3);
+      }
+
+      // Tên
+      this.add.text(cx, top - 12 * S, p.name || "Player", {
+        fontFamily: "Signika", fontSize: Math.floor(16 * S) + "px",
+        color: "#ffffff", fontStyle: "bold", stroke: "#000000", strokeThickness: 4
+      }).setOrigin(0.5, 1).setDepth(D + 3);
+
+      // Badge
+      const isMe    = Number(p.user_id) === Number(myUid);
+      const BADGE_H = Math.floor(28 * S);
+      const badgeY  = top + CARD_H + 5 * S;
+      const label   = isMe ? "Sẵn sàng" : "Đang tải...";
+      const color   = isMe ? 0x22aa55 : 0xcc8800;
+      const badgeTxt = this.add.text(cx, badgeY + BADGE_H / 2, label, {
+        fontFamily: "Signika", fontSize: Math.floor(13 * S) + "px",
+        color: "#ffffff", fontStyle: "bold"
+      }).setOrigin(0.5, 0.5).setDepth(D + 4);
+      this.time.delayedCall(16, () => {
+        const bg2 = this.add.graphics().setDepth(D + 3);
+        const sw = badgeTxt.width + 24 * S;
+        bg2.fillStyle(color, 0.92);
+        bg2.fillRoundedRect(cx - sw/2, badgeY, sw, BADGE_H, BADGE_H/2);
+      });
+    });
+  }
   _buildPillBtn(bx, by, bw, bh, c1, c2, label, cb) {
     const br = bh / 2;
     const g  = this.add.graphics();

@@ -208,6 +208,17 @@ _closeTarotModal() { this.tarotModal?.close(); }
       } catch(e) {}
       playBoardBGM(this);
 
+      // Cập nhật tất cả badges thành "Sẵn sàng" rồi mới ẩn
+      if (this._loadingStatusTexts) {
+        data.players.forEach(p => {
+          const entry = this._loadingStatusTexts[p.user_id];
+          if (entry?.drawStatus) entry.drawStatus("Sẵn sàng", 0x22aa55);
+        });
+      }
+      this._loadingFallbackTimer && clearTimeout(this._loadingFallbackTimer);
+      this._loadingFallbackTimer = null;
+      this._hideLoadingScreen();
+
       this.createPlayerPanels(this.minRatio);
       this._refreshPlayerPanelsFromGameState();
 
@@ -2087,7 +2098,7 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
     const cx=cell.x*width, cy=cell.y*height;
     const rx=cell.rx||28*minRatio, ry=cell.ry||16*minRatio;
     cell.overlay.clear();
-    cell.overlay.lineStyle(1.2, 0xffffff, 0.15);
+    cell.overlay.lineStyle(1.2, 0xffffff, 0.05);
     cell.overlay.strokeEllipse(cx, cy, rx*2, ry*2);
   }
 
@@ -2222,6 +2233,14 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
     const bg = this.add.image(width/2, height/2, "bg").setDisplaySize(width, height);
     this.minRatio = Math.min(width/this.originalWidth, height/this.originalHeight);
     const minRatio = this.minRatio;
+
+    // ── Loading screen — hiện ngay khi vào, ẩn sau game:init ─────
+    this._buildLoadingScreen(width, height, data);
+
+    // Fallback: nếu sau 15s game:init vẫn chưa về thì tự ẩn (dùng setTimeout native tránh throttle)
+    this._loadingFallbackTimer = setTimeout(() => {
+      this._hideLoadingScreen();
+    }, 15000);
 
     const saved = localStorage.getItem("gameState");
     if (saved) { try { this.currentIndex = JSON.parse(saved).currentIndex||0; } catch(e){} }
@@ -2715,7 +2734,7 @@ this.input.keyboard.on("keydown-Y", () => {
         const cY = card1Y + ci * (CARD_H + CARD_GAP);
 
         const cardShadow = this.add.graphics().setDepth(DEPTH + 1);
-        cardShadow.fillStyle(0x000000, 0.25);
+        cardShadow.fillStyle(0x000000, 0.1);
         cardShadow.fillRoundedRect(
           cardX + 2 * minRatio,
           cY + 3 * minRatio,
@@ -2725,7 +2744,7 @@ this.input.keyboard.on("keydown-Y", () => {
         );
 
         const cardBg = this.add.graphics().setDepth(DEPTH + 2);
-        cardBg.fillStyle(0x12182c, 0.98);
+        cardBg.fillStyle(0x12182c, 0.58);
         cardBg.fillRoundedRect(cardX, cY, CARD_W, CARD_H, 6 * minRatio);
 
         cardBg.fillStyle(pc.color, 0.10);
@@ -2856,27 +2875,17 @@ this.input.keyboard.on("keydown-Y", () => {
     const S = minRatio;
 
     // ── Turn counter — top center ──────────────────────────────────
-    // Shadow số
-    this._turnCounterShadow = this.add.text(width/2 + 2, 32*S + 3, "—", {
-      fontFamily: "Signika",
-      fontSize: Math.floor(52*S) + "px",
-      color: "#0044aa",
-      fontStyle: "bold",
-    }).setOrigin(1, 0.5).setDepth(62).setAlpha(0.7);
-
-    // Main số — lớn hơn
     this._turnCounterText = this.add.text(width/2, 32*S, "—", {
       fontFamily: "Signika",
       fontSize: Math.floor(52*S) + "px",
       color: "#e8f4ff",
       fontStyle: "bold",
       stroke: "#001339ff",
-      strokeThickness: Math.floor(8*S),
+      strokeThickness: Math.floor(7*S),
       shadow: { offsetX: 0, offsetY: 1, color: "#001339ff", blur: 8, fill: true }
-    }).setOrigin(1, 0.5).setDepth(63);
+    }).setOrigin(0.5, 0.5).setDepth(63);
 
-    // Chữ "LƯỢT" — nhỏ hơn, nằm bên phải số
-    this._turnLabelText = this.add.text(width/2 + 4, 36*S, "LƯỢT", {
+    this._turnLabelText = this.add.text(width/2, 32*S, "LƯỢT", {
       fontFamily: "Signika",
       fontSize: Math.floor(42*S) + "px",
       color: "#e8f4ff",
@@ -2885,6 +2894,8 @@ this.input.keyboard.on("keydown-Y", () => {
       strokeThickness: Math.floor(6*S),
       shadow: { offsetX: 0, offsetY: 1, color: "#001339ff", blur: 6, fill: true }
     }).setOrigin(0, 0.5).setDepth(63);
+
+    this._turnCounterShadow = null; // không dùng nữa
 
     // ── infoText — bottom center, gradient bar style ──────────────
     const INFO_Y = height - 100 * S;
@@ -2950,8 +2961,23 @@ this.input.keyboard.on("keydown-Y", () => {
   // Cập nhật turn counter từ turn_number
   _updateTurnCounter(turnNumber) {
     if (!this._turnCounterText) return;
+    const { width } = this.scale;
+    const S   = this.minRatio || 1;
+    const GAP = 6 * S;
+
     this._turnCounterText.setText(`${turnNumber}`);
-    this._turnCounterShadow?.setText(`${turnNumber}`);
+
+    // Căn giữa cụm "số LƯỢT" theo width
+    // Tổng width = số.width + gap + LƯỢT.width
+    const numW   = this._turnCounterText.width;
+    const lblW   = this._turnLabelText?.width || 0;
+    const totalW = numW + GAP + lblW;
+    const startX = width / 2 - totalW / 2;
+
+    this._turnCounterText.setX(startX + numW / 2);
+    if (this._turnLabelText) {
+      this._turnLabelText.setX(startX + numW + GAP);
+    }
   }
 
   // =====================
@@ -4418,20 +4444,20 @@ this.input.keyboard.on("keydown-Y", () => {
   }
 
   _buildGameChat(width, height) {
-    const BTN_SIZE  = 90;
+    const BTN_SIZE  = 80;
     const LABEL_H   = 18;
     const GAP       = 0;
     const TOTAL_H   = BTN_SIZE + GAP + LABEL_H;
-    const btnX      = BTN_SIZE / 2 - 6; // dịch vào trái hơn
+    const btnX      = BTN_SIZE / 2 + 8;
     const centerY   = height / 2;
     const iconY     = centerY - (LABEL_H + GAP) / 2;
     const labelY    = iconY + BTN_SIZE / 2 + GAP;
-    const D         = 55;
+    const D         = 56;
 
     // ── Nền — bám viền trái, bo góc phải ──────────────────────────
     const PAD_V = 6;
     const bgH   = TOTAL_H + PAD_V * 2;
-    const bgW   = BTN_SIZE / 2 + 8;
+    const bgW   = BTN_SIZE / 2 + 18;
     const bgG   = this.add.graphics().setDepth(D - 1);
     bgG.fillStyle(0x2a363d, 0.9);
     bgG.fillRoundedRect(0, centerY - bgH / 2, bgW, bgH, { tl: 0, tr: 14, bl: 0, br: 14 });
@@ -4446,7 +4472,7 @@ this.input.keyboard.on("keydown-Y", () => {
     const label = this.add.text(btnX, labelY, "Chat", {
       fontFamily: "Signika", fontSize: "14px", color: "#dff8ff",
       fontStyle: "bold", stroke: "#111111", strokeThickness: 3,
-    }).setOrigin(0.5, 0).setDepth(D + 1);
+    }).setOrigin(0.5, 0.5).setDepth(D + 1);
 
     icon.on("pointerover",  () => icon.setTint(0xddddff));
     icon.on("pointerout",   () => icon.clearTint());
@@ -4533,8 +4559,168 @@ this.input.keyboard.on("keydown-Y", () => {
   shutdown() {
     // Dừng nhạc nền board
     try { this.sound.get("board_bgm")?.stop(); } catch(e) {}
+    // Đảm bảo xóa blur
+    try { this.game.canvas.style.filter = ""; } catch(e) {}
+    this._loadingFallbackTimer && clearTimeout(this._loadingFallbackTimer);
+    this._loadingFallbackTimer = null;
     this._destroyGameChatPanel();
     this._gameChatBtnObjs?.forEach(o => { try { o?.destroy(); } catch(e){} });
     this._gameChatBtnObjs = [];
+  }
+
+  // ── LOADING SCREEN ────────────────────────────────────────────────────
+  _buildLoadingScreen(width, height, sceneData) {
+    const D = 900;
+    const S = this.minRatio || 1;
+    const objs = [];
+    const push = o => { objs.push(o); return o; };
+
+    // ── Blur map bằng CSS ─────────────────────────────────────────
+    this.game.canvas.style.filter = "blur(3px)";
+
+    // ── Overlay tối nhẹ — KHÔNG dùng màu đen đậm ─────────────────
+    push(this.add.rectangle(width/2, height/2, width, height, 0x000000, 0.22).setDepth(D));
+
+    const players = sceneData?.players || [];
+    const myUid   = this._myUserId();
+
+    // Card size lớn hơn, giống ảnh mẫu
+    const CARD_W = Math.floor(Math.min(220 * S, (width - 80) / Math.max(players.length, 1) - 20));
+    const CARD_H = Math.floor(CARD_W * 1.25);
+    const GAP    = Math.floor(28 * S);
+    const count  = Math.max(players.length, 1);
+    const totalW = count * CARD_W + (count - 1) * GAP;
+    const startX = width / 2 - totalW / 2;
+    const cardY  = height / 2 - 10 * S;
+
+    this._loadingStatusTexts = {};
+
+    players.forEach((p, i) => {
+      const cx = startX + i * (CARD_W + GAP) + CARD_W / 2;
+      const left = cx - CARD_W / 2;
+      const top  = cardY - CARD_H / 2;
+      const bR   = 14 * S;
+
+      // ── Khung card vàng ──────────────────────────────────────
+      const cardG = push(this.add.graphics().setDepth(D + 1));
+      // Nền xanh dương nhạt (giống ảnh mẫu)
+      cardG.fillStyle(0x4ab8e8, 0.9);
+      cardG.fillRoundedRect(left, top, CARD_W, CARD_H, bR);
+      // Viền vàng
+      cardG.lineStyle(3 * S, 0xf5c542, 1);
+      cardG.strokeRoundedRect(left, top, CARD_W, CARD_H, bR);
+      // Gloss trên
+      cardG.fillStyle(0xffffff, 0.15);
+      cardG.fillRoundedRect(left + 4*S, top + 4*S, CARD_W - 8*S, CARD_H * 0.3, bR - 2*S);
+
+      // ── Phông nền nhân vật ───────────────────────────────────
+      const bgPath = p.active_bg_path;
+      if (bgPath) {
+        const bgKey = `ls_bg_${p.user_id}`;
+        const fullPath = bgPath.startsWith("assets/") ? bgPath : `assets/ui/bg/${bgPath}`;
+        const renderBg = () => {
+          if (!this.textures.exists(bgKey) || !this._loadingObjs) return;
+          const bgImg = push(this.add.image(cx, cardY, bgKey)
+            .setDisplaySize(CARD_W - 6, CARD_H - 6).setDepth(D + 2));
+          const maskG = this.make.graphics({ add: false });
+          maskG.fillStyle(0xffffff);
+          maskG.fillRoundedRect(left + 3, top + 3, CARD_W - 6, CARD_H - 6, bR - 2);
+          bgImg.setMask(maskG.createGeometryMask());
+        };
+        if (!this.textures.exists(bgKey)) {
+          this.load.image(bgKey, fullPath);
+          this.load.once(`filecomplete-image-${bgKey}`, renderBg);
+          this.load.start();
+        } else {
+          renderBg();
+        }
+      }
+
+      // ── Avatar nhân vật ──────────────────────────────────────
+      const charName = p.character_name || p.characterName || "Dark_Oracle";
+      const skinId   = p.skin_id || p.skin || 1;
+      const frameKey = `${charName}_${skinId}_idle_000`;
+      const renderChar = () => {
+        if (!this.textures.exists(frameKey) || !this._loadingObjs) return;
+        const tex = this.textures.get(frameKey);
+        const nat = tex.source[0];
+        const maxH = CARD_H * 0.72;
+        const maxW = CARD_W * 0.85;
+        const scale = Math.min(maxW / nat.width, maxH / nat.height);
+        push(this.add.image(cx, cardY + CARD_H * 0.05, frameKey)
+          .setScale(scale).setOrigin(0.5, 0.5).setDepth(D + 3));
+      };
+      if (this.textures.exists(frameKey)) {
+        renderChar();
+      } else {
+        // Load frame đầu tiên nếu chưa có
+        const imgPath = `assets/characters/${charName}/${charName}_${skinId}/PNG/PNG Sequences/Idle Blinking/0_${charName}_Idle Blinking_000.png`;
+        this.load.image(frameKey, imgPath);
+        this.load.once(`filecomplete-image-${frameKey}`, renderChar);
+        this.load.start();
+      }
+
+      // ── Tên người chơi ───────────────────────────────────────
+      push(this.add.text(cx, top - 14 * S, p.name || "Player", {
+        fontFamily: "Signika", fontSize: Math.floor(17 * S) + "px",
+        color: "#ffffff", fontStyle: "bold",
+        stroke: "#000000", strokeThickness: 4
+      }).setOrigin(0.5, 1).setDepth(D + 3));
+
+      // ── Badge trạng thái ─────────────────────────────────────
+      const isMe = Number(p.user_id) === Number(myUid);
+      const BADGE_H = Math.floor(30 * S);
+      const badgeY  = top + CARD_H + 6 * S;
+
+      const statusG   = push(this.add.graphics().setDepth(D + 3));
+      const statusTxt = push(this.add.text(cx, badgeY + BADGE_H / 2, "", {
+        fontFamily: "Signika", fontSize: Math.floor(14 * S) + "px",
+        color: "#ffffff", fontStyle: "bold",
+      }).setOrigin(0.5, 0.5).setDepth(D + 4));
+
+      const drawStatus = (label, color) => {
+        if (!statusTxt?.active) return;
+        statusTxt.setText(label);
+        // Đợi 1 frame để text render xong rồi vẽ nền
+        this.time.delayedCall(16, () => {
+          if (!statusG?.active) return;
+          statusG.clear();
+          const sw = statusTxt.width + 28 * S;
+          statusG.fillStyle(color, 0.92);
+          statusG.fillRoundedRect(cx - sw/2, badgeY, sw, BADGE_H, BADGE_H/2);
+        });
+      };
+
+      drawStatus(isMe ? "Sẵn sàng" : "Đang tải...", isMe ? 0x22aa55 : 0xcc8800);
+      this._loadingStatusTexts[p.user_id] = { drawStatus };
+
+      // Timeout 30s
+      if (!isMe) {
+        this.time.delayedCall(30000, () => {
+          if (this._loadingObjs) drawStatus("Kết nối thất bại", 0xcc2222);
+        });
+      }
+    });
+
+    // Fallback nếu không có players
+    if (!players.length) {
+      push(this.add.text(width/2, height/2, "⏳ Đang kết nối...", {
+        fontFamily: "Signika", fontSize: Math.floor(24 * S) + "px",
+        color: "#ffe28a", fontStyle: "bold", stroke: "#000000", strokeThickness: 4
+      }).setOrigin(0.5).setDepth(D + 1));
+    }
+
+    this._loadingObjs = objs;
+  }
+
+  _hideLoadingScreen() {
+    // Luôn xóa blur ngay lập tức
+    try { this.game.canvas.style.filter = ""; } catch(e) {}
+    if (!this._loadingObjs) return;
+    const objs = this._loadingObjs;
+    this._loadingObjs = null;
+    this._loadingStatusTexts = null;
+    // Destroy ngay — không dùng tween vì tab có thể đang ẩn
+    objs.forEach(o => { try { o?.destroy(); } catch(e){} });
   }
 }
