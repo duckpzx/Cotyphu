@@ -2785,23 +2785,8 @@ this.input.keyboard.on("keydown-Y", () => {
 
         // Lớp đen mờ phủ toàn thẻ khi cooldown
         const cooldownOverlay = this.add.graphics().setDepth(DEPTH + 6);
-        cooldownOverlay.fillStyle(0x000000, 0.58);
-        cooldownOverlay.fillRoundedRect(
-          cardX,
-          cY,
-          CARD_W,
-          CARD_H * 0.34,
-          slotRadius
-        );
-
-        // Cắt phần dưới để chỉ bo góc phía trên nhìn đẹp hơn
-        cooldownOverlay.fillStyle(0x000000, 0.58);
-        cooldownOverlay.fillRect(
-          cardX,
-          cY + CARD_H * 0.16,
-          CARD_W,
-          CARD_H * 0.18
-        );
+        cooldownOverlay.fillStyle(0x000000, 0.62);
+        cooldownOverlay.fillRoundedRect(cardX, cY, CARD_W, CARD_H, slotRadius);
 
         // Số lượt còn chờ — to, căn giữa thẻ
         const cooldownText = this.add.text(

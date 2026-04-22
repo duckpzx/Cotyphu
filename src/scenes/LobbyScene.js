@@ -463,13 +463,7 @@ createTopBar() {
     playOutSound(this);
     this.tweens.add({ targets: retBtn, scale: 0.7, duration: 80, yoyo: true });
     this.time.delayedCall(160, () => {
-      this._bgm?.stop();
-      this.cameras.main.fadeOut(200);
-      this.cameras.main.once("camerafadeoutcomplete", () => {
-        // Xóa token để về màn đăng nhập
-        localStorage.removeItem("playerData");
-        this.scene.start("LoginScene");
-      });
+      this._showLogoutConfirm(width, height);
     });
   });
   }
@@ -1017,10 +1011,123 @@ createTopBar() {
     });
   }
 
+  // ── Logout confirm panel ─────────────────────────────────────────
+  _showLogoutConfirm(width, height) {
+    this._destroyLogoutConfirm();
+
+    const D = 500;
+    const w = 300, h = 130;
+    const x = width / 2 - w / 2;
+    const y = height / 2 - h / 2;
+    const ui = [];
+
+    // Blocker Phaser — chặn click xuống scene
+    const blocker = this.add.rectangle(width/2, height/2, width, height, 0x000000, 0.45)
+      .setDepth(D - 1).setInteractive();
+    ui.push(blocker);
+
+    // Hộp + text vẽ bằng Phaser
+    const box = this.add.graphics().setDepth(D);
+    box.fillStyle(0x0b1f3a, 0.97);
+    box.fillRoundedRect(x, y, w, h, 14);
+    box.lineStyle(2, 0x5bc0ff, 0.9);
+    box.strokeRoundedRect(x, y, w, h, 14);
+    box.fillStyle(0xffffff, 0.08);
+    box.fillRoundedRect(x + 6, y + 6, w - 12, 18, 8);
+    ui.push(box);
+
+    ui.push(this.add.text(x + w / 2, y + 28, "Đăng xuất", {
+      fontFamily: "Signika", fontSize: "18px", color: "#ffffff", fontStyle: "bold",
+    }).setOrigin(0.5).setDepth(D + 1));
+
+    ui.push(this.add.text(x + w / 2, y + 54, "Bạn có chắc muốn đăng xuất?", {
+      fontFamily: "Signika", fontSize: "14px", color: "#aaccff",
+      align: "center", wordWrap: { width: w - 28 }
+    }).setOrigin(0.5, 0).setDepth(D + 1));
+
+    // ── Dùng DOM button để tránh hoàn toàn Phaser input conflict ──
+    const canvas = this.game.canvas;
+    const canvasRect = canvas.getBoundingClientRect();
+    const scaleX = canvasRect.width  / this.scale.width;
+    const scaleY = canvasRect.height / this.scale.height;
+
+    const btnY    = y + h - 26;
+    const acceptX = x + w / 2 - 68;
+    const cancelX = x + w / 2 + 68;
+
+    // Vẽ button Phaser style (visual)
+    const makeBtn = (cx, label, c1, c2) => {
+      const g = this.add.graphics().setDepth(D + 1);
+      g.fillGradientStyle(c1, c1, c2, c2, 1);
+      g.fillRoundedRect(cx - 48, btnY - 16, 96, 32, 16);
+      g.fillStyle(0xffffff, 0.20);
+      g.fillRoundedRect(cx - 42, btnY - 12, 84, 10, 8);
+      g.lineStyle(1.5, 0xffffff, 0.35);
+      g.strokeRoundedRect(cx - 48, btnY - 16, 96, 32, 16);
+      const t = this.add.text(cx, btnY, label, {
+        fontFamily: "Signika", fontSize: "15px",
+        color: "#ffffff", fontStyle: "bold",
+        stroke: "#001122", strokeThickness: 2
+      }).setOrigin(0.5).setDepth(D + 2);
+      ui.push(g, t);
+      return g;
+    };
+
+    const gAccept = makeBtn(acceptX, "Đăng xuất", 0xc63a4a, 0xef5b6a);
+    const gCancel = makeBtn(cancelX, "Hủy",       0x1a5fa8, 0x2e8fe8);
+
+    // DOM hit area trong suốt đè lên để bắt click (tránh Phaser input conflict)
+    const makeDomHitArea = (cx, g, cb) => {
+      const btn = document.createElement("div");
+      btn.style.cssText = `
+        position: fixed;
+        left:   ${canvasRect.left + (cx - 48) * scaleX}px;
+        top:    ${canvasRect.top  + (btnY - 16) * scaleY}px;
+        width:  ${96 * scaleX}px;
+        height: ${32 * scaleY}px;
+        border-radius: ${16 * scaleY}px;
+        cursor: pointer;
+        z-index: 99999;
+        background: transparent;
+      `;
+      btn.onmouseenter = () => g.setAlpha(0.78);
+      btn.onmouseleave = () => g.setAlpha(1);
+      btn.onmousedown  = () => g.setAlpha(0.55);
+      btn.onclick = () => { this._destroyLogoutConfirm(); cb(); };
+      document.body.appendChild(btn);
+      this._logoutDomBtns = this._logoutDomBtns || [];
+      this._logoutDomBtns.push(btn);
+    };
+
+    makeDomHitArea(acceptX, gAccept, () => {
+      this._bgm?.stop();
+      this.cameras.main.fadeOut(220);
+      this.cameras.main.once("camerafadeoutcomplete", () => {
+        localStorage.removeItem("playerData");
+        this.scene.start("LoginScene");
+      });
+    });
+    makeDomHitArea(cancelX, gCancel, () => {});
+
+    ui.forEach(o => { if (o.setAlpha) o.setAlpha(0); });
+    this.tweens.add({
+      targets: ui.filter(o => o.setAlpha),
+      alpha: 1, duration: 180, ease: "Power2"
+    });
+
+    this._logoutConfirmUi = ui;
+  }
+
+  _destroyLogoutConfirm() {
+    this._logoutConfirmUi?.forEach(o => { try { o?.destroy(); } catch(e){} });
+    this._logoutConfirmUi = null;
+    this._logoutDomBtns?.forEach(b => b.remove());
+    this._logoutDomBtns = null;
+  }
+
   shutdown() {
     this._bgm?.stop();
-    this._bgm = null;
-    this._destroyChatPanel();
+    this._bgm = null;    this._destroyChatPanel();
     this._destroyFriendPanel();
     this._worldSocket?.disconnect();
     this._worldSocket = null;

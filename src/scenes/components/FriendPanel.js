@@ -287,17 +287,20 @@ export default class FriendPanel {
     const drawSort = () => {
         sortG.clear();
         // Bóng đổ
-        sortG.fillStyle(0x5a3a00, 0.35);
-        sortG.fillRoundedRect(SORT_X + 2, SORT_Y + 2, SORT_BW, SORT_BH, 8);
+        sortG.fillStyle(0x5a3a00, 0.28);
+        sortG.fillRoundedRect(SORT_X + 2, SORT_Y + 3, SORT_BW, SORT_BH, 10);
         // Nền gradient vàng nâu
-        sortG.fillGradientStyle(0xf0c84a, 0xf0c84a, 0xb87820, 0xb87820, 1);
-        sortG.fillRoundedRect(SORT_X, SORT_Y, SORT_BW, SORT_BH, 8);
-        // Viền vàng sáng
-        sortG.lineStyle(1.5, 0xf8e090, 0.9);
-        sortG.strokeRoundedRect(SORT_X, SORT_Y, SORT_BW, SORT_BH, 8);
+        sortG.fillGradientStyle(0xf5d060, 0xf5d060, 0xc08820, 0xc08820, 1);
+        sortG.fillRoundedRect(SORT_X, SORT_Y, SORT_BW, SORT_BH, 10);
+        // Viền ngoài vàng nâu đậm
+        sortG.lineStyle(1.5, 0x9d7d30, 1);
+        sortG.strokeRoundedRect(SORT_X, SORT_Y, SORT_BW, SORT_BH, 10);
         // Gloss trên
-        sortG.fillStyle(0xffffff, 0.28);
-        sortG.fillRoundedRect(SORT_X + 4, SORT_Y + 3, SORT_BW - 8, SORT_BH * 0.38, 5);
+        sortG.fillStyle(0xffffff, 0.32);
+        sortG.fillRoundedRect(SORT_X + 4, SORT_Y + 3, SORT_BW - 8, SORT_BH * 0.38, 6);
+        // Viền trong sáng
+        sortG.lineStyle(1, 0xfff0a0, 0.4);
+        sortG.strokeRoundedRect(SORT_X + 1, SORT_Y + 1, SORT_BW - 2, SORT_BH - 2, 9);
         sortTxt.setText(this._sortMode === "status" ? "TRẠNG THÁI" : "TÊN A-Z");
       };
     drawSort();
@@ -319,16 +322,19 @@ export default class FriendPanel {
     const sbg = push(this.scene.add.graphics().setDepth(D + 2));
     // Bóng nhẹ
     sbg.fillStyle(0x5a3a00, 0.18);
-    sbg.fillRoundedRect(SX + 2, SY + 2, SW, SH, 8);
+    sbg.fillRoundedRect(SX + 2, SY + 3, SW, SH, 10);
     // Nền kem sáng
-    sbg.fillStyle(0xe8d8a0, 1);
-    sbg.fillRoundedRect(SX, SY, SW, SH, 8);
+    sbg.fillGradientStyle(0xf5ead0, 0xf5ead0, 0xe8d4a8, 0xe8d4a8, 1);
+    sbg.fillRoundedRect(SX, SY, SW, SH, 10);
     // Viền vàng nâu đồng bộ với nút sort
-    sbg.lineStyle(1.5, 0xc8922e, 0.85);
-    sbg.strokeRoundedRect(SX, SY, SW, SH, 8);
+    sbg.lineStyle(1.5, 0x9d7d48, 0.9);
+    sbg.strokeRoundedRect(SX, SY, SW, SH, 10);
     // Gloss nhẹ trên
-    sbg.fillStyle(0xffffff, 0.35);
-    sbg.fillRoundedRect(SX + 4, SY + 3, SW - 8, SH * 0.35, 5);
+    sbg.fillStyle(0xffffff, 0.30);
+    sbg.fillRoundedRect(SX + 4, SY + 3, SW - 8, SH * 0.35, 6);
+    // Viền trong sáng
+    sbg.lineStyle(1, 0xfff0c0, 0.35);
+    sbg.strokeRoundedRect(SX + 1, SY + 1, SW - 2, SH - 2, 9);
 
     this._searchPh = push(this.scene.add.text(SX + 12, SY + SH / 2, "Tìm theo tên", {
       fontFamily: "Signika", fontSize: "14px", color: "#b8922e"
@@ -463,36 +469,29 @@ export default class FriendPanel {
     const midY = rowY + H / 2;
     const push = o => { this._listObjs.push(o); return o; };
 
-    // ── Nền row (giống _buildRequestRow) ─────────────────────────
+    // ── Nền row với chiều sâu ────────────────────────────────────
     const rowBg = push(this.scene.add.graphics().setDepth(D + 1));
-    rowBg.fillStyle(0xe0c089, 1);
-    rowBg.fillRoundedRect(L, rowY + 2, W, H - 4, 8);
+    const bx = L, by = rowY + 2, bw = W, bh = H - 4, br = 10;
 
-    const bx = L, by = rowY + 2, bw = W, bh = H - 4, br = 8;
-    // Border trên (vàng đậm)
-    rowBg.lineStyle(1.5, 0x9d7d48, 0.9);
-    rowBg.beginPath();
-    rowBg.arc(bx + br,      by + br,      br, Math.PI,       Math.PI * 1.5, false);
-    rowBg.lineTo(bx + bw - br, by);
-    rowBg.arc(bx + bw - br, by + br,      br, Math.PI * 1.5, 0,             false);
-    rowBg.strokePath();
-    // Border dưới (trắng nhẹ)
-    rowBg.lineStyle(1.5, 0xffffff, 0.7);
-    rowBg.beginPath();
-    rowBg.arc(bx + bw - br, by + bh - br, br, 0,             Math.PI * 0.5, false);
-    rowBg.lineTo(bx + br,   by + bh);
-    rowBg.arc(bx + br,      by + bh - br, br, Math.PI * 0.5, Math.PI,       false);
-    rowBg.strokePath();
-    // Border 2 bên — mỏng, màu vàng nhạt tương đồng cạnh trên
-    rowBg.lineStyle(1.35, 0xb69660, 0.9);
-    rowBg.beginPath();
-    rowBg.moveTo(bx,      by + br);
-    rowBg.lineTo(bx,      by + bh - br);
-    rowBg.strokePath();
-    rowBg.beginPath();
-    rowBg.moveTo(bx + bw, by + br);
-    rowBg.lineTo(bx + bw, by + bh - br);
-    rowBg.strokePath();
+    // Bóng đổ nhẹ phía dưới
+    rowBg.fillStyle(0x7a5a20, 0.18);
+    rowBg.fillRoundedRect(bx + 2, by + 3, bw, bh, br);
+
+    // Nền gradient: sáng trên, tối dưới
+    rowBg.fillGradientStyle(0xefd49a, 0xefd49a, 0xd4a85a, 0xd4a85a, 1);
+    rowBg.fillRoundedRect(bx, by, bw, bh, br);
+
+    // Viền ngoài vàng nâu đậm
+    rowBg.lineStyle(1.5, 0x9d7d48, 0.95);
+    rowBg.strokeRoundedRect(bx, by, bw, bh, br);
+
+    // Highlight trên (trắng nhẹ tạo chiều sâu)
+    rowBg.fillStyle(0xffffff, 0.22);
+    rowBg.fillRoundedRect(bx + 4, by + 3, bw - 8, bh * 0.32, br - 2);
+
+    // Viền trong sáng hơn (inset effect)
+    rowBg.lineStyle(1, 0xfff0c0, 0.45);
+    rowBg.strokeRoundedRect(bx + 1, by + 1, bw - 2, bh - 2, br - 1);
 
     // ── Avatar circle với ảnh nhân vật ───────────────────────────
     const avR = 22;
