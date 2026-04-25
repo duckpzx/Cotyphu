@@ -789,6 +789,49 @@ function triggerTaxBoost(room_id) {
   }
 }
 
+// ── Xử lý kết thúc game + payout ecoin ──────────────────────────
+async function handleGameOver(room_id, gs, allPlayerIds) {
+  const winner = gs.players[0];
+  if (!winner) { delete gameStates[room_id]; return; }
+
+  const bet = Number(gs.bet_ecoin) || 0;
+  const loserIds = allPlayerIds.filter(id => Number(id) !== Number(winner.user_id));
+  const winAmount = bet * loserIds.length; // winner nhận tổng cược của losers
+
+  // Cập nhật ecoin trong DB
+  try {
+    if (winAmount > 0) {
+      await db.query("UPDATE users SET ecoin = ecoin + ? WHERE id = ?", [winAmount, winner.user_id]);
+    }
+    for (const loserId of loserIds) {
+      if (bet > 0) {
+        // Trừ ecoin, không để âm
+        await db.query(
+          "UPDATE users SET ecoin = GREATEST(0, ecoin - ?) WHERE id = ?",
+          [bet, loserId]
+        );
+      }
+    }
+    // Cập nhật total_games và total_wins
+    await db.query("UPDATE users SET total_games = total_games + 1, total_wins = total_wins + 1 WHERE id = ?", [winner.user_id]);
+    for (const loserId of loserIds) {
+      await db.query("UPDATE users SET total_games = total_games + 1 WHERE id = ?", [loserId]);
+    }
+    console.log(`🏆 Game over room ${room_id}: winner=${winner.name}(+${winAmount}), losers=[${loserIds}](-${bet} each)`);
+  } catch (err) {
+    console.error("handleGameOver DB error:", err);
+  }
+
+  io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:game_over", {
+    winner_user_id: winner.user_id,
+    winner_name:    winner.name,
+    win_amount:     winAmount,
+    bet_ecoin:      bet,
+  });
+
+  delete gameStates[room_id];
+}
+
 function endTurn(room_id) {
   const gs = gameStates[room_id];
   if (!gs) return;
@@ -2125,7 +2168,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
   });
 
   // ── GAME SELL AND PAY RENT (atomic, không cho âm tiền) ──────────
-  socket.on("game:sell_and_pay_rent", ({ room_id, seller_user_id, buyer_user_id, cells_to_sell, total_sell_price, required_rent, cash_before }) => {
+  socket.on("game:sell_and_pay_rent", async ({ room_id, seller_user_id, buyer_user_id, cells_to_sell, total_sell_price, required_rent, cash_before }) => {
     const gs = gameStates[room_id];
     if (!gs) return;
 
@@ -2144,11 +2187,8 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
       });
       io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:bankruptcy", { user_id: seller_user_id });
       if (gs.players.length <= 1) {
-        const winner = gs.players[0];
-        if (winner) io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:game_over", {
-          winner_user_id: winner.user_id, winner_name: winner.name
-        });
-        delete gameStates[room_id];
+        const allIds = [seller_user_id, ...gs.players.map(p => p.user_id)];
+        await handleGameOver(room_id, gs, allIds);
       } else {
         setTimeout(() => endTurn(room_id), 2000);
       }
@@ -2234,9 +2274,12 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
   });
 
   // ── GAME BANKRUPTCY ─────────────────────────────────────────────
-  socket.on("game:bankruptcy", ({ room_id, user_id }) => {
+  socket.on("game:bankruptcy", async ({ room_id, user_id }) => {
     const gs = gameStates[room_id];
     if (!gs) return;
+
+    // Lưu tất cả player IDs trước khi xóa
+    const allPlayerIds = gs.players.map(p => p.user_id);
 
     // Remove bankrupt player
     gs.players = gs.players.filter(p => p.user_id !== user_id);
@@ -2255,16 +2298,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
 
     // Check if game should end (only 1 player left)
     if (gs.players.length <= 1) {
-      // Game over - winner is the last player
-      const winner = gs.players[0];
-      if (winner) {
-        io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:game_over", {
-          winner_user_id: winner.user_id,
-          winner_name: winner.name
-        });
-      }
-      // Clean up game state
-      delete gameStates[room_id];
+      await handleGameOver(room_id, gs, allPlayerIds);
       return;
     }
 

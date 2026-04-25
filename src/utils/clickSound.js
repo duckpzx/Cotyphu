@@ -71,6 +71,44 @@ export function playBoardBuySound(scene) {
   _playBoardSound(scene, "board_buy", "assets/music/board/buy_1.mp3");
 }
 
+export function playBoardDiceSound(scene) {
+  _playBoardSound(scene, "board_dice", "assets/music/board/dice2.mp3");
+}
+
+export function startFootstepSound(scene) {
+  try {
+    if (!scene?.sound) return;
+    // Dừng footstep cũ nếu có
+    const existing = scene.sound.get("board_footstep");
+    if (existing?.isPlaying) existing.stop();
+
+    const play = () => {
+      let sfx = scene.sound.get("board_footstep");
+      if (!sfx) sfx = scene.sound.add("board_footstep", { loop: true, volume: 0.55, rate: 1.1 });
+      sfx.setVolume(0.55);
+      if (!sfx.isPlaying) sfx.play();
+    };
+
+    if (!scene.cache.audio.exists("board_footstep")) {
+      scene.load.audio("board_footstep", "assets/music/board/footstep3.mp3");
+      scene.load.once("complete", play);
+      scene.load.start();
+    } else {
+      play();
+    }
+  } catch(e) {}
+}
+
+export function stopFootstepSound(scene) {
+  try {
+    scene?.sound?.get("board_footstep")?.stop();
+  } catch(e) {}
+}
+
+export function playBoardStartSound(scene) {
+  _playBoardSound(scene, "board_start", "assets/music/board/start.mp3");
+}
+
 export function playBoardErrSound(scene) {
   _playBoardSound(scene, "board_err", "assets/music/board/err.mp3");
 }
@@ -96,7 +134,7 @@ export function playBoardAnswerSound(scene) {
 }
 
 export function playBoardCoinSound(scene) {
-  _playBoardSound(scene, "board_coin", "assets/music/board/coin.mp3");
+  _playBoardSound(scene, "board_coin", "assets/music/board/coin2.mp3");
 }
 export function playBoardBGM(scene) {
   try {

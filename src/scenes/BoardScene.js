@@ -8,7 +8,8 @@ import ChatWidget        from "./components/ChatWidget.js";
 import {
   playBoardBuySound, playBoardErrSound, playBoardHunterSound,
   playBoardIncreaseSound, playBoardTeacherSound, playBoardSkillSound,
-  playBoardBGM, playBoardAnswerSound, playBoardCoinSound
+  playBoardBGM, playBoardAnswerSound, playBoardCoinSound, playBoardDiceSound,
+  playBoardStartSound, startFootstepSound, stopFootstepSound
 } from "../utils/clickSound.js";
 
 export default class BoardScene extends Phaser.Scene {
@@ -336,6 +337,9 @@ _closeTarotModal() { this.tarotModal?.close(); }
       const myUid = this._myUserId();
       const isMe  = (data.socket_id === this.socket.id)
                  || (data.user_id   === myUid && this.isMyTurn);
+
+      // Phát âm thanh cho người khác (người tung đã phát sớm hơn)
+      if (!isMe) playBoardDiceSound(this);
 
       if (isMe) {
         this.canRoll = false;
@@ -1023,7 +1027,9 @@ _closeTarotModal() { this.tarotModal?.close(); }
       }
     }
     this._showToast(`💰 ${data.name} nhận ${this._formatMoney(data.bonus)} khi qua/về START`, "#00ccff");
+    // Chỉ phát âm thanh cho chính người chơi đi qua START
     if (data.user_id === this._myUserId()) {
+      playBoardStartSound(this);
       this._refreshPlayerPanelsFromGameState();
       this._updatePlayerStatsInUI();
     } else {
@@ -1642,6 +1648,8 @@ this.socket.on("game:tarot_denied", (data) => {
   // ─────────────────────────────────────────────
   _onPowerDiceRollRequested() {
     if (this.gameRoomId && this.gamePlayers.length > 0) {
+      // Phát âm thanh xúc xắc ngay khi tung — trước khi server trả về
+      playBoardDiceSound(this);
       // Online: emit lên server — server sẽ trả game:dice_result
       this.socket.emit("game:roll", { room_id: this.gameRoomId });
       this.infoText.setText("🎲 Đang tung...").setColor("#ffffff");
@@ -3035,6 +3043,9 @@ this.input.keyboard.on("keydown-Y", () => {
       this._diceBubbleObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
       this._diceBubbleObjs = null;
     }
+    // Bắt đầu tiếng bước chân — phát trước animation một chút
+    startFootstepSound(this);
+
     const { width, height } = this.scale;
     const totalCells = this.boardPath.length;
     let stepsLeft = steps;
@@ -3042,6 +3053,8 @@ this.input.keyboard.on("keydown-Y", () => {
     const moveOneStep = () => {
       if (stepsLeft <= 0) {
         this.isMoving = false;
+        // Dừng tiếng bước chân sau khi animation kết thúc
+        this.time.delayedCall(100, () => stopFootstepSound(this));
         this.player.play(`${this.characterName||"Dark_Oracle"}_${this.mySkin}_idle`);
         this.onPlayerStop();
         if (onDone) onDone();
@@ -4438,7 +4451,7 @@ this.input.keyboard.on("keydown-Y", () => {
     const GAP       = 0;
     const TOTAL_H   = BTN_SIZE + GAP + LABEL_H;
     const PAD_V     = 8;
-    const PAD_R     = 10; // padding bên phải
+    const PAD_R     = 7  ;
     const D         = 55;
 
     const centerY   = height / 2;
