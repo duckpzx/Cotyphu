@@ -3,6 +3,7 @@
 //  Hệ thống modal thẻ bài Tarot — hoàn chỉnh với validation + targeting
 //
 //  Tích hợp: this.tarotModal = new TarotModalSystem(scene)
+import { playBoardTarotSound } from "../../utils/clickSound.js";
 //
 //  Thay thế hoàn toàn file TarotModalSystem.js cũ.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -402,6 +403,9 @@ export default class TarotModalSystem {
   _useCard(card) {
     const sc         = this.scene;
     const effectType = card.effect_type;
+
+    // Phát âm thanh dùng thẻ — chỉ cho người dùng
+    playBoardTarotSound(sc);
 
     // ── Validation client-side trước khi gửi ──────────────────────────────
     if (!sc._canUseTarotNow()) {

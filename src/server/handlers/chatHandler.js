@@ -133,7 +133,7 @@ export function registerChatHandlers(socket, io) {
         message: msg,
         time:    Date.now()
       };
-      io.to(`room_${game_id}`).emit("chat:game:message", payload);
+      io.to(`game_${game_id}`).emit("chat:game:message", payload);
     } catch (err) {
       console.error("chat:game:send error:", err);
     }

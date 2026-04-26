@@ -75,6 +75,10 @@ export function playBoardDiceSound(scene) {
   _playBoardSound(scene, "board_dice", "assets/music/board/dice2.mp3");
 }
 
+export function playBoardTarotSound(scene) {
+  _playBoardSound(scene, "board_tarot", "assets/music/board/tarot.mp3");
+}
+
 export function startFootstepSound(scene) {
   try {
     if (!scene?.sound) return;

@@ -9,7 +9,8 @@ import {
   playBoardBuySound, playBoardErrSound, playBoardHunterSound,
   playBoardIncreaseSound, playBoardTeacherSound, playBoardSkillSound,
   playBoardBGM, playBoardAnswerSound, playBoardCoinSound, playBoardDiceSound,
-  playBoardStartSound, startFootstepSound, stopFootstepSound
+  playBoardStartSound, startFootstepSound, stopFootstepSound,
+  setupClickSound
 } from "../utils/clickSound.js";
 
 export default class BoardScene extends Phaser.Scene {
@@ -2223,6 +2224,8 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
 
     let playerData = getPlayerData(this);
     if (!playerData) { this.scene.start("LoginScene"); return; }
+
+    setupClickSound(this);
 
     this.gameRoomId = data?.roomData?.id || null;
 
