@@ -98,12 +98,16 @@ export default class RoomListScene extends Phaser.Scene {
       catch (e) {
         console.error("Rooms API không trả JSON:", text);
         this._roomsLoaded = true;
-        this._renderRooms(width, height); return;
+        this._renderRooms(width, height);
+        this._buildPaginationArrows(width, height);
+        return;
       }
       if (!data.success || !Array.isArray(data.rooms)) {
         console.error("Rooms API lỗi:", data);
         this._roomsLoaded = true;
-        this._renderRooms(width, height); return;
+        this._renderRooms(width, height);
+        this._buildPaginationArrows(width, height);
+        return;
       }
       this.allRooms = data.rooms.map(room => ({
         id:          room.id,
@@ -122,10 +126,12 @@ export default class RoomListScene extends Phaser.Scene {
       this.currentPage = 0;
       this._roomsLoaded = true;
       this._renderRooms(width, height);
+      this._buildPaginationArrows(width, height); // Rebuild arrows với total mới
     } catch (err) {
       console.error("Load rooms error:", err);
       this._roomsLoaded = true;
       this._renderRooms(width, height);
+      this._buildPaginationArrows(width, height); // Rebuild arrows ngay cả khi lỗi
     }
   }
 

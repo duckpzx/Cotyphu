@@ -488,18 +488,54 @@ _closeTarotModal() { this.tarotModal?.close(); }
 
       const myUid = this._myUserId();
 
-      // Hiệu ứng "bị đau" cho người trả tiền
+      // ── Lấy sprite của payer và owner ────────────────────────
+      const payerSprite = this._getSpriteByUserId(data.payer_user_id);
+      const ownerSprite = this._getSpriteByUserId(data.owner_user_id);
+
+      // ── Hiệu ứng "bị đau" cho người trả tiền ─────────────────
       if (data.payer_user_id === myUid) {
-        // Flash đỏ + shake nhân vật của mình
         this._playHurtEffect(this.player);
       } else {
-        // Flash đỏ nhân vật người khác
-        const payerSocket = Object.keys(this.otherPlayers).find(sid => {
-          const op = this.otherPlayers[sid];
-          return op?._userId === data.payer_user_id || op?.userId === data.payer_user_id;
-        });
-        if (payerSocket && this.otherPlayers[payerSocket]) {
-          this._playHurtEffect(this.otherPlayers[payerSocket]);
+        if (payerSprite) this._playHurtEffect(payerSprite);
+      }
+
+      // ── Số tiền nổi lên trên đầu payer (đỏ, -) ───────────────
+      if (payerSprite) {
+        this._showFloatingMoney(
+          payerSprite.x,
+          payerSprite.y - payerSprite.displayHeight * 0.6,
+          `-${this._formatMoney(data.rent)}`,
+          "#ff3333"
+        );
+      }
+
+      // ── Số tiền nổi lên trên đầu owner (xanh, +) ─────────────
+      if (ownerSprite) {
+        this._showFloatingMoney(
+          ownerSprite.x,
+          ownerSprite.y - ownerSprite.displayHeight * 0.6,
+          `+${this._formatMoney(data.rent)}`,
+          "#44ff88"
+        );
+      }
+
+      // ── Bubble thông báo cho owner (giống "Đổ xúc xắc") ──────
+      if (ownerSprite) {
+        this._showRentMoneyBubble(ownerSprite, `+${this._formatMoney(data.rent)}`, "owner");
+      }
+      // ── Bubble thông báo cho payer ────────────────────────────
+      if (payerSprite) {
+        this._showRentMoneyBubble(payerSprite, `-${this._formatMoney(data.rent)}`, "payer");
+      }
+
+      // ── Hiệu ứng coin bay từ payer → panel owner ─────────────
+      if (payerSprite) {
+        const ownerPanel = this._getPlayerPanelPos(data.owner_user_id);
+        if (ownerPanel) {
+          this._playCoinsFlying(
+            payerSprite.x, payerSprite.y,
+            ownerPanel.x, ownerPanel.y
+          );
         }
       }
 
@@ -1817,6 +1853,7 @@ this.socket.on("game:tarot_denied", (data) => {
     this.load.image("orb_blue",     "./assets/resources/Orb/iloveimg-resized/orb_blue.png");
     this.load.image("orb_purple",   "./assets/resources/Orb/iloveimg-resized/orb_purple.png");
     this.load.image("coin",         "./assets/ui/shared/coin.png");
+    this.load.image("coinm",        "./assets/ui/shared/coinm.png");
     this.load.image("close_btn",    "./assets/ui/shared/close.png");
     this.load.image("close_icon",   "./assets/ui/shared/close.png");
 
@@ -3920,6 +3957,76 @@ this.input.keyboard.on("keydown-Y", () => {
     this._diceBubbleObjs = objs;
   }
 
+  /**
+   * Bubble tiền thuê — copy y chang _updateDiceBubble
+   * Chỉ đổi: text content + màu chữ
+   * owner → xanh #2a9444 | payer → đỏ #e05030
+   */
+  _showRentMoneyBubble(sprite, amountText, role = "owner") {
+    const { width, height } = this.scale;
+    const minRatio = Math.min(width / this.originalWidth, height / this.originalHeight);
+
+    if (!sprite) return;
+
+    const sx = sprite.x;
+    const sy = sprite.y - sprite.displayHeight * 0.7;
+
+    const D = 290;
+    const objs = [];
+    const push = o => { objs.push(o); return o; };
+
+    // ── Chỉ đổi màu chữ, giữ nguyên mọi thứ khác ────────────────
+    const txtColor = role === "owner" ? "#2a9444" : "#e05030";
+
+    // === Copy y chang _updateDiceBubble từ đây ===
+    const fontSize = Math.floor(20 * minRatio);
+    const pad = { x: 18, y: 10 };
+    const bR = 8;
+    const TIP_W = 9;
+    const TIP_H = 9;
+
+    const t = push(this.add.text(0, 0, amountText, {
+      fontFamily: "Signika", fontSize: fontSize + "px",
+      color: txtColor, fontStyle: "bold",
+    }).setOrigin(0.5, 0.5).setDepth(D + 2));
+
+    const bW = t.width + pad.x * 2;
+    const bH = t.height + pad.y * 2;
+    const bX = sx - bW / 2;
+    const bY = sy - bH - TIP_H;
+
+    const g = push(this.add.graphics().setDepth(D + 1));
+
+    // Nền trắng đậm, không border — y chang _updateDiceBubble
+    g.fillStyle(0xffffff, 0.9);
+    g.fillRoundedRect(bX, bY, bW, bH, bR);
+
+    // Tam giác chỉ xuống ở giữa đáy — y chang _updateDiceBubble
+    const tipX     = sx;
+    const tipBaseY = bY + bH;
+    g.fillStyle(0xffffff, 0.95);
+    g.fillTriangle(
+      tipX - TIP_W, tipBaseY,
+      tipX + TIP_W, tipBaseY,
+      tipX,         tipBaseY + TIP_H
+    );
+
+    t.setPosition(bX + bW / 2, bY + bH / 2);
+    // === Hết phần copy ===
+
+    // Tự destroy sau 2s + bay lên nhẹ
+    this.time.delayedCall(2000, () => {
+      this.tweens.add({
+        targets: [g, t],
+        alpha: 0,
+        y: `-=${18 * minRatio}`,
+        duration: 300,
+        ease: "Sine.easeIn",
+        onComplete: () => objs.forEach(o => { try { o?.destroy(); } catch(e){} })
+      });
+    });
+  }
+
   _showTurnBanner(message, color="#ffffff") {
     const { width, height } = this.scale;
     const minRatio=Math.min(width/this.originalWidth, height/this.originalHeight);
@@ -4732,5 +4839,218 @@ this.input.keyboard.on("keydown-Y", () => {
     this._loadingStatusTexts = null;
     // Destroy ngay — không dùng tween vì tab có thể đang ẩn
     objs.forEach(o => { try { o?.destroy(); } catch(e){} });
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  RENT PAYMENT EFFECTS
+  // ═══════════════════════════════════════════════════════════════
+
+  /** Lấy sprite của player theo userId */
+  _getSpriteByUserId(userId) {
+    if (this._myUserId() === userId) return this.player;
+    const sid = Object.keys(this.otherPlayers || {}).find(s => {
+      const op = this.otherPlayers[s];
+      return op?._userId === userId || op?.userId === userId;
+    });
+    return sid ? this.otherPlayers[sid] : null;
+  }
+
+  /** Lấy vị trí trung tâm panel của player theo userId */
+  _getPlayerPanelPos(userId) {
+    if (!this.playerPanels) return null;
+    const panel = this.playerPanels.find(p => p.userId === userId);
+    if (!panel) return null;
+    // statVal1 là text tiền mặt trong panel
+    const ref = panel.statVal1 || panel._ui?.statVal1;
+    if (ref) return { x: ref.x, y: ref.y };
+    return null;
+  }
+
+  /**
+   * Số tiền nổi lên trên đầu nhân vật rồi bay lên mờ dần
+   * @param {number} x - vị trí x
+   * @param {number} y - vị trí y bắt đầu
+   * @param {string} text - "+500K" hoặc "-500K"
+   * @param {string} color - "#ff3333" hoặc "#44ff88"
+   */
+  _showFloatingMoney(x, y, text, color) {
+    const S = this.minRatio || 1;
+    const D = 300;
+
+    const t = this.add.text(x, y, text, {
+      fontFamily: "Signika",
+      fontSize: Math.floor(28 * S) + "px",
+      color,
+      fontStyle: "bold",
+      stroke: "#000000",
+      strokeThickness: Math.floor(4 * S),
+    }).setOrigin(0.5, 1).setDepth(D).setAlpha(0);
+
+    // Scale up nhỏ rồi bay lên
+    this.tweens.add({
+      targets: t,
+      alpha: { from: 0, to: 1 },
+      scaleX: { from: 0.5, to: 1 },
+      scaleY: { from: 0.5, to: 1 },
+      duration: 200,
+      ease: "Back.easeOut",
+      onComplete: () => {
+        this.tweens.add({
+          targets: t,
+          y: y - 80 * S,
+          alpha: 0,
+          duration: 900,
+          ease: "Sine.easeIn",
+          onComplete: () => { try { t.destroy(); } catch(e){} }
+        });
+      }
+    });
+  }
+
+  /**
+   * Bubble thông báo nhận tiền trên đầu owner (giống "Đổ xúc xắc" nhưng màu xanh)
+   * @param {Phaser.GameObjects.Sprite} sprite
+   * @param {string} amountText - "+500K"
+   */
+  _showRentBubble(sprite, amountText) {
+    const S = this.minRatio || 1;
+    const D = 290;
+
+    const sx = sprite.x;
+    const sy = sprite.y - sprite.displayHeight * 0.75;
+
+    const objs = [];
+    const push = o => { objs.push(o); return o; };
+
+    const fontSize = Math.floor(20 * S);
+    const pad = { x: 18 * S, y: 10 * S };
+    const bR = 8 * S;
+    const TIP_W = 9 * S, TIP_H = 9 * S;
+
+    const t = push(this.add.text(0, 0, `💰 ${amountText}`, {
+      fontFamily: "Signika",
+      fontSize: fontSize + "px",
+      color: "#004400",
+      fontStyle: "bold",
+    }).setOrigin(0.5, 0.5).setDepth(D + 2).setAlpha(0));
+
+    const bW = t.width + pad.x * 2;
+    const bH = t.height + pad.y * 2;
+    const bX = sx - bW / 2;
+    const bY = sy - bH - TIP_H;
+
+    const g = push(this.add.graphics().setDepth(D + 1).setAlpha(0));
+
+    // Nền xanh lá nhạt
+    g.fillStyle(0xaaffcc, 0.95);
+    g.fillRoundedRect(bX, bY, bW, bH, bR);
+    // Viền xanh đậm
+    g.lineStyle(2 * S, 0x00aa44, 1);
+    g.strokeRoundedRect(bX, bY, bW, bH, bR);
+    // Tam giác chỉ xuống
+    const tipX = sx;
+    const tipBaseY = bY + bH;
+    g.fillStyle(0xaaffcc, 0.95);
+    g.fillTriangle(tipX - TIP_W, tipBaseY, tipX + TIP_W, tipBaseY, tipX, tipBaseY + TIP_H);
+
+    t.setPosition(bX + bW / 2, bY + bH / 2);
+
+    // Fade in → hiện 1.5s → fade out
+    this.tweens.add({
+      targets: [g, t], alpha: 1, duration: 180, ease: "Back.easeOut",
+      onComplete: () => {
+        this.time.delayedCall(1500, () => {
+          this.tweens.add({
+            targets: [g, t], alpha: 0, duration: 300,
+            onComplete: () => objs.forEach(o => { try { o?.destroy(); } catch(e){} })
+          });
+        });
+      }
+    });
+  }
+
+  /**
+   * Hiệu ứng coin bay từ vị trí payer → panel của owner
+   * Dùng ảnh coinm.png, kích thước + độ mờ random, bay theo bezier mượt mà
+   */
+  _playCoinsFlying(fromX, fromY, toX, toY) {
+    const S = this.minRatio || 1;
+    const D = 295;
+    const COIN_COUNT = 8;
+
+    for (let i = 0; i < COIN_COUNT; i++) {
+      this.time.delayedCall(i * 55, () => {
+        // Kích thước random 18-38px, độ mờ random 0.55-1.0
+        const size   = (Phaser.Math.Between(18, 31)) * S;
+        const alpha0 = Phaser.Math.FloatBetween(0.55, 1.0);
+
+        const coin = this.add.image(0, 0, "coinm")
+          .setDisplaySize(size, size)
+          .setDepth(D)
+          .setAlpha(0);
+
+        // Vị trí xuất phát: tán xạ nhẹ quanh payer
+        const startX = fromX + Phaser.Math.Between(-24, 24) * S;
+        const startY = fromY + Phaser.Math.Between(-24, 8)  * S;
+        coin.setPosition(startX, startY);
+
+        // Điểm kiểm soát bezier: vòng cung lên cao ngẫu nhiên
+        const ctrlX = (startX + toX) / 2 + Phaser.Math.Between(-80, 80) * S;
+        const ctrlY = Math.min(startY, toY) - Phaser.Math.Between(70, 140) * S;
+
+        // Tổng thời gian bay: 600-850ms (mỗi coin lệch nhau)
+        const duration = Phaser.Math.Between(600, 850);
+        const steps    = Math.ceil(duration / 16);
+        let   step     = 0;
+
+        // Fade in nhanh
+        this.tweens.add({ targets: coin, alpha: alpha0, duration: 120 });
+
+        const timer = this.time.addEvent({
+          delay: 16,
+          repeat: steps,
+          callback: () => {
+            step++;
+            const t = Math.min(step / steps, 1);
+
+            // Ease: easeInOut cubic
+            const e = t < 0.5
+              ? 4 * t * t * t
+              : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+            // Quadratic bezier
+            const bx = (1-e)*(1-e)*startX + 2*(1-e)*e*ctrlX + e*e*toX;
+            const by = (1-e)*(1-e)*startY + 2*(1-e)*e*ctrlY + e*e*toY;
+
+            coin.setPosition(bx, by);
+
+            // Xoay nhẹ theo chiều bay
+            coin.setAngle(coin.angle + 4);
+
+            // Scale + fade out ở 70% cuối
+            if (t > 0.7) {
+              const fade = 1 - (t - 0.7) / 0.3;
+              coin.setAlpha(alpha0 * fade);
+              const sc = 0.5 + fade * 0.5;
+              coin.setScale(sc);
+            }
+
+            if (t >= 1) {
+              // Flash nhỏ tại đích
+              const flash = this.add.graphics().setDepth(D + 1);
+              flash.fillStyle(0xffee44, 0.7);
+              flash.fillCircle(toX, toY, size * 0.8);
+              this.tweens.add({
+                targets: flash,
+                alpha: 0, scaleX: 2.2, scaleY: 2.2,
+                duration: 220, ease: "Sine.easeOut",
+                onComplete: () => { try { flash.destroy(); } catch(e){} }
+              });
+              try { coin.destroy(); } catch(e){}
+            }
+          }
+        });
+      });
+    }
   }
 }
