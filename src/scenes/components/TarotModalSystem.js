@@ -62,6 +62,9 @@ export default class TarotModalSystem {
     this._build(cards, me, activeIds, focusTarotId);
     this._open = true;
     this._startLiveCooldownTicker(cards, myUid);
+    
+    // ── Bật hiệu ứng tối map giống khi đặt tinh cầu ──────────────
+    sc._startDarkMapEffect?.();
   }
 
   close() {
@@ -106,12 +109,12 @@ export default class TarotModalSystem {
     const _titlePlaceholder2 = push(sc.add.text(-9999, -9999, ""));
 
     // ── Layout thẻ — tính tổng chiều cao để căn giữa ────────────────────
-    const CARD_W  = 290 * S;
-    const CARD_H  = 400 * S;
-    const GAP     = 60 * S;
-    const TITLE_H = 80 * S;   // tiêu đề + subtitle
-    const CLOSE_H = 60 * S;   // nút đóng
-    const SPACING = 20 * S;   // khoảng cách giữa các phần
+    const CARD_W  = 310 * S;   // lớn hơn: 290 → 310
+    const CARD_H  = 430 * S;   // lớn hơn: 400 → 430
+    const GAP     = 40 * S;    // thu hẹp gap để thẻ gần mép hơn
+    const TITLE_H = 80 * S;
+    const CLOSE_H = 60 * S;
+    const SPACING = 16 * S;    // giảm spacing
     const TOTAL_H = TITLE_H + SPACING + CARD_H + SPACING + CLOSE_H;
 
     const blockTop = height / 2 - TOTAL_H / 2;
@@ -193,17 +196,17 @@ export default class TarotModalSystem {
     sc.tweens.add({ targets: nameText, alpha: 1, duration: 280, delay: delay + 60 });
     ui.nameText = nameText;
 
-    // Ảnh thẻ — giữ nguyên tỷ lệ, fit trong vùng ảnh
+    // Ảnh thẻ — giữ nguyên tỷ lệ, fit trong vùng ảnh (lớn hơn, gần chạm mép)
     const imgKey = sc.textures.exists(`tarot_large_${card.id}`) ? `tarot_large_${card.id}` : `tarot_${card.id}`;
-    const IMG_AREA_W = CW * 0.78;
-    const IMG_AREA_H = CH * 0.46;
-    const IMG_CY     = top + CH * 0.22 + CH * 0.23; // giữa vùng ảnh
+    const IMG_AREA_W = CW * 0.90;   // tăng từ 0.78 → 0.90
+    const IMG_AREA_H = CH * 0.62;   // tăng từ 0.46 → 0.62
+    const IMG_CY     = top + CH * 0.22 + CH * 0.31; // điều chỉnh vị trí giữa
     if (sc.textures.exists(imgKey)) {
       const tex = sc.textures.get(imgKey);
       const nat = tex.source[0];
       const scaleX = IMG_AREA_W / nat.width;
       const scaleY = IMG_AREA_H / nat.height;
-      const imgScale = Math.min(scaleX, scaleY); // giữ tỷ lệ
+      const imgScale = Math.min(scaleX, scaleY);
       const img = push(sc.add.image(cx, IMG_CY, imgKey)
         .setScale(imgScale).setDepth(D + 5).setAlpha(0)
         .setTint(onCooldown ? 0x555555 : 0xffffff));
@@ -211,15 +214,7 @@ export default class TarotModalSystem {
       ui.img = img;
     }
 
-    // Mô tả — căn giữa dọc trong phần còn lại
-    const descY = top + CH * 0.70;
-    const descText = push(sc.add.text(cx, descY,
-      card.description || "Không có mô tả", {
-      fontFamily: "Signika", fontSize: Math.floor(13 * S) + "px",
-      color: onCooldown ? "#777777" : "#dfe8ff",
-      align: "center", wordWrap: { width: CW - 32 * S }, lineSpacing: 3
-    }).setOrigin(0.5, 0).setDepth(D + 5).setAlpha(0));
-    sc.tweens.add({ targets: descText, alpha: 1, duration: 280, delay: delay + 100 });
+    // ── Xóa mô tả — không hiển thị descText ──────────────────────
 
     // Cooldown label
     const cdText = push(sc.add.text(cx, top + CH - 52 * S,
@@ -249,13 +244,17 @@ export default class TarotModalSystem {
     if (!onCooldown && !usedThisTurn) {
       const cardZone = push(sc.add.zone(cx, cy, CW, CH)
         .setInteractive({ useHandCursor: true }).setDepth(D + 10));
+      
+      // Overlay tối khi hover
+      const hoverOverlay = push(sc.add.graphics().setDepth(D + 8).setAlpha(0));
+      hoverOverlay.fillStyle(0x000000, 0.25);
+      hoverOverlay.fillRoundedRect(left, top, CW, CH, RAD);
+      
       cardZone.on("pointerover", () => {
-        bg.setAlpha(0.85);
-        sc.tweens.add({ targets: bg, scaleX: 1.03, scaleY: 1.03, duration: 100 });
+        sc.tweens.add({ targets: hoverOverlay, alpha: 1, duration: 100 });
       });
       cardZone.on("pointerout", () => {
-        bg.setAlpha(1);
-        sc.tweens.add({ targets: bg, scaleX: 1, scaleY: 1, duration: 100 });
+        sc.tweens.add({ targets: hoverOverlay, alpha: 0, duration: 100 });
       });
       cardZone.on("pointerdown", () => {
         sc.tweens.add({ targets: bg, scaleX: 0.95, scaleY: 0.95, duration: 60, yoyo: true,

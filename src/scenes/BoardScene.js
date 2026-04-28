@@ -2782,13 +2782,13 @@ this.input.keyboard.on("keydown-Y", () => {
         const cY = card1Y + ci * (CARD_H + CARD_GAP);
 
         const cardShadow = this.add.graphics().setDepth(DEPTH + 1);
-        cardShadow.fillStyle(0x000000, 0.04);
+        cardShadow.fillStyle(0x000000, 0);
         cardShadow.fillRoundedRect(
           cardX + 2 * minRatio,
           cY + 3 * minRatio,
           CARD_W,
           CARD_H,
-          6 * minRatio
+          4.5 * minRatio
         );
 
         const cardBg = this.add.graphics().setDepth(DEPTH + 2);

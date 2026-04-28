@@ -25,6 +25,7 @@ export default class RoomListScene extends Phaser.Scene {
     this.load.image("versus",      "assets/ui/shared/versus2.png");
     this.load.image("arrow",       "assets/ui/shared/arrow.png");
     this.load.image("close",       "assets/ui/shared/close.png");
+    this.load.image("lock",        "assets/ui/shared/lock.png");
   }
 
   create() {
@@ -1277,41 +1278,45 @@ export default class RoomListScene extends Phaser.Scene {
     dim.fillRect(0, 0, width, height);
     allObjs.push(dim);
 
-    // Box
+    // Box — nền trắng xám nhạt giống màu bạc của ổ khóa
     const box = this.add.graphics().setDepth(D + 1);
-    box.fillStyle(0x000000, 0.25);
+    box.fillStyle(0x000000, 0.20);
     box.fillRoundedRect(bx + 4, by + 6, bw, bh, 16);
-    box.fillGradientStyle(0xfff9e8, 0xfff9e8, 0xf2e098, 0xf2e098, 1);
+    box.fillGradientStyle(0xf5f5f5, 0xf5f5f5, 0xe0e0e0, 0xe0e0e0, 1);
     box.fillRoundedRect(bx, by, bw, bh, 16);
-    box.lineStyle(3, 0xcc4400, 1);
+    // Viền đỏ mờ giống thân ổ khóa
+    box.lineStyle(3, 0xcc2222, 0.55);
     box.strokeRoundedRect(bx, by, bw, bh, 16);
     allObjs.push(box);
 
     // Icon khoá
-    const icon = this.add.text(width / 2, by + 34, "🔒", { fontSize: "28px" })
-      .setOrigin(0.5).setDepth(D + 2);
+    const icon = this.add.image(width / 2, by + 34, "lock")
+      .setDisplaySize(45, 45).setOrigin(0.5).setDepth(D + 2);
     allObjs.push(icon);
 
     // Text
     const txt = this.add.text(width / 2, by + 68, msg, {
-      fontFamily: "Signika", fontSize: "16px", color: "#5a2d00",
+      fontFamily: "Signika", fontSize: "16px", color: "#330000",
       fontStyle: "bold", align: "center", lineSpacing: 4,
     }).setOrigin(0.5).setDepth(D + 2);
     allObjs.push(txt);
 
-    // Nút OK
+    // Nút OK — đỏ giống thân ổ khóa
     const okG = this.add.graphics().setDepth(D + 2);
     const okX = width / 2, okY = by + bh - 24;
     const okW = 100, okH = 34;
-    okG.fillGradientStyle(0xff6600, 0xff6600, 0xff9900, 0xff9900, 1);
+    okG.fillGradientStyle(0xdd1111, 0xdd1111, 0xaa0000, 0xaa0000, 1);
     okG.fillRoundedRect(okX - okW/2, okY - okH/2, okW, okH, okH/2);
-    okG.fillStyle(0xffffff, 0.25);
+    okG.fillStyle(0xffffff, 0.28);
     okG.fillRoundedRect(okX - okW/2 + 6, okY - okH/2 + 4, okW - 12, okH * 0.36, okH/2 - 3);
+    // Viền bạc nhẹ
+    okG.lineStyle(1.5, 0xcccccc, 0.5);
+    okG.strokeRoundedRect(okX - okW/2, okY - okH/2, okW, okH, okH/2);
     allObjs.push(okG);
 
     const okTxt = this.add.text(okX, okY, "OK", {
       fontFamily: "Signika", fontSize: "17px", color: "#ffffff",
-      fontStyle: "bold", stroke: "#662200", strokeThickness: 2,
+      fontStyle: "bold", stroke: "#660000", strokeThickness: 2,
     }).setOrigin(0.5).setDepth(D + 3);
     allObjs.push(okTxt);
 
