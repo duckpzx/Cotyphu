@@ -369,6 +369,45 @@ createTopBar() {
     .setDepth(103)
     .setInteractive({ cursor: 'pointer' });
 
+  // ── Badge đỏ YC kết bạn trên icon friend ─────────────────────
+  const frBadgeR   = 10;
+  const frBadgeX   = iconStartX + 28;
+  const frBadgeY   = y - 5 - 22;
+  const frBadgeG   = this.add.graphics().setDepth(106);
+  const frBadgeTxt = this.add.text(frBadgeX, frBadgeY, "", {
+    fontFamily: "Signika", fontSize: "10px", color: "#ffffff", fontStyle: "bold"
+  }).setOrigin(0.5).setDepth(107);
+
+  const updateFriendBadge = (count) => {
+    frBadgeG.clear();
+    frBadgeTxt.setText("");
+    if (count <= 0) return;
+    frBadgeG.fillStyle(0xdd2222, 1);
+    frBadgeG.fillCircle(frBadgeX, frBadgeY, frBadgeR);
+    frBadgeTxt.setText(count > 99 ? "99+" : String(count));
+  };
+  this._updateFriendBadge = updateFriendBadge;
+
+  // Lắng nghe event từ FriendPanel
+  this.events.off("friendrequest:count");
+  this.events.on("friendrequest:count", (count) => {
+    this._friendRequestCount = count;
+    updateFriendBadge(count);
+  });
+
+  // Fetch số lượng YC kết bạn ngay khi lobby load (qua socket)
+  const fetchFriendRequestCount = () => {
+    if (!this._worldSocket?.connected) return;
+    this._worldSocket.emit("friend:requests");
+    this._worldSocket.once("friend:requests", (data) => {
+      const count = (data || []).length;
+      this._friendRequestCount = count;
+      updateFriendBadge(count);
+    });
+  };
+  // Thử fetch sau 1s để socket kịp connect
+  this.time.delayedCall(1000, fetchFriendRequestCount);
+
   friend.on("pointerdown", () => {
     if (this._friendPanelOpen) {
       this._destroyFriendPanel();
@@ -1009,6 +1048,13 @@ createTopBar() {
         }
       }
     });
+
+    // ── Lắng nghe YC kết bạn mới khi FriendPanel chưa mở ────────
+    this._worldSocket.on("friend:request:incoming", () => {
+      if (this._friendPanelOpen) return; // FriendPanel tự xử lý
+      this._friendRequestCount = (this._friendRequestCount || 0) + 1;
+      this._updateFriendBadge?.(this._friendRequestCount);
+    });
   }
 
   // ── Confirm dialog — dùng chung cho FriendPanel và các nơi khác ──
@@ -1264,6 +1310,10 @@ createTopBar() {
         depth:      160
       });
       this._friendPanel.build(width, height);
+      // Khôi phục count badge từ cache nếu có
+      if (this._friendRequestCount > 0) {
+        this._updateFriendBadge?.(this._friendRequestCount);
+      }
     };
 
     if (this._worldSocket?.connected) {

@@ -59,7 +59,37 @@ export default class BagScene extends Phaser.Scene {
         bg.setScale(Math.max(width / bg.width, height / bg.height));
 
         this._buildStarfield(width, height);
+
+        // ── Loading overlay: hiện ngay để che khoảng trống khi fetch data ──
+        const loadingOverlay = this.add.graphics().setDepth(500);
+        loadingOverlay.fillStyle(0x0a1a3a, 1);
+        loadingOverlay.fillRect(0, 0, width, height);
+
+        const loadingDots = this.add.text(width / 2, height / 2, "Đang tải...", {
+            fontFamily: "Signika",
+            fontSize: "26px",
+            color: "#ffffff",
+            stroke: "#003388",
+            strokeThickness: 5,
+        }).setOrigin(0.5).setDepth(501);
+
+        // Animate dấu chấm loading
+        let dotCount = 0;
+        const dotTimer = this.time.addEvent({
+            delay: 400,
+            loop: true,
+            callback: () => {
+                dotCount = (dotCount + 1) % 4;
+                loadingDots.setText("Đang tải" + ".".repeat(dotCount));
+            }
+        });
+
         await this.loadAllAssets();
+
+        // Dừng animation và xoá overlay
+        dotTimer.remove();
+        loadingDots.destroy();
+        loadingOverlay.destroy();
 
         // ── Layout ───────────────────────────────────────────────────
         const TAB_H   = 46;
@@ -118,6 +148,9 @@ export default class BagScene extends Phaser.Scene {
         this.renderRightPanel();
 
         this._setupDrag(rightCX, RIGHT_W);
+
+        // Fade in toàn bộ UI sau khi build xong
+        this.cameras.main.fadeIn(180);
     }
 
     update() {
@@ -407,7 +440,7 @@ export default class BagScene extends Phaser.Scene {
                     (PREVIEW_W - 20) / src.width,
                     (PREVIEW_H - 20) / src.height
                 ) * 0.92;
-                const charCY = PREVIEW_Y + PREVIEW_H / 2 + 26;
+                const charCY = PREVIEW_Y + PREVIEW_H / 2 + 1;
 
                 // ── AURA EFFECT ──────────────────────────────────────────
                 const groundY = PREVIEW_Y + PREVIEW_H - 18;
@@ -425,8 +458,7 @@ export default class BagScene extends Phaser.Scene {
                     charSprite.play(animKey);
                 }
 
-                // Float animation
-                this.tweens.add({ targets: charSprite, y: charCY - 6, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+                // Float animation đã tắt — nhân vật đứng yên
 
                 // 5. Ngôi sao lấp lánh ngẫu nhiên xung quanh nhân vật
                 const STAR_COUNT = 12;

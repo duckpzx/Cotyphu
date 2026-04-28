@@ -110,6 +110,10 @@ export default class FriendPanel {
         if (this._tabIdx !== i) {
           playTabSound(this.scene);
           this._tabIdx = i;
+          // Khi bấm tab Y.C Kết Bạn → xóa badge tab + thông báo lobby
+          if (i === 1) {
+            this.scene.events.emit("friendrequest:count", 0);
+          }
           this._drawTabs(TAB_START, TAB_Y, TAB_W, TAB_H, TAB_GAP);
           this._rebuildList();
         }
@@ -257,6 +261,40 @@ export default class FriendPanel {
         this._tabTxts[i].setColor("#6b4a10");
       }
     });
+
+    // ── Badge đỏ trên tab "Y.C Kết Bạn" (index 1) ───────────────
+    this._updateRequestTabBadge();
+  }
+
+  _updateRequestTabBadge() {
+    // Xóa badge cũ
+    if (this._reqTabBadgeG)   { try { this._reqTabBadgeG.destroy();   } catch(e){} this._reqTabBadgeG   = null; }
+    if (this._reqTabBadgeTxt) { try { this._reqTabBadgeTxt.destroy(); } catch(e){} this._reqTabBadgeTxt = null; }
+
+    const count = this._requests?.length || 0;
+    // Chỉ hiện khi có request VÀ không đang ở tab Y.C Kết Bạn
+    if (count <= 0 || this._tabIdx === 1) return;
+
+    const { TAB_START, TAB_Y, TAB_W, TAB_GAP } = this._tabMeta || {};
+    if (TAB_START === undefined) return;
+
+    const D   = this.depth;
+    const tx  = TAB_START + 1 * (TAB_W + TAB_GAP); // tab index 1
+    const bR  = 10;
+    const bX  = tx + TAB_W - bR + 2;
+    const bY  = TAB_Y - bR + 2;
+    const label = count > 99 ? "99+" : String(count);
+
+    this._reqTabBadgeG = this.scene.add.graphics().setDepth(D + 8);
+    this._reqTabBadgeG.fillStyle(0xdd2222, 1);
+    this._reqTabBadgeG.fillCircle(bX, bY, bR);
+
+    this._reqTabBadgeTxt = this.scene.add.text(bX, bY, label, {
+      fontFamily: "Signika", fontSize: "10px", color: "#ffffff", fontStyle: "bold"
+    }).setOrigin(0.5).setDepth(D + 9);
+
+    // Thêm vào _objs để tự destroy khi panel đóng
+    this._objs.push(this._reqTabBadgeG, this._reqTabBadgeTxt);
   }
 
   _buildToolbar(L, T, W, H, BAR_Y, BAR_H, PAD, D) {
@@ -383,15 +421,34 @@ export default class FriendPanel {
   _clearList() {
     this._listObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
     this._listObjs = [];
+    // Xóa scroll state
+    if (this._scrollContainer) {
+      try { this._scrollContainer.destroy(); } catch(e){}
+      this._scrollContainer = null;
+    }
+    if (this._scrollMaskShape) {
+      try { this._scrollMaskShape.destroy(); } catch(e){}
+      this._scrollMaskShape = null;
+    }
+    if (this._scrollbar) {
+      try { this._scrollbar.destroy(); } catch(e){}
+      this._scrollbar = null;
+    }
+    if (this._scrollbarTrack) {
+      try { this._scrollbarTrack.destroy(); } catch(e){}
+      this._scrollbarTrack = null;
+    }
+    this.scene.input.off("wheel", this._onWheel);
+    this._onWheel = null;
   }
 
   _rebuildList() {
     this._clearList();
     const D = this.depth;
     const L = this._listL, W = this._listW;
-    let T = this._listTop;
+    const T = this._listTop;
     const ROW_H = 58;
-    const ROW_GAP = 8; 
+    const ROW_GAP = 8;
     const q = (this._searchQuery || "").toLowerCase();
 
     // ── Đường nét đứt phân cách toolbar / danh sách ──────────────
@@ -409,52 +466,176 @@ export default class FriendPanel {
     }
     this._listObjs.push(dashG);
 
+    // ── Lấy danh sách cần render ──────────────────────────────────
+    let list = [];
+    let emptyMsg = "";
+
     if (this._tabIdx === 0) {
-      // ── D.S Bạn Bè ──────────────────────────────────────────────
-      let list = [...this._friends];
+      list = [...this._friends];
       if (q) list = list.filter(f => (f.name || "").toLowerCase().includes(q));
-      // Sắp xếp
       if (this._sortMode === "status") {
-        // Online=3, Trong phòng=2, Trong trận=1, Offline=0
         list.sort((a, b) => {
           const rank = f => f.online && !f.in_game && !f.in_room ? 3
-                          : f.in_room ? 2
-                          : f.in_game ? 1
-                          : 0;
+                          : f.in_room ? 2 : f.in_game ? 1 : 0;
           return rank(b) - rank(a);
         });
       } else {
         list.sort((a, b) => (a.name || "").localeCompare(b.name || "", "vi"));
       }
-
-      if (!list.length) {
-        this._pushListText(L + W / 2, T + 60, "Chưa có bạn bè nào", "#b8922e", D);
-      } else {
-        list.forEach((f, i) => this._buildFriendRow(L, T + i * (ROW_H + ROW_GAP), W, ROW_H, f, D));
-      }
-
+      emptyMsg = "Chưa có bạn bè nào";
       this._footerTxt?.setText(`${this._friends.length}/100 bạn`);
-
     } else if (this._tabIdx === 1) {
-      // ── Y.C Kết Bạn ─────────────────────────────────────────────
-      const list = this._requests;
-      if (!list.length) {
-        this._pushListText(L + W / 2, T + 60, "Không có lời mời nào", "#b8922e", D);
-      } else {
-        list.forEach((r, i) => this._buildRequestRow(L, T + i * (ROW_H + ROW_GAP), W, ROW_H, r, D));
-      }
+      list = this._requests;
+      emptyMsg = "Không có lời mời nào";
       this._footerTxt?.setText("");
-
     } else {
-      // ── Mời Bạn (tìm kiếm) ──────────────────────────────────────
-      const list = this._search;
-      if (!list.length) {
-        this._pushListText(L + W / 2, T + 60, "Nhập tên để tìm kiếm", "#b8922e", D);
-      } else {
-        list.forEach((u, i) => this._buildSearchRow(L, T + i * (ROW_H + ROW_GAP), W, ROW_H, u, D));
-      }
+      list = this._search;
+      emptyMsg = "Nhập tên để tìm kiếm";
       this._footerTxt?.setText("");
     }
+
+    if (!list.length) {
+      this._pushListText(L + W / 2, T + 60, emptyMsg, "#b8922e", D);
+      return;
+    }
+
+    // ── Tính tổng chiều cao nội dung ──────────────────────────────
+    const totalContentH = list.length * (ROW_H + ROW_GAP) - ROW_GAP;
+    const visibleH      = this._listH;
+
+    // ── Tạo scroll container ──────────────────────────────────────
+    // Container đặt tại (0,0), các row render theo tọa độ tuyệt đối
+    // rồi offset bằng container.y
+    const container = this.scene.add.container(0, 0).setDepth(D + 1);
+    this._scrollContainer = container;
+    this._listObjs.push(container);
+
+    // Render tất cả rows vào container (tọa độ local = tọa độ scene - offsetY)
+    const renderRows = () => {
+      // Xóa children cũ của container
+      container.removeAll(true);
+
+      list.forEach((item, i) => {
+        const rowY = T + i * (ROW_H + ROW_GAP) + (container._scrollY || 0);
+        if (this._tabIdx === 0) {
+          this._buildFriendRow(L, rowY, W, ROW_H, item, D);
+        } else if (this._tabIdx === 1) {
+          this._buildRequestRow(L, rowY, W, ROW_H, item, D);
+        } else {
+          this._buildSearchRow(L, rowY, W, ROW_H, item, D);
+        }
+      });
+    };
+
+    // Dùng cách đơn giản hơn: render rows bình thường nhưng dùng mask để clip
+    // và dịch chuyển tất cả objects theo scrollY
+
+    // Render rows lần đầu
+    container._scrollY = 0;
+    list.forEach((item, i) => {
+      const rowY = T + i * (ROW_H + ROW_GAP);
+      if (this._tabIdx === 0)      this._buildFriendRow(L, rowY, W, ROW_H, item, D);
+      else if (this._tabIdx === 1) this._buildRequestRow(L, rowY, W, ROW_H, item, D);
+      else                         this._buildSearchRow(L, rowY, W, ROW_H, item, D);
+    });
+
+    // Lấy các row objects (tất cả objects được push sau dashG)
+    const dashIdx = this._listObjs.indexOf(dashG);
+    const rowObjs = this._listObjs.slice(dashIdx + 1);
+
+    // ── Geometry Mask để clip vùng list ──────────────────────────
+    const maskShape = this.scene.make.graphics({ add: false });
+    maskShape.fillStyle(0xffffff);
+    maskShape.fillRect(L - 2, T, W + 4, visibleH);
+    const geomMask = maskShape.createGeometryMask();
+    this._scrollMaskShape = maskShape;
+
+    rowObjs.forEach(o => {
+      try { o?.setMask?.(geomMask); } catch(e){}
+    });
+
+    // Nếu nội dung không vượt quá vùng hiển thị → không cần scroll
+    if (totalContentH <= visibleH) return;
+
+    // ── Scrollbar track ───────────────────────────────────────────
+    const SB_W  = 6;
+    const SB_X  = L + W + 8;
+    const SB_TY = T;
+    const SB_H  = visibleH;
+
+    const trackG = this.scene.add.graphics().setDepth(D + 3);
+    trackG.fillStyle(0x9d7d48, 0.25);
+    trackG.fillRoundedRect(SB_X, SB_TY, SB_W, SB_H, 3);
+    this._scrollbarTrack = trackG;
+    this._listObjs.push(trackG);
+
+    const thumbH   = Math.max(30, (visibleH / totalContentH) * SB_H);
+    const thumbG   = this.scene.add.graphics().setDepth(D + 4);
+    this._scrollbar = thumbG;
+    this._listObjs.push(thumbG);
+
+    let scrollY = 0;
+    const maxScroll = totalContentH - visibleH;
+
+    const drawThumb = () => {
+      thumbG.clear();
+      const ratio  = scrollY / maxScroll;
+      const thumbY = SB_TY + ratio * (SB_H - thumbH);
+      thumbG.fillStyle(0x9d7d48, 0.85);
+      thumbG.fillRoundedRect(SB_X, thumbY, SB_W, thumbH, 3);
+    };
+    drawThumb();
+
+    // ── Hàm scroll ───────────────────────────────────────────────
+    const doScroll = (delta) => {
+      scrollY = Phaser.Math.Clamp(scrollY + delta, 0, maxScroll);
+      const offset = -scrollY;
+      rowObjs.forEach(o => {
+        if (!o || o._scrollBaseY === undefined) return;
+        try { o.y = o._scrollBaseY + offset; } catch(e){}
+      });
+      drawThumb();
+    };
+
+    // Lưu base Y cho tất cả row objects TRƯỚC khi scroll
+    rowObjs.forEach(o => {
+      if (!o) return;
+      try { o._scrollBaseY = o.y; } catch(e){}
+    });
+
+    // ── Mouse wheel ───────────────────────────────────────────────
+    this._onWheel = (pointer, gameObjects, deltaX, deltaY) => {
+      if (!this._open) return;
+      // Chỉ scroll khi chuột trong vùng list
+      if (pointer.x < L || pointer.x > L + W || pointer.y < T || pointer.y > T + visibleH) return;
+      doScroll(deltaY * 0.5);
+    };
+    this.scene.input.on("wheel", this._onWheel);
+
+    // ── Drag scroll (touch/mouse drag) ────────────────────────────
+    let dragStartY = null;
+    let dragStartScroll = 0;
+
+    const listZone = this.scene.add.zone(L + W / 2, T + visibleH / 2, W, visibleH)
+      .setInteractive({ draggable: true }).setDepth(D);
+    this._listObjs.push(listZone);
+
+    listZone.on("dragstart", (pointer) => {
+      dragStartY      = pointer.y;
+      dragStartScroll = scrollY;
+    });
+    listZone.on("drag", (pointer) => {
+      if (dragStartY === null) return;
+      const diff = dragStartY - pointer.y;
+      scrollY = Phaser.Math.Clamp(dragStartScroll + diff, 0, maxScroll);
+      const offset = -scrollY;
+      rowObjs.forEach(o => {
+        if (!o || o._scrollBaseY === undefined) return;
+        try { o.y = o._scrollBaseY + offset; } catch(e){}
+      });
+      drawThumb();
+    });
+    listZone.on("dragend", () => { dragStartY = null; });
   }
 
   _pushListText(x, y, text, color, D) {
@@ -935,6 +1116,8 @@ export default class FriendPanel {
     this._onRequests = (data) => {
       this._requests = data || [];
       if (this._tabIdx === 1) this._rebuildList();
+      this._updateRequestTabBadge();
+      this.scene.events.emit("friendrequest:count", this._requests.length);
     };
     this._onSearchResult = (data) => {
       this._search = data || [];
@@ -943,6 +1126,8 @@ export default class FriendPanel {
     this._onRequestIncoming = (data) => {
       this._requests.unshift(data);
       if (this._tabIdx === 1) this._rebuildList();
+      this._updateRequestTabBadge();
+      this.scene.events.emit("friendrequest:count", this._requests.length);
     };
     this._onAcceptedNotify = (data) => {
       this.socket.emit("friend:list"); // refresh

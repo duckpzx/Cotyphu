@@ -45,6 +45,17 @@ export default class RoomListScene extends Phaser.Scene {
     this._buildPaginationArrows(width, height);
     this._buildBottomButtons(width, height);
 
+    // Hiện loading text trong panel trong khi chờ API
+    const pb = this._panelBounds;
+    this._loadingText = this.add.text(
+      pb.x + pb.w / 2, pb.y + pb.h / 2,
+      "Đang tải danh sách phòng...", {
+        fontFamily: "Signika", fontSize: "22px", color: "#b8922e",
+        align: "center",
+      }
+    ).setOrigin(0.5).setDepth(10);
+    this._roomsLoaded = false;
+
     // Load rooms từ server
     const roomTypes = ["pho_thong", "tan_thu", "cao_thu", "bac_thay"];
     this.loadRoomsFromApi(width, height, roomTypes[this.currentTab]).catch(err => {
@@ -79,10 +90,12 @@ export default class RoomListScene extends Phaser.Scene {
       try { data = JSON.parse(text); }
       catch (e) {
         console.error("Rooms API không trả JSON:", text);
+        this._roomsLoaded = true;
         this._renderRooms(width, height); return;
       }
       if (!data.success || !Array.isArray(data.rooms)) {
         console.error("Rooms API lỗi:", data);
+        this._roomsLoaded = true;
         this._renderRooms(width, height); return;
       }
       this.allRooms = data.rooms.map(room => ({
@@ -100,9 +113,11 @@ export default class RoomListScene extends Phaser.Scene {
         room_type:   room.room_type
       }));
       this.currentPage = 0;
+      this._roomsLoaded = true;
       this._renderRooms(width, height);
     } catch (err) {
       console.error("Load rooms error:", err);
+      this._roomsLoaded = true;
       this._renderRooms(width, height);
     }
   }
@@ -224,6 +239,17 @@ export default class RoomListScene extends Phaser.Scene {
           this.currentTab  = i; this.currentPage = 0;
           this._drawAllTabs(startX, tabY, tabW, tabH, gap);
           const roomTypes = ["pho_thong", "tan_thu", "cao_thu", "bac_thay"];
+          // Hiện loading text khi đổi tab
+          if (this._loadingText) this._loadingText.destroy();
+          const pb = this._panelBounds;
+          this._loadingText = this.add.text(
+            pb.x + pb.w / 2, pb.y + pb.h / 2,
+            "Đang tải danh sách phòng...", {
+              fontFamily: "Signika", fontSize: "22px", color: "#b8922e",
+              align: "center",
+            }
+          ).setOrigin(0.5).setDepth(10);
+          this._roomsLoaded = false;
           this.loadRoomsFromApi(width, height, roomTypes[i]);
         });
     });
@@ -316,6 +342,13 @@ export default class RoomListScene extends Phaser.Scene {
   _renderRooms(width, height) {
     this.cardObjects.forEach(c => c.destroy());
     this.cardObjects = [];
+
+    // Xóa loading text nếu có
+    if (this._loadingText) {
+      this._loadingText.destroy();
+      this._loadingText = null;
+    }
+
     const rooms = this.allRooms;
     const start = this.currentPage * this.roomsPerPage;
     const page  = rooms.slice(start, start + this.roomsPerPage);
@@ -323,6 +356,21 @@ export default class RoomListScene extends Phaser.Scene {
     const padX = 18, padY = 16, gapX = 15, gapY = 13;
     const cardW = Math.floor((pb.w - padX * 2 - gapX * (cols - 1)) / cols);
     const cardH = Math.floor((pb.h - padY * 2 - gapY * (rows - 1)) / rows);
+
+    // Hiện "Không có phòng" nếu đã load xong mà rỗng
+    if (page.length === 0 && this._roomsLoaded) {
+      const pb = this._panelBounds;
+      this._loadingText = this.add.text(
+        pb.x + pb.w / 2, pb.y + pb.h / 2,
+        "Chưa có phòng nào.", {
+          fontFamily: "Signika", fontSize: "22px", color: "#b8922e",
+          align: "center",
+        }
+      ).setOrigin(0.5).setDepth(10);
+      this.cardObjects.push(this._loadingText);
+      return;
+    }
+
     page.forEach((room, idx) => {
       const col = idx % cols, row = Math.floor(idx / cols);
       const cx  = pb.x + padX + col * (cardW + gapX) + cardW / 2;
@@ -1073,6 +1121,28 @@ export default class RoomListScene extends Phaser.Scene {
         : betRow1.getValue() !== null
         ? betRow1.getValue()
         : 5000;
+
+      // ── Kiểm tra tiền cược ────────────────────────────────────
+      const playerData = this.registry.get("playerData")
+        || JSON.parse(localStorage.getItem("playerData") || "null");
+      const ecoin = Number(
+        playerData?.user?.ecoin ?? playerData?.ecoin ?? 0
+      );
+
+      if (!bet || bet <= 0) {
+        this.showAlert("Vui lòng chọn mức cược!");
+        return;
+      }
+      if (ecoin < bet) {
+        const fmt = (v) => v >= 1000000
+          ? (v / 1000000).toFixed(v % 1000000 === 0 ? 0 : 1) + "M"
+          : v >= 1000 ? (v / 1000) + "K" : String(v);
+        this.showAlert(
+          `Không đủ Ecoin!\nCần: ${fmt(bet)} — Hiện có: ${fmt(ecoin)}`
+        );
+        return;
+      }
+      // ─────────────────────────────────────────────────────────
 
       const roomConfig = {
         type: roomRow.getValue(),

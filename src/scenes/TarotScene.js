@@ -36,7 +36,34 @@ export default class TarotScene extends Phaser.Scene {
         }
         this.playerUserId = this.playerData?.user_id || this.playerData?.user?.id || null;
 
+        // ── Loading overlay: che khoảng trống khi fetch data ──
+        const loadingOverlay = this.add.graphics().setDepth(500);
+        loadingOverlay.fillStyle(0x0a1a3a, 1);
+        loadingOverlay.fillRect(0, 0, width, height);
+
+        const loadingDots = this.add.text(width / 2, height / 2, "Đang tải...", {
+            fontFamily: "Signika",
+            fontSize: "26px",
+            color: "#ffffff",
+            stroke: "#003388",
+            strokeThickness: 5,
+        }).setOrigin(0.5).setDepth(501);
+
+        let dotCount = 0;
+        const dotTimer = this.time.addEvent({
+            delay: 400,
+            loop: true,
+            callback: () => {
+                dotCount = (dotCount + 1) % 4;
+                loadingDots.setText("Đang tải" + ".".repeat(dotCount));
+            }
+        });
+
         await this.loadTarotAssetsFromServer();
+
+        dotTimer.remove();
+        loadingDots.destroy();
+        loadingOverlay.destroy();
 
         // ── Background ───────────────────────────────────────────────
         const bg = this.add.image(width / 2, height / 2, "tarot-bg");
@@ -178,6 +205,9 @@ export default class TarotScene extends Phaser.Scene {
         });
         this.input.on("pointerup",  () => { this.isDragging = false; });
         this.input.on("pointerout", () => { this.isDragging = false; });
+
+        // Fade in toàn bộ UI sau khi build xong
+        this.cameras.main.fadeIn(180);
     }
 
     update() {

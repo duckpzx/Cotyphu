@@ -321,7 +321,7 @@ export default class PlayerProfilePanel {
       if (this.scene.textures.exists(fk)) {
         const ak = `${player.character_name}_${player.skin_id}_idle`;
         const sz = Math.min(width, height) * 0.85;
-        const sp = push(this.scene.add.sprite(cx, cy, fk).setDisplaySize(sz, sz).setDepth(depth + 1));
+        const sp = push(this.scene.add.sprite(cx, cy + 2, fk).setDisplaySize(sz, sz).setDepth(depth + 1));
         if (this.scene.anims.exists(ak)) sp.play(ak);
         this._avatarSprite = sp;
         return;
@@ -401,16 +401,36 @@ export default class PlayerProfilePanel {
 
     const toLoad = cards.filter(c => !this.scene.textures.exists(`tarot_${c.tarot_id || c.id}`));
     if (toLoad.length === 0) { renderCards(); return; }
+
+    // Hiện placeholder skeleton trong khi chờ load
+    cards.forEach((card, i) => {
+      const cx = startX + i * (cardW + GAP) + cardW / 2;
+      const cy = startY;
+      const sg = this.scene.add.graphics().setDepth(this.depth + 4);
+      sg.fillStyle(0x000000, 0.18);
+      sg.fillRoundedRect(cx - cardW / 2 + 1, cy - cardH / 2 + 1, cardW, cardH, 6);
+      sg.fillStyle(0xc8a060, 0.35);
+      sg.fillRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, 6);
+      this._tarotObjs.push(sg);
+    });
+
+    const pendingKeys = new Set(toLoad.map(c => `tarot_${c.tarot_id || c.id}`));
     let loaded = 0;
-    const done = () => {
+    const done = (key) => {
+      if (!pendingKeys.has(key)) return;
+      pendingKeys.delete(key);
       if (++loaded >= toLoad.length) {
         this.scene.load.off("filecomplete", done);
-        this.scene.load.off("loaderror",    done);
+        this.scene.load.off("loaderror",    onError);
         renderCards();
       }
     };
+    const onError = (fileObj) => {
+      const key = fileObj?.key || fileObj;
+      done(key);
+    };
     this.scene.load.on("filecomplete", done);
-    this.scene.load.on("loaderror",    done);
+    this.scene.load.on("loaderror",    onError);
     toLoad.forEach(c => {
       const id = c.tarot_id || c.id;
       this.scene.load.image(`tarot_${id}`, `assets/resources/Tarot/thebai_${id}.png`);
