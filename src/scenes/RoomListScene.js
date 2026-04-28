@@ -1,5 +1,6 @@
 import { SERVER_URL } from "../config.js";
 import { setupClickSound, playTabSound, playOutSound } from "../utils/clickSound.js";
+import { createLoadingOverlay } from "../utils/loadingOverlay.js";
 export default class RoomListScene extends Phaser.Scene {
 
   constructor() {
@@ -36,6 +37,9 @@ export default class RoomListScene extends Phaser.Scene {
     const bg = this.add.image(width / 2, height / 2, "bg_room");
     bg.setScale(Math.max(width / bg.width, height / bg.height));
 
+    // ── Loading overlay ──
+    const loading = createLoadingOverlay(this);
+
     this._buildStarfield(width, height);
     this._buildBackBtn(width, height);
     this._buildTitle(width, height);
@@ -44,6 +48,9 @@ export default class RoomListScene extends Phaser.Scene {
     this._renderRooms(width, height);
     this._buildPaginationArrows(width, height);
     this._buildBottomButtons(width, height);
+
+    // Tắt loading sau khi build UI xong
+    this.time.delayedCall(100, () => loading.destroy());
 
     // Hiện loading text trong panel trong khi chờ API
     const pb = this._panelBounds;

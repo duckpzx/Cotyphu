@@ -8,6 +8,13 @@
  */
 import { setupClickSound } from "../utils/clickSound.js";
 
+// ── Helper: chọn background theo giờ trong ngày ──────────────────
+// 5:00 → 19:00 = ban ngày (light), còn lại = ban đêm (dark)
+function getLobbyBgKey() {
+  const hour = new Date().getHours();
+  return (hour >= 5 && hour < 19) ? "lobby-bg-light" : "lobby-bg-dark";
+}
+
 const STYLE = "pulse"; // "pulse" | "orb" | "shimmer"
 
 // ─────────────────────────────────────────────────────────
@@ -297,7 +304,8 @@ export default class SplashScene extends Phaser.Scene {
   }
 
   preload() {
-    this.load.image("splash_bg",  "assets/ui/lobby/background.png");
+    this.load.image("lobby-bg-light", "assets/ui/lobby/background_light.png");
+    this.load.image("lobby-bg-dark",  "assets/ui/lobby/background_dark.png");
     this.load.audio("lobby_bgm",  "assets/music/lobby/lobbyscene.mp3");
   }
 
@@ -305,8 +313,9 @@ export default class SplashScene extends Phaser.Scene {
     const { width, height } = this.scale;
     setupClickSound(this);
 
-    // ── Nền lobby ────────────────────────────────────────
-    const bg = this.add.image(width / 2, height / 2, "splash_bg");
+    // ── Nền lobby theo giờ ───────────────────────────────
+    const bgKey = getLobbyBgKey();
+    const bg = this.add.image(width / 2, height / 2, bgKey);
     bg.setScale(Math.max(width / bg.width, height / bg.height));
 
     // ── Blur canvas + overlay tối ────────────────────────

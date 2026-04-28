@@ -5,6 +5,13 @@ import FriendPanel from "./components/FriendPanel.js";
 import { SERVER_URL } from "../config.js";
 import { setupClickSound, playTabSound, playOutSound } from "../utils/clickSound.js";
 
+// ── Helper: chọn background theo giờ trong ngày ──────────────────
+// 5:00 → 19:00 = ban ngày (light), còn lại = ban đêm (dark)
+function getLobbyBgKey() {
+  const hour = new Date().getHours();
+  return (hour >= 5 && hour < 19) ? "lobby-bg-light" : "lobby-bg-dark";
+}
+
 // src/scenes/LobbyScene.js
 export default class LobbyScene extends Phaser.Scene {
   constructor() {
@@ -12,12 +19,10 @@ export default class LobbyScene extends Phaser.Scene {
   }
 
   preload() {
-    // nếu có ảnh sảnh thì load ở đây
-    this.load.image(
-      "lobby-bg",
-      "assets/ui/lobby/background.png"
-    );
-    
+    // Load cả 2 nền, dùng theo giờ
+    this.load.image("lobby-bg-light", "assets/ui/lobby/background_light.png");
+    this.load.image("lobby-bg-dark",  "assets/ui/lobby/background_dark.png");
+
     // icon top bar
     this.load.image("coin","assets/ui/shared/coin.png");
     this.load.image("add","assets/ui/shared/add.png");
@@ -58,8 +63,8 @@ export default class LobbyScene extends Phaser.Scene {
     }
     setupClickSound(this);
 
-    // ===== NỀN SẢNH =====
-    const bg = this.add.image(width / 2, height / 2, "lobby-bg");
+    // ===== NỀN SẢNH theo giờ =====
+    const bg = this.add.image(width / 2, height / 2, getLobbyBgKey());
 
     // scale theo chiều ngang
     const scale = width / bg.width;
@@ -343,6 +348,13 @@ createTopBar() {
     .setOrigin(0.5)
     .setDepth(103)
     .setInteractive({ cursor: 'pointer' });
+
+  plusBtn.on("pointerover",  () => plusBtn.setTint(0xddffdd));
+  plusBtn.on("pointerout",   () => plusBtn.clearTint());
+  plusBtn.on("pointerdown",  () => {
+    this.tweens.add({ targets: plusBtn, scale: 0.55, duration: 80, yoyo: true });
+    this.time.delayedCall(100, () => this._showTopUpPanel(width, height));
+  });
 
 
 // ===== ICON MENU =====
@@ -1327,6 +1339,258 @@ createTopBar() {
     this._friendPanelOpen = false;
     this._friendPanel?.destroy();
     this._friendPanel = null;
+  }
+
+  _showToast(msg) {
+    const { width, height } = this.scale;
+    const t = this.add.text(width / 2, height / 2 - 60, msg, {
+      fontFamily: "Signika", fontSize: "16px", color: "#ffffff",
+      backgroundColor: "#00000099", padding: { x: 16, y: 8 }
+    }).setOrigin(0.5).setDepth(300);
+    this.tweens.add({ targets: t, alpha: 0, delay: 1800, duration: 400, onComplete: () => t.destroy() });
+  }
+
+  // ── PANEL NẠP ECOIN ──────────────────────────────────────────────
+  _showTopUpPanel(width, height) {
+    if (this._topUpPanelOpen) return;
+    this._topUpPanelOpen = true;
+
+    const objs = [];
+    const push = o => { objs.push(o); return o; };
+    const D = 200;
+
+    const closeAll = () => {
+      this._topUpPanelOpen = false;
+      objs.forEach(o => { try { o?.destroy(); } catch(e){} });
+    };
+
+    // ── Dimmer ────────────────────────────────────────────────────
+    const dimmer = push(this.add.graphics().setDepth(D));
+    dimmer.fillStyle(0x000000, 0.55);
+    dimmer.fillRect(0, 0, width, height);
+    dimmer.setAlpha(0);
+    this.tweens.add({ targets: dimmer, alpha: 1, duration: 200 });
+
+    // Bấm ngoài để đóng
+    const dimZone = push(this.add.zone(width / 2, height / 2, width, height)
+      .setInteractive().setDepth(D));
+    dimZone.on("pointerdown", closeAll);
+
+    // ── Panel chính (style BagScene) ─────────────────────────────
+    const PW = 560, PH = 400;
+    const PX = width / 2, PY = height / 2;
+    const R  = 18;
+    const left = PX - PW / 2, top = PY - PH / 2;
+
+    const panelG = push(this.add.graphics().setDepth(D + 1));
+    // Bóng đổ
+    panelG.fillStyle(0x000000, 0.25);
+    panelG.fillRoundedRect(left + 6, top + 6, PW, PH, R);
+    // Nền gradient vàng kem
+    panelG.fillGradientStyle(0xf6eac6, 0xf6eac6, 0xede0b0, 0xede0b0, 1);
+    panelG.fillRoundedRect(left, top, PW, PH, R);
+    // Viền trắng ngoài
+    panelG.lineStyle(3, 0xffffff, 1);
+    panelG.strokeRoundedRect(left, top, PW, PH, R);
+    // Gloss trên
+    panelG.fillStyle(0xffffff, 0.18);
+    panelG.fillRoundedRect(left + 6, top + 4, PW - 12, 22, 8);
+    // Viền đứt nét vàng bên trong
+    const ins = 10, cR = R - 4;
+    panelG.lineStyle(1.5, 0xb8922e, 0.5);
+    const drawD = (x1, y1, x2, y2) => {
+      const dist = Phaser.Math.Distance.Between(x1, y1, x2, y2);
+      const ang  = Phaser.Math.Angle.Between(x1, y1, x2, y2);
+      for (let d = 0; d < dist; d += 14) {
+        panelG.beginPath();
+        panelG.moveTo(x1 + Math.cos(ang) * d, y1 + Math.sin(ang) * d);
+        panelG.lineTo(x1 + Math.cos(ang) * Math.min(d + 8, dist), y1 + Math.sin(ang) * Math.min(d + 8, dist));
+        panelG.strokePath();
+      }
+    };
+    drawD(left+ins+cR, top+ins, left+PW-ins-cR, top+ins);
+    drawD(left+PW-ins, top+ins+cR, left+PW-ins, top+PH-ins-cR);
+    drawD(left+PW-ins-cR, top+PH-ins, left+ins+cR, top+PH-ins);
+    drawD(left+ins, top+PH-ins-cR, left+ins, top+ins+cR);
+
+    // Chặn click xuyên panel
+    const panelZone = push(this.add.zone(PX, PY, PW, PH)
+      .setInteractive().setDepth(D + 1));
+    panelZone.on("pointerdown", (p) => p.event?.stopPropagation?.());
+
+    // ── Tiêu đề pill ─────────────────────────────────────────────
+    const pillW = 220, pillH = 44, pillR = 22;
+    const pillG = push(this.add.graphics().setDepth(D + 2));
+    pillG.fillStyle(0x000000, 0.2);
+    pillG.fillRoundedRect(PX - pillW/2 + 4, top - pillH/2 + 5, pillW, pillH, pillR);
+    pillG.fillGradientStyle(0xd4a030, 0xd4a030, 0xb07820, 0xb07820, 1);
+    pillG.fillRoundedRect(PX - pillW/2, top - pillH/2, pillW, pillH, pillR);
+    pillG.fillStyle(0xffffff, 0.28);
+    pillG.fillRoundedRect(PX - pillW/2 + 8, top - pillH/2 + 6, pillW - 16, pillH * 0.38, pillR - 2);
+    pillG.lineStyle(2.5, 0x8b5e1a, 1);
+    pillG.strokeRoundedRect(PX - pillW/2, top - pillH/2, pillW, pillH, pillR);
+
+    push(this.add.text(PX, top - pillH/2 + pillH/2, "💰 NẠP ECOIN", {
+      fontFamily: "Signika", fontSize: "20px", color: "#4a2000", fontStyle: "bold",
+      stroke: "#ffffffaa", strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(D + 3));
+
+    // ── Nút đóng X ───────────────────────────────────────────────
+    const closeX = left + PW + 2, closeY = top - 2;
+    const closeG = push(this.add.graphics().setDepth(D + 4));
+    closeG.fillStyle(0xcc3333, 1);
+    closeG.fillCircle(closeX, closeY, 16);
+    closeG.fillStyle(0xffffff, 0.25);
+    closeG.fillCircle(closeX, closeY - 4, 10);
+    push(this.add.text(closeX, closeY, "✕", {
+      fontFamily: "Signika", fontSize: "16px", color: "#ffffff", fontStyle: "bold"
+    }).setOrigin(0.5).setDepth(D + 5));
+    push(this.add.zone(closeX, closeY, 36, 36)
+      .setInteractive({ cursor: "pointer" }).setDepth(D + 5))
+      .on("pointerdown", closeAll);
+
+    // ── Tỷ giá quy đổi ───────────────────────────────────────────
+    const rateBoxX = left + 20, rateBoxY = top + 44;
+    const rateBoxW = PW - 40, rateBoxH = 90;
+    const rateG = push(this.add.graphics().setDepth(D + 2));
+    rateG.fillStyle(0xfff8e8, 1);
+    rateG.fillRoundedRect(rateBoxX, rateBoxY, rateBoxW, rateBoxH, 10);
+    rateG.lineStyle(1.5, 0xd4a030, 0.6);
+    rateG.strokeRoundedRect(rateBoxX, rateBoxY, rateBoxW, rateBoxH, 10);
+
+    push(this.add.text(PX, rateBoxY + 14, "✦  Tỷ giá quy đổi  ✦", {
+      fontFamily: "Signika", fontSize: "13px", color: "#b07820", fontStyle: "bold"
+    }).setOrigin(0.5).setDepth(D + 3));
+
+    const rates = [
+      "10.000đ = 100 Ecoin",  "50.000đ = 550 Ecoin",
+      "100.000đ = 1.200 Ecoin", "200.000đ = 2.600 Ecoin",
+    ];
+    rates.forEach((r, i) => {
+      const col = i % 2, row = Math.floor(i / 2);
+      push(this.add.text(
+        rateBoxX + 20 + col * (rateBoxW / 2),
+        rateBoxY + 34 + row * 22, r, {
+          fontFamily: "Signika", fontSize: "12px", color: "#5a3000"
+        }
+      ).setDepth(D + 3));
+    });
+
+    // ── Các gói nạp ──────────────────────────────────────────────
+    const packages = [
+      { amount: 10000,   ecoin: 100,   label: "10K",   icon: "🪙", color: 0x6a9fd4 },
+      { amount: 50000,   ecoin: 550,   label: "50K",   icon: "💰", color: 0x44aa66 },
+      { amount: 100000,  ecoin: 1200,  label: "100K",  icon: "💎", color: 0x9966cc },
+      { amount: 200000,  ecoin: 2600,  label: "200K",  icon: "👑", color: 0xd4a030 },
+      { amount: 500000,  ecoin: 7000,  label: "500K",  icon: "🔥", color: 0xcc4422 },
+      { amount: 1000000, ecoin: 15000, label: "1M",    icon: "⭐", color: 0xaa2288 },
+    ];
+
+    const cols = 3, cardW = 156, cardH = 100, gapX = 14, gapY = 10;
+    const gridW = cols * cardW + (cols - 1) * gapX;
+    const gridStartX = PX - gridW / 2;
+    const gridStartY = rateBoxY + rateBoxH + 16;
+
+    packages.forEach((pkg, i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      const cx = gridStartX + col * (cardW + gapX) + cardW / 2;
+      const cy = gridStartY + row * (cardH + gapY) + cardH / 2;
+      const bx = cx - cardW / 2, by = cy - cardH / 2;
+
+      const cg = push(this.add.graphics().setDepth(D + 2));
+      const drawCard = (hover = false) => {
+        cg.clear();
+        // Bóng
+        cg.fillStyle(0x000000, 0.2);
+        cg.fillRoundedRect(bx + 3, by + 4, cardW, cardH, 12);
+        // Nền
+        cg.fillStyle(pkg.color, hover ? 1 : 0.85);
+        cg.fillRoundedRect(bx, by, cardW, cardH, 12);
+        // Gloss
+        cg.fillStyle(0xffffff, hover ? 0.3 : 0.18);
+        cg.fillRoundedRect(bx + 6, by + 5, cardW - 12, cardH * 0.32, 8);
+        // Viền
+        cg.lineStyle(2, 0xffffff, hover ? 0.7 : 0.35);
+        cg.strokeRoundedRect(bx, by, cardW, cardH, 12);
+      };
+      drawCard();
+
+      // Icon emoji
+      push(this.add.text(cx - 38, cy - 14, pkg.icon, { fontSize: "28px" })
+        .setOrigin(0.5).setDepth(D + 3));
+
+      // Số tiền VND
+      push(this.add.text(cx + 14, cy - 20, pkg.label + " VND", {
+        fontFamily: "Signika", fontSize: "15px", color: "#ffffff",
+        fontStyle: "bold", stroke: "#00000066", strokeThickness: 3,
+      }).setOrigin(0.5).setDepth(D + 3));
+
+      // Số ecoin nhận được
+      push(this.add.text(cx + 14, cy + 2, `= ${pkg.ecoin.toLocaleString()} Ecoin`, {
+        fontFamily: "Signika", fontSize: "12px", color: "#ffe066",
+        stroke: "#00000066", strokeThickness: 2,
+      }).setOrigin(0.5).setDepth(D + 3));
+
+      // Nút Nạp
+      const btnY = by + cardH - 18;
+      const btnG = push(this.add.graphics().setDepth(D + 3));
+      btnG.fillStyle(0xffffff, 0.25);
+      btnG.fillRoundedRect(bx + 10, btnY - 10, cardW - 20, 20, 10);
+      push(this.add.text(cx, btnY, "Nạp ngay", {
+        fontFamily: "Signika", fontSize: "11px", color: "#ffffff", fontStyle: "bold"
+      }).setOrigin(0.5).setDepth(D + 4));
+
+      // Zone click
+      const zone = push(this.add.zone(cx, cy, cardW, cardH)
+        .setInteractive({ cursor: "pointer" }).setDepth(D + 4));
+      zone.on("pointerover",  () => drawCard(true));
+      zone.on("pointerout",   () => drawCard(false));
+      zone.on("pointerdown",  () => {
+        this.tweens.add({ targets: cg, alpha: 0.7, duration: 80, yoyo: true });
+        this._doTopUp(pkg.amount, pkg.ecoin, closeAll);
+      });
+    });
+
+    // Fade in panel
+    this.tweens.add({
+      targets: [panelG, panelZone],
+      alpha: { from: 0, to: 1 },
+      duration: 200,
+      ease: "Back.easeOut"
+    });
+  }
+
+  async _doTopUp(amount, ecoin, onDone) {
+    const playerData = this.registry.get("playerData")
+      || JSON.parse(localStorage.getItem("playerData") || "null");
+    if (!playerData?.token) {
+      this._showToast("❌ Bạn chưa đăng nhập!");
+      return;
+    }
+    const userId = playerData?.user?.id || playerData?.user_id;
+    if (!userId) { this._showToast("❌ Không tìm thấy tài khoản!"); return; }
+
+    try {
+      const res  = await fetch(`${SERVER_URL}/shop/add-ecoin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId, amount: ecoin }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        EcoinManager.set(this, data.ecoin);
+        if (playerData?.user) {
+          playerData.user.ecoin = data.ecoin;
+          localStorage.setItem("playerData", JSON.stringify(playerData));
+        }
+        this._showToast(`✅ Nạp thành công +${ecoin.toLocaleString()} Ecoin!`);
+        onDone?.();
+      } else {
+        this._showToast(`❌ ${data.message || "Nạp thất bại!"}`);
+      }
+    } catch(e) {
+      this._showToast("❌ Lỗi kết nối server!");
+    }
   }
 
   _showToast(msg) {

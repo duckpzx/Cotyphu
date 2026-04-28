@@ -1,4 +1,5 @@
 import { setupClickSound, playOutSound } from "../utils/clickSound.js";
+import { createLoadingOverlay } from "../utils/loadingOverlay.js";
 export default class RatingScene extends Phaser.Scene {
     constructor() { super("RatingScene"); }
 
@@ -13,6 +14,9 @@ export default class RatingScene extends Phaser.Scene {
 
         const bg = this.add.image(width / 2, height / 2, "rating-bg");
         bg.setScale(Math.max(width / bg.width, height / bg.height));
+
+        // ── Loading overlay ──
+        const loading = createLoadingOverlay(this);
 
         // Back button + title giống BagScene
         const backBtn = this.add.image(48, 48, "out").setScale(1).setDepth(200).setInteractive({ cursor: "pointer" });
@@ -29,5 +33,8 @@ export default class RatingScene extends Phaser.Scene {
             stroke: "#003388", strokeThickness: 6,
             shadow: { offsetX: 2, offsetY: 3, color: "#001166", blur: 6, fill: true },
         }).setOrigin(0, 0.5).setPadding(8, 6, 8, 6).setDepth(200);
+
+        // Tắt loading sau khi build xong
+        this.time.delayedCall(100, () => loading.destroy());
     }
 }

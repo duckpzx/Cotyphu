@@ -1,6 +1,7 @@
 ﻿import { getPlayerData, setPlayerData } from "../server/utils/playerData.js";
 import { SERVER_URL } from "../config.js";
 import { setupClickSound, playTabSound, playOutSound, playUseSound } from "../utils/clickSound.js";
+import { createLoadingOverlay } from "../utils/loadingOverlay.js";
 
 export default class BagScene extends Phaser.Scene {
     constructor() {
@@ -61,35 +62,11 @@ export default class BagScene extends Phaser.Scene {
         this._buildStarfield(width, height);
 
         // ── Loading overlay: hiện ngay để che khoảng trống khi fetch data ──
-        const loadingOverlay = this.add.graphics().setDepth(500);
-        loadingOverlay.fillStyle(0x0a1a3a, 1);
-        loadingOverlay.fillRect(0, 0, width, height);
-
-        const loadingDots = this.add.text(width / 2, height / 2, "Đang tải...", {
-            fontFamily: "Signika",
-            fontSize: "26px",
-            color: "#ffffff",
-            stroke: "#003388",
-            strokeThickness: 5,
-        }).setOrigin(0.5).setDepth(501);
-
-        // Animate dấu chấm loading
-        let dotCount = 0;
-        const dotTimer = this.time.addEvent({
-            delay: 400,
-            loop: true,
-            callback: () => {
-                dotCount = (dotCount + 1) % 4;
-                loadingDots.setText("Đang tải" + ".".repeat(dotCount));
-            }
-        });
+        const loading = createLoadingOverlay(this);
 
         await this.loadAllAssets();
 
-        // Dừng animation và xoá overlay
-        dotTimer.remove();
-        loadingDots.destroy();
-        loadingOverlay.destroy();
+        loading.destroy();
 
         // ── Layout ───────────────────────────────────────────────────
         const TAB_H   = 46;

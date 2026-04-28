@@ -2,6 +2,7 @@ import EcoinManager from "../server/utils/ecoinManager.js";
 import { getPlayerData, setPlayerData } from "../server/utils/playerData.js";
 import { SERVER_URL } from "../config.js";
 import { setupClickSound, playTabSound, playOutSound, playBuySound } from "../utils/clickSound.js";
+import { createLoadingOverlay } from "../utils/loadingOverlay.js";
 
 // src/scenes/ShopScene.js
 export default class ShopScene extends Phaser.Scene {
@@ -78,34 +79,12 @@ export default class ShopScene extends Phaser.Scene {
         bg.setScale(Math.max(width / bg.width, height / bg.height));
 
         // ── Loading overlay: che khoảng trống khi fetch data ──
-        const loadingOverlay = this.add.graphics().setDepth(500);
-        loadingOverlay.fillStyle(0x0a1a3a, 1);
-        loadingOverlay.fillRect(0, 0, width, height);
-
-        const loadingDots = this.add.text(width / 2, height / 2, "Đang tải...", {
-            fontFamily: "Signika",
-            fontSize: "26px",
-            color: "#ffffff",
-            stroke: "#003388",
-            strokeThickness: 5,
-        }).setOrigin(0.5).setDepth(501);
-
-        let dotCount = 0;
-        const dotTimer = this.time.addEvent({
-            delay: 400,
-            loop: true,
-            callback: () => {
-                dotCount = (dotCount + 1) % 4;
-                loadingDots.setText("Đang tải" + ".".repeat(dotCount));
-            }
-        });
+        const loading = createLoadingOverlay(this);
 
         // ── Tải dữ liệu ──
         await this._loadShopData();
 
-        dotTimer.remove();
-        loadingDots.destroy();
-        loadingOverlay.destroy();
+        loading.destroy();
 
         // ── Layout (giống BagScene) ──
         const TAB_H   = 46;
