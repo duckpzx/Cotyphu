@@ -387,6 +387,40 @@ _closeTarotModal() { this.tarotModal?.close(); }
       const startIndex  = other.index || 0;
       const targetIndex = data.index;
       const totalCells  = this.boardPath.length;
+
+      // Nếu server báo đi lùi (send_enemy_back), animate ngược chiều
+      if (data.direction === "backward") {
+        const backSteps = data.steps || 2;
+        let step = 0;
+        const moveBack = () => {
+          if (step >= backSteps) {
+            other.index = targetIndex;
+            const key = `${data.characterName||'Dark_Oracle'}_${data.skin||1}_idle`;
+            if (this.anims.exists(key)) other.play(key);
+            return;
+          }
+          const ni = ((startIndex - step - 1) + totalCells) % totalCells;
+          const nc = this.boardPath[ni];
+          const nx = nc.x * this.scale.width, ny = nc.y * this.scale.height;
+          // Khi lùi, flip ngược lại hướng đang đứng
+          if (nx > other.x) other.setFlipX(true);
+          else if (nx < other.x) other.setFlipX(false);
+          const rKey = `${data.characterName||'Dark_Oracle'}_${data.skin||1}_run_throw`;
+          if (this.anims.exists(rKey)) other.play(rKey);
+          this.tweens.add({
+            targets: other, x: nx, y: ny, duration: 350, ease: "Sine.easeInOut",
+            onUpdate: () => {
+              if (other.shadow)    { other.shadow.x = other.x; other.shadow.y = other.y + 5; }
+              if (other.nameText)  { other.nameText.x = other.x; other.nameText.y = other.y - 140 * this.minRatio; }
+            },
+            onComplete: () => { step++; moveBack(); }
+          });
+        };
+        moveBack();
+        return;
+      }
+
+      // Di chuyển tiến bình thường
       const steps = targetIndex >= startIndex
         ? targetIndex - startIndex
         : (totalCells - startIndex) + targetIndex;
@@ -754,9 +788,36 @@ _closeTarotModal() { this.tarotModal?.close(); }
           text: `${data.name} đẩy ${data.target_name} lùi 2 ô!`,
           icon: "orb_red"
         });
-        // Nếu là mình bị đẩy, có thể xử lý thông báo
-        if (!isMe && data.target_user_id === this._myUserId()) {
+
+        // Nếu là mình bị đẩy → animate lùi 2 ô
+        if (data.target_user_id === this._myUserId()) {
           this._showToast(`🌀 Bạn bị đẩy lùi 2 ô bởi ${data.name}!`, "#ff8888", 2000);
+          const backSteps = 2;
+          const totalCells = this.boardPath.length;
+          const startIdx = this.currentIndex;
+          let step = 0;
+          const moveBack = () => {
+            if (step >= backSteps) {
+              this.currentIndex = data.dest_index;
+              this.onPlayerStop();
+              return;
+            }
+            const ni = ((startIdx - step - 1) + totalCells) % totalCells;
+            const nc = this.boardPath[ni];
+            const nx = nc.x * this.scale.width;
+            const ny = nc.y * this.scale.height;
+            if (nx > this.player.x) this.player.setFlipX(true);
+            else if (nx < this.player.x) this.player.setFlipX(false);
+            this.tweens.add({
+              targets: this.player, x: nx, y: ny, duration: 350, ease: "Sine.easeInOut",
+              onUpdate: () => {
+                if (this.shadow)         { this.shadow.x = this.player.x; this.shadow.y = this.player.y + 5; }
+                if (this.playerNameText) { this.playerNameText.x = this.player.x; this.playerNameText.y = this.player.y - 140 * this.minRatio; }
+              },
+              onComplete: () => { step++; moveBack(); }
+            });
+          };
+          moveBack();
         }
         return;
       }
@@ -864,6 +925,34 @@ _closeTarotModal() { this.tarotModal?.close(); }
           text: `${data.name} sẽ di chuyển thêm ${data.min}–${data.max} ô sau lượt này!`,
           icon: "orb_blue"
         });
+        return;
+      }
+
+      // ================== MOVE FORWARD RANGE (Nhanh Chân — thực thi) ==================
+      if (data.type === "move_forward_range") {
+        this._showSkillPanel({
+          title: "NHANH CHÂN",
+          text: `${data.name} tiến thêm ${data.steps} ô!`,
+          icon: "orb_blue"
+        });
+        if (isMe && data.steps > 0) {
+          this.time.delayedCall(600, () => {
+            this._movePlayerSteps(data.steps, () => {
+              this.socket.emit("game:move_done", {
+                room_id: this.gameRoomId,
+                cell_index: this.currentIndex
+              });
+            });
+          });
+        } else if (!isMe && data.steps > 0) {
+          // Animate nhân vật người khác
+          const otherEntry = Object.entries(this.otherPlayers || {})
+            .find(([, op]) => op?._userId === data.user_id || op?.userId === data.user_id);
+          if (otherEntry) {
+            const [, otherSprite] = otherEntry;
+            this._moveOtherPlayerSteps(otherSprite, data.steps, data.dest_index, data.name);
+          }
+        }
         return;
       }
 
@@ -1988,9 +2077,11 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
         slot.cooldownOverlay?.setVisible(true);
         slot.cooldownText?.setVisible(true);
         slot.cooldownText?.setText(String(turnsLeft));
+        slot.text?.setVisible(false); // ẩn số thứ tự slot khi đang cooldown
       } else {
         slot.cooldownOverlay?.setVisible(false);
         slot.cooldownText?.setVisible(false);
+        slot.text?.setVisible(true); // hiện lại số thứ tự slot
       }
     });
   }
@@ -2782,7 +2873,7 @@ this.input.keyboard.on("keydown-Y", () => {
         const cY = card1Y + ci * (CARD_H + CARD_GAP);
 
         const cardShadow = this.add.graphics().setDepth(DEPTH + 1);
-        cardShadow.fillStyle(0x000000, 0.04);
+        cardShadow.fillStyle(0x000000, 0.01);
         cardShadow.fillRoundedRect(
           cardX + 2 * minRatio,
           cY + 3 * minRatio,
@@ -2831,25 +2922,26 @@ this.input.keyboard.on("keydown-Y", () => {
 
         const slotRadius = 6 * minRatio;
 
-        // Lớp đen mờ phủ toàn thẻ khi cooldown
+        // Lớp đen nhẹ phủ toàn thẻ khi cooldown
         const cooldownOverlay = this.add.graphics().setDepth(DEPTH + 6);
-        cooldownOverlay.fillStyle(0x000000, 0.62);
+        cooldownOverlay.fillStyle(0x000000, 0.55);
         cooldownOverlay.fillRoundedRect(cardX, cY, CARD_W, CARD_H, slotRadius);
 
-        // Số lượt còn chờ — to, căn giữa thẻ
+        // Số lượt còn chờ — hiện ở trên cùng thẻ bài, to và rõ
         const cooldownText = this.add.text(
           cardX + CARD_W / 2,
-          cY + CARD_H / 2,
+          cY + CARD_H * 0.18,
           "0",
           {
             fontFamily: "Signika",
-            fontSize: Math.floor(36 * minRatio) + "px",
-            color: "#ffffff",
+            fontSize: Math.floor(34 * minRatio) + "px",
+            color: "#00ddff",
             fontStyle: "bold",
-            stroke: "#000000",
-            strokeThickness: Math.floor(4 * minRatio)
+            stroke: "#001a22",
+            strokeThickness: Math.floor(4 * minRatio),
+            shadow: { offsetX: 0, offsetY: 2, color: "#000000", blur: 8, fill: true }
           }
-        ).setOrigin(0.5).setDepth(DEPTH + 7);
+        ).setOrigin(0.5, 0.5).setDepth(DEPTH + 8);
 
         // Ẩn mặc định
         cooldownOverlay.setVisible(false);
@@ -2914,11 +3006,11 @@ this.input.keyboard.on("keydown-Y", () => {
       color: "#e8f4ff",
       fontStyle: "bold",
       stroke: "#001339ff",
-      strokeThickness: Math.floor(7*S),
-      shadow: { offsetX: 0, offsetY: 1, color: "#001339ff", blur: 8, fill: true }
+      strokeThickness: Math.floor(6.5*S),
+      shadow: { offsetX: 0, offsetY: 1, color: "#001339ff", blur: 7, fill: true }
     }).setOrigin(0.5, 0.5).setDepth(63);
 
-    this._turnLabelText = this.add.text(width/2, 32*S, "LƯỢT", {
+    this._turnLabelText = this.add.text(width/2, 32*S+2, "LƯỢT", {
       fontFamily: "Signika",
       fontSize: Math.floor(42*S) + "px",
       color: "#e8f4ff",

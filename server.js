@@ -606,19 +606,34 @@ function applyPendingExtraMove(gs, cur, currentIndex, boardPath) {
   if (!cur.pending_extra_move?.active) return null;
   const { min, max, avoidEnemyCells } = cur.pending_extra_move;
   let steps = Math.floor(Math.random() * (max - min + 1)) + min;
+
   if (avoidEnemyCells) {
-    // Tìm số bước an toàn (không dừng vào ô đối thủ)
+    // Ưu tiên đi đúng số bước random, nhưng nếu ô đích là nhà đối thủ
+    // thì lùi dần về phía trước cho đến khi tìm được ô an toàn
     let bestSteps = steps;
-    for (let s = 1; s <= steps; s++) {
-      const targetIdx = (currentIndex + s) % TOTAL_CELLS;
-      const cellState = gs.cellStates[targetIdx];
-      if (!cellState || cellState.owner_user_id === cur.user_id) {
-        bestSteps = s;
-        break;
+    const targetIdx = (currentIndex + steps) % TOTAL_CELLS;
+    const targetCell = gs.cellStates[targetIdx];
+    const isEnemyCell = targetCell &&
+      Number(targetCell.owner_user_id) !== Number(cur.user_id);
+
+    if (isEnemyCell) {
+      // Tìm ô an toàn gần nhất trong khoảng [min, steps]
+      let found = false;
+      for (let s = steps - 1; s >= min; s--) {
+        const idx = (currentIndex + s) % TOTAL_CELLS;
+        const cell = gs.cellStates[idx];
+        if (!cell || Number(cell.owner_user_id) === Number(cur.user_id)) {
+          bestSteps = s;
+          found = true;
+          break;
+        }
       }
+      // Nếu không tìm được ô an toàn nào trong khoảng, vẫn đi số bước gốc
+      if (!found) bestSteps = steps;
     }
     steps = bestSteps;
   }
+
   cur.pending_extra_move = null;
   return steps;
 }
@@ -654,7 +669,7 @@ async function initGameState(room_id, sockets, bet_ecoin = 5000) {
         cash: bet_ecoin * 20,
         index: 0,
 
-        characterName: s.character_name || "Unknown",
+        characterName: s.character_name || "Dark_Oracle",
         skin: s.skin_id || 1,
 
         active_tarot_ids: activeTarotIds,
@@ -1281,11 +1296,11 @@ io.on("connection", (socket) => {
 
       const user = await userService.getUserById(user_id);
       if (!user) return;
-      let characterName = "Unknown", skinId = 1, activeBgId = null, activeBgPath = null;
+      let characterName = "Dark_Oracle", skinId = 1, activeBgId = null, activeBgPath = null;
       try {
         const chars = await characterService.getCharactersByUser(user_id);
         const ac    = chars.find(c => c.id === user.active_character_id) || chars[0];
-        if (ac) { characterName = ac.name || ac.character_name || "Unknown"; skinId = ac.active_skin_number || 1; }
+        if (ac) { characterName = ac.name || ac.character_name || "Dark_Oracle"; skinId = ac.active_skin_number || 1; }
       } catch(e) { console.error("Error matching chars", e); }
 
       // Lấy active background
@@ -1555,6 +1570,29 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
 
     gs.phase = "RESOLVING";
 
+    // ── NHANH CHÂN: pending_extra_move ────────────────────────────────────
+    // Chỉ áp dụng khi đây là lần move_done đầu tiên (chưa tiêu pending)
+    if (cur.pending_extra_move?.active) {
+      const currentIdx = Number(cell_index);
+      const extraSteps = applyPendingExtraMove(gs, cur, currentIdx, null);
+      if (extraSteps && extraSteps > 0) {
+        // Tính ô đích sau khi đi thêm
+        const destIdx = (currentIdx + extraSteps) % TOTAL_CELLS;
+        cur.index = currentIdx; // giữ vị trí hiện tại, client sẽ cập nhật sau khi đi xong
+
+        io.to(`room_${room_id}`).to(`game_${room_id}`).emit('game:skill_event', {
+          type:    'move_forward_range',
+          user_id: cur.user_id,
+          name:    cur.name,
+          steps:   extraSteps,
+          dest_index: destIdx
+        });
+        // Chờ client gửi game:move_done lần 2 sau khi đi xong
+        gs.phase = "MOVING";
+        return;
+      }
+    }
+
     // Nếu người chơi bị cấm tung lượt kế, áp dụng ngay
     if (cur.no_roll_next) {
       cur.no_roll_next = false;
@@ -1780,8 +1818,8 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
             const newIdx = (oldIdx - 2 + TOTAL_CELLS) % TOTAL_CELLS;
             targetEnemy.index = newIdx;
 
-            // Kiểm tra đi qua START
-            const didPassStart = oldIdx <= 2 && newIdx > oldIdx;
+            // Kiểm tra đi qua START (lùi qua ô 0)
+            const didPassStart = oldIdx < 2; // ô 0 hoặc 1 → lùi qua START
             if (didPassStart) {
               const bonus = Math.floor(gs.bet_ecoin * 4);
               targetEnemy.cash = (targetEnemy.cash || 0) + bonus;
@@ -1806,7 +1844,9 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
               id: targetEnemy.socket_id,
               index: newIdx,
               characterName: targetEnemy.name,
-              skin: targetEnemy.skin || 1
+              skin: targetEnemy.skin || 1,
+              direction: "backward",
+              steps: 2
             });
           }
           setTimeout(() => endTurn(room_id), 1200);

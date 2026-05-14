@@ -143,7 +143,7 @@ export default class PowerDiceSystem {
       color:      '#ffffff', fontStyle: 'bold',
       stroke: '#5a2200', strokeThickness: 3.5,
       shadow: { offsetX:0, offsetY:2, color:'#000000aa', blur:4, fill:true }
-    }).setOrigin(0.5);
+    }).setOrigin(0.5).setPadding(3, 2);
     this.btnContainer.add(this.btnText);
 
     const hit = sc.add.rectangle(0, 0, W+24, H+24, 0x000000, 0)

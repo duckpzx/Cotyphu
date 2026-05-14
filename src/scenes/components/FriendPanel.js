@@ -714,7 +714,7 @@ export default class FriendPanel {
         const nat = tex.source[0];
         const scale = (avR * 2 / nat.width) * 2;
         const img = push(this.scene.add.image(avX, midY, key)
-          .setOrigin(0.48, 0.45).setScale(scale).setDepth(D + 3));
+          .setOrigin(0.5, 0.35).setScale(scale).setDepth(D + 3));
         img.setMask(mask);
       } else {
         const avFill = push(this.scene.add.graphics().setDepth(D + 2));
@@ -901,7 +901,7 @@ export default class FriendPanel {
         const nat = tex.source[0];
         const scale = (avR * 2 / nat.width) * 2;
         const img = push(this.scene.add.image(avX, midY, key)
-          .setOrigin(0.48, 0.45).setScale(scale).setDepth(D + 3));
+          .setOrigin(0.5, 0.35).setScale(scale).setDepth(D + 3));
         img.setMask(mask);
       } else {
         const avFill = push(this.scene.add.graphics().setDepth(D + 2));

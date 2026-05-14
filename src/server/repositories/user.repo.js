@@ -3,8 +3,8 @@ import db from "../config/db.js";
 const userRepo = {
   async register(username, email, password) {
     const [result] = await db.query(
-      "INSERT INTO users (username,email,password) VALUES (?,?,?)",
-      [username, email, password]
+      "INSERT INTO users (username,email,password,ecoin) VALUES (?,?,?,?)",
+      [username, email, password, 200000]
     );
 
     return result.insertId;

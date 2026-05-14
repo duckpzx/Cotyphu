@@ -45,13 +45,8 @@ export default class TarotButtonWidget {
     this._btnG = push(sc.add.graphics().setDepth(D + 1));
     this._drawBtn(false, S, BW, BH);
 
-    // Icon thẻ bài
-    this._iconTxt = push(sc.add.text(bx - BW / 2 + 28 * S, by, "🃏", {
-      fontSize: Math.floor(22 * S) + "px"
-    }).setOrigin(0.5).setDepth(D + 3));
-
     // Label
-    this._labelTxt = push(sc.add.text(bx + 10 * S, by, "THẺ BÀI", {
+    this._labelTxt = push(sc.add.text(bx, by, "THẺ BÀI", {
       fontFamily: "Signika",
       fontSize: Math.floor(18 * S) + "px",
       color: "#fff2bf",

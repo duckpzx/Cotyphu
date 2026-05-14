@@ -25,7 +25,7 @@ export function setPlayerData(scene, data){
 
 export function getActiveProfile(scene) {
   const pd = getPlayerData(scene);
-  if (!pd || !pd.user) return { characterName: "Unknown", skin_id: 1, character_id: null };
+  if (!pd || !pd.user) return { characterName: "Dark_Oracle", skin_id: 1, character_id: null };
 
   const activeCharId = pd.user.active_character_id;
   let character = (pd.characters || []).find(c => Number(c.id) === Number(activeCharId));
@@ -34,11 +34,11 @@ export function getActiveProfile(scene) {
     character = pd.characters[0];
   }
 
-  if (!character) return { characterName: "Unknown", skin_id: 1, character_id: null };
+  if (!character) return { characterName: "Dark_Oracle", skin_id: 1, character_id: null };
 
   return {
     character_id: character.id,
-    characterName: character.name || character.character_name || "Unknown",
+    characterName: character.name || character.character_name || "Dark_Oracle",
     skin_id: character.active_skin_number || 1
   };
 }
