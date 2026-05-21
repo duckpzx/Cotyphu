@@ -103,12 +103,21 @@ _canUseTarotNow() {
   const myUid = this._myUserId();
   const myState = this.tarotStateByUserId?.[myUid];
 
-  return !!(
-    this.isMyTurn &&
-    this.canRoll &&
-    !this.mustAnswerNext &&
-    !myState?.used_tarot_this_turn
-  );
+  if (!this.isMyTurn || !this.canRoll || this.mustAnswerNext) return false;
+  if (myState?.used_tarot_this_turn) return false;
+
+  // Kiểm tra có ít nhất 1 thẻ đã hết cooldown (cooldown_turns_left === 0)
+  const me = (this.gamePlayers || []).find(p => Number(p.user_id) === Number(myUid));
+  const activeIds = this._normalizeTarotIds(me?.active_tarot_ids);
+  if (!activeIds.length) return false;
+
+  const runtime = myState?.tarot_runtime || {};
+  const hasUsableCard = activeIds.some(id => {
+    const rt = runtime[id] || {};
+    return Number(rt.cooldown_turns_left ?? 0) === 0;
+  });
+
+  return hasUsableCard;
 }
 
 _bindMyTarotSlotClicks() {
@@ -1198,6 +1207,11 @@ this.socket.on("game:tarot_state", (data) => {
   }
 
   this._refreshPlayerTarotCooldownByUserId(userId);
+
+  // Cập nhật trạng thái nút THẺ BÀI nếu là của mình
+  if (Number(userId) === Number(this._myUserId())) {
+    this.tarotBtn?.updateCooldownState();
+  }
 });
 
 
@@ -1219,6 +1233,11 @@ this.socket.on("game:tarot_state", (data) => {
  
     // Đóng modal nếu đang mở
     this.tarotModal?.close();
+
+    // Cập nhật trạng thái nút THẺ BÀI
+    if (isMe) {
+      this.tarotBtn?.updateCooldownState();
+    }
  
     // Hiệu ứng kích hoạt thẻ toàn màn hình (chỉ với người dùng)
     if (isMe) {
@@ -1971,57 +1990,76 @@ this.socket.on("game:tarot_denied", (data) => {
   // ANIMATIONS
   // =====================
   createBloodyAnimation() {
-    const idleFrames = [];
-    for (let i = 0; i < 18; i++)
-      idleFrames.push({ key: `Fantasy_Monster_1_idle_${String(i).padStart(3,"0")}` });
-    this.anims.create({ key:"Bloody_Alchemist_1_idle", frames:idleFrames, frameRate:12, repeat:-1 });
+    if (!this.anims.exists("Bloody_Alchemist_1_idle")) {
+      const idleFrames = [];
+      for (let i = 0; i < 18; i++)
+        idleFrames.push({ key: `Fantasy_Monster_1_idle_${String(i).padStart(3,"0")}` });
+      this.anims.create({ key:"Bloody_Alchemist_1_idle", frames:idleFrames, frameRate:12, repeat:-1 });
+    }
 
-    const teacherFrames = [];
-    for (let i = 0; i < 18; i++)
-      teacherFrames.push({ key: `Fantasy_Teacher_idle_${String(i).padStart(3,"0")}` });
-    this.anims.create({ key:"Fantasy_Teacher_idle", frames:teacherFrames, frameRate:12, repeat:-1 });
+    if (!this.anims.exists("Fantasy_Teacher_idle")) {
+      const teacherFrames = [];
+      for (let i = 0; i < 18; i++)
+        teacherFrames.push({ key: `Fantasy_Teacher_idle_${String(i).padStart(3,"0")}` });
+      this.anims.create({ key:"Fantasy_Teacher_idle", frames:teacherFrames, frameRate:12, repeat:-1 });
+    }
   }
 
   createAllAnimations() {
     this.characters.forEach(character => {
       for (let skin = 1; skin <= 3; skin++) {
-        const idleFrames = [];
-        for (let i = 0; i < 18; i++)
-          idleFrames.push({ key: `${character}_${skin}_idle_${String(i).padStart(3,"0")}` });
-        this.anims.create({ key:`${character}_${skin}_idle`, frames:idleFrames, frameRate:12, repeat:-1 });
+        const idleKey = `${character}_${skin}_idle`;
+        if (!this.anims.exists(idleKey)) {
+          const idleFrames = [];
+          for (let i = 0; i < 18; i++)
+            idleFrames.push({ key: `${character}_${skin}_idle_${String(i).padStart(3,"0")}` });
+          this.anims.create({ key: idleKey, frames: idleFrames, frameRate:12, repeat:-1 });
+        }
 
-        const runFrames = [];
-        for (let i = 0; i < 12; i++)
-          runFrames.push({ key: `${character}_${skin}_run_throw_${i}` });
-        this.anims.create({ key:`${character}_${skin}_run_throw`, frames:runFrames, frameRate:18, repeat:-1 });
+        const runKey = `${character}_${skin}_run_throw`;
+        if (!this.anims.exists(runKey)) {
+          const runFrames = [];
+          for (let i = 0; i < 12; i++)
+            runFrames.push({ key: `${character}_${skin}_run_throw_${i}` });
+          this.anims.create({ key: runKey, frames: runFrames, frameRate:18, repeat:-1 });
+        }
 
-        const hurtFrames = [];
-        for (let i = 0; i < 12; i++)
-          hurtFrames.push({ key: `${character}_${skin}_hurt_${String(i).padStart(3,"0")}` });
-        this.anims.create({ key:`${character}_${skin}_hurt`, frames:hurtFrames, frameRate:18, repeat:0 });
+        const hurtKey = `${character}_${skin}_hurt`;
+        if (!this.anims.exists(hurtKey)) {
+          const hurtFrames = [];
+          for (let i = 0; i < 12; i++)
+            hurtFrames.push({ key: `${character}_${skin}_hurt_${String(i).padStart(3,"0")}` });
+          this.anims.create({ key: hurtKey, frames: hurtFrames, frameRate:18, repeat:0 });
+        }
       }
     });
 
     // Fire arrow animation for skill cell 28
-    const fireArrowFrames = [];
-    for (let i = 1; i <= 8; i++) {
-      const frame = String(i).padStart(2, "0");
-      fireArrowFrames.push({ key: `fire_arrow_${frame}` });
+    if (!this.anims.exists("fire_arrow")) {
+      const fireArrowFrames = [];
+      for (let i = 1; i <= 8; i++) {
+        const frame = String(i).padStart(2, "0");
+        fireArrowFrames.push({ key: `fire_arrow_${frame}` });
+      }
+      this.anims.create({ key: "fire_arrow", frames: fireArrowFrames, frameRate:24, repeat: -1 });
     }
-    this.anims.create({ key: "fire_arrow", frames: fireArrowFrames, frameRate:24, repeat: -1 });
 
     // Water Ball animation for tax boost
-    const waterBallFrames = [];
-    for (let i = 1; i <= 12; i++) waterBallFrames.push({ key: `water_ball_${String(i).padStart(2,"0")}` });
-    this.anims.create({ key: "water_ball", frames: waterBallFrames, frameRate: 20, repeat: -1 });
+    if (!this.anims.exists("water_ball")) {
+      const waterBallFrames = [];
+      for (let i = 1; i <= 12; i++) waterBallFrames.push({ key: `water_ball_${String(i).padStart(2,"0")}` });
+      this.anims.create({ key: "water_ball", frames: waterBallFrames, frameRate: 20, repeat: -1 });
+    }
 
     // Hunter greeting animation for cell 28 event
-    const greetingFrames = [];
-    for (let i = 0; i < 10; i++) {
-      greetingFrames.push({ key: `Hunter_Greeting_${String(i).padStart(3,"0")}` });
+    if (!this.anims.exists("Hunter_Greeting")) {
+      const greetingFrames = [];
+      for (let i = 0; i < 10; i++) {
+        greetingFrames.push({ key: `Hunter_Greeting_${String(i).padStart(3,"0")}` });
+      }
+      this.anims.create({ key: "Hunter_Greeting", frames: greetingFrames, frameRate:12, repeat:0 });
+      this.anims.create({ key: "Hunter_Greeting_2", frames: greetingFrames, frameRate:12, repeat:0 });
     }
-    this.anims.create({ key: "Hunter_Greeting", frames: greetingFrames, frameRate:12, repeat:0 });
-    this.anims.create({ key: "Hunter_Greeting_2", frames: greetingFrames, frameRate:12, repeat:0 });
   }
 
 updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
@@ -2075,11 +2113,13 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
 
       if (turnsLeft > 0) {
         slot.cooldownOverlay?.setVisible(true);
+        slot.cooldownIcon?.setVisible(true);
         slot.cooldownText?.setVisible(true);
         slot.cooldownText?.setText(String(turnsLeft));
         slot.text?.setVisible(false); // ẩn số thứ tự slot khi đang cooldown
       } else {
         slot.cooldownOverlay?.setVisible(false);
+        slot.cooldownIcon?.setVisible(false);
         slot.cooldownText?.setVisible(false);
         slot.text?.setVisible(true); // hiện lại số thứ tự slot
       }
@@ -2255,6 +2295,7 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
   // DICE SPRITE (scene-level, hiện sau handoff)
   // =====================
   createDiceAnimations() {
+    if (this.anims.exists("dice_blur_spin")) return;
     const blurFrames = [];
     for (let i=1;i<=6;i++) blurFrames.push({key:`dice_blur_${i}`});
     this.anims.create({ key:"dice_blur_spin", frames:blurFrames, frameRate:18, repeat:-1 });
@@ -2920,31 +2961,41 @@ this.input.keyboard.on("keydown-Y", () => {
           4 * minRatio
         );
 
-        const slotRadius = 6 * minRatio;
-
         // Lớp đen nhẹ phủ toàn thẻ khi cooldown
+        const slotRadius = 6 * minRatio;
         const cooldownOverlay = this.add.graphics().setDepth(DEPTH + 6);
-        cooldownOverlay.fillStyle(0x000000, 0.55);
+        cooldownOverlay.fillStyle(0x000000, 0.68);
         cooldownOverlay.fillRoundedRect(cardX, cY, CARD_W, CARD_H, slotRadius);
 
-        // Số lượt còn chờ — hiện ở trên cùng thẻ bài, to và rõ
+        // Icon đồng hồ
+        const cooldownIcon = this.add.text(
+          cardX + CARD_W / 2,
+          cY + CARD_H * 0.30,
+          "⏳",
+          {
+            fontSize: Math.floor(20 * minRatio) + "px"
+          }
+        ).setOrigin(0.5, 0.5).setDepth(DEPTH + 8);
+
+        // Số lượt còn chờ — hiện giữa thẻ bài, to và rõ
         const cooldownText = this.add.text(
           cardX + CARD_W / 2,
-          cY + CARD_H * 0.18,
+          cY + CARD_H * 0.62,
           "0",
           {
             fontFamily: "Signika",
-            fontSize: Math.floor(34 * minRatio) + "px",
+            fontSize: Math.floor(38 * minRatio) + "px",
             color: "#00ddff",
             fontStyle: "bold",
             stroke: "#001a22",
-            strokeThickness: Math.floor(4 * minRatio),
+            strokeThickness: Math.floor(5 * minRatio),
             shadow: { offsetX: 0, offsetY: 2, color: "#000000", blur: 8, fill: true }
           }
         ).setOrigin(0.5, 0.5).setDepth(DEPTH + 8);
 
         // Ẩn mặc định
         cooldownOverlay.setVisible(false);
+        cooldownIcon.setVisible(false);
         cooldownText.setVisible(false);
 
         p.tarotSlots.push({
@@ -2954,6 +3005,7 @@ this.input.keyboard.on("keydown-Y", () => {
           icon,
           footer,
           cooldownOverlay,
+          cooldownIcon,
           cooldownText,
           x: cardX,
           y: cY,

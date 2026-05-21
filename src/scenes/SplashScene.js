@@ -386,7 +386,7 @@ export default class SplashScene extends Phaser.Scene {
         this._cleanup();
         if (!this.sound.get("lobby_bgm")) {
           try {
-            const bgm = this.sound.add("lobby_bgm", { loop: true, volume: 0.28 });
+            const bgm = this.sound.add("lobby_bgm", { loop: true, volume: 0.56 });
             bgm.play();
           } catch(e) {}
         }

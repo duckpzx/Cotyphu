@@ -88,8 +88,8 @@ export function startFootstepSound(scene) {
 
     const play = () => {
       let sfx = scene.sound.get("board_footstep");
-      if (!sfx) sfx = scene.sound.add("board_footstep", { loop: true, volume: 0.55, rate: 1.1 });
-      sfx.setVolume(0.55);
+      if (!sfx) sfx = scene.sound.add("board_footstep", { loop: true, volume: 1.0, rate: 1.1 });
+      sfx.setVolume(1.0);
       if (!sfx.isPlaying) sfx.play();
     };
 
@@ -140,19 +140,20 @@ export function playBoardAnswerSound(scene) {
 export function playBoardCoinSound(scene) {
   _playBoardSound(scene, "board_coin", "assets/music/board/coin2.mp3");
 }
+
 export function playBoardBGM(scene) {
   try {
     if (!scene?.sound) return;
     if (!scene.cache.audio.exists("board_bgm")) {
       scene.load.audio("board_bgm", "assets/music/board/game.mp3");
       scene.load.once("complete", () => {
-        const bgm = scene.sound.add("board_bgm", { loop: true, volume: 0.22 });
+        const bgm = scene.sound.add("board_bgm", { loop: true, volume: 0.44 });
         bgm.play();
       });
       scene.load.start();
     } else {
       let bgm = scene.sound.get("board_bgm");
-      if (!bgm) bgm = scene.sound.add("board_bgm", { loop: true, volume: 0.22 });
+      if (!bgm) bgm = scene.sound.add("board_bgm", { loop: true, volume: 0.44 });
       if (!bgm.isPlaying) bgm.play();
     }
   } catch(e) {}
@@ -163,15 +164,15 @@ function _playBoardSound(scene, key, path) {
     if (!scene?.sound) return;
     if (!scene.cache.audio.exists(key)) {
       scene.load.audio(key, path);
-      scene.load.once("complete", () => _playOnce(scene, key, 0.6));
+      scene.load.once("complete", () => _playOnce(scene, key, 1.0));
       scene.load.start();
     } else {
-      _playOnce(scene, key, 0.6);
+      _playOnce(scene, key, 1.0);
     }
   } catch(e) {}
 }
 
-function _playOnce(scene, key, volume = 0.5) {
+function _playOnce(scene, key, volume = 1.0) {
   try {
     let sfx = scene.sound.get(key);
     if (!sfx) sfx = scene.sound.add(key, { volume });
@@ -188,7 +189,7 @@ function _bindClick(scene) {
     try {
       if (!scene.sound || !scene.scene.isActive()) return;
       let sfx = scene.sound.get("click_sfx");
-      if (!sfx) sfx = scene.sound.add("click_sfx", { volume: 0.45 });
+      if (!sfx) sfx = scene.sound.add("click_sfx", { volume: 0.9 });
       if (sfx && !sfx.isPlaying) sfx.play();
     } catch(e) {}
   });

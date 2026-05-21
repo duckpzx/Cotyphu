@@ -39,10 +39,23 @@ export default class TarotModalSystem {
 
     // ── Kiểm tra điều kiện chung ──────────────────────────────────────────
     if (!sc._canUseTarotNow()) {
+      const myState = sc.tarotStateByUserId?.[myUid];
+      const me2 = (sc.gamePlayers || []).find(p => Number(p.user_id) === Number(myUid));
+      const activeIds = sc._normalizeTarotIds(me2?.active_tarot_ids);
+      const runtime = myState?.tarot_runtime || {};
+
+      // Tìm thẻ có cooldown thấp nhất để thông báo
+      let minCd = Infinity;
+      activeIds.forEach(id => {
+        const left = Number(runtime[id]?.cooldown_turns_left ?? 0);
+        if (left > 0 && left < minCd) minCd = left;
+      });
+
       const reason = !sc.isMyTurn              ? "Chưa đến lượt của bạn"
                    : !sc.canRoll               ? "Không thể dùng thẻ sau khi đã tung xúc xắc"
-                   : sc.tarotStateByUserId?.[myUid]?.used_tarot_this_turn
+                   : myState?.used_tarot_this_turn
                                                ? "Đã dùng thẻ trong lượt này"
+                   : minCd !== Infinity        ? `Tất cả thẻ đang hồi chiêu — còn ${minCd} lần tung`
                    :                             "Không thể dùng thẻ lúc này";
       sc._showToast(`⚠️ ${reason}`, "#ff9999", 2000);
       return;

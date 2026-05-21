@@ -6,6 +6,7 @@ dotenv.config();
 import express from "express";
 import http from "http";
 import cors from "cors";
+import compression from "compression";
 import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -32,8 +33,21 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
 app.use(cors());
+app.use(compression()); // gzip tất cả response
 app.use(express.json());
-app.use(express.static(path.join(__dirname)));
+
+// Static files với cache dài hạn cho assets (ảnh, âm thanh, font)
+// Browser sẽ cache lại sau lần đầu load — không cần download lại
+app.use("/assets", express.static(path.join(__dirname, "assets"), {
+  maxAge: "7d",          // cache 7 ngày
+  etag: true,
+  lastModified: true,
+  immutable: false
+}));
+app.use(express.static(path.join(__dirname), {
+  maxAge: "0",           // HTML/JS không cache để luôn lấy code mới nhất
+  etag: true
+}));
 
 console.log("🚀 Server đang chạy...");
 
@@ -704,9 +718,7 @@ function resetTurnTarotFlags(player) {
   player.used_tarot_this_turn = false;
   Object.values(player.tarot_runtime || {}).forEach(rt => {
     rt.used_this_turn = false;
-    if ((rt.cooldown_turns_left ?? 0) > 0) {
-      rt.cooldown_turns_left -= 1;
-    }
+    // Cooldown KHÔNG giảm theo lượt — chỉ giảm khi tung xúc xắc (xem game:roll)
   });
 }
 
@@ -1479,10 +1491,10 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     }
 
     const now = Date.now();
-    if (Number(runtime.next_available_at || 0) > now) {
+    // Cooldown tính theo số lần tung xúc xắc — nếu còn > 0 thì chưa được dùng
+    if (Number(runtime.cooldown_turns_left ?? 0) > 0) {
       return socket.emit("game:tarot_denied", {
-        message: "Thẻ đang hồi chiêu",
-        remaining_seconds: Math.ceil((runtime.next_available_at - now) / 1000)
+        message: `Thẻ đang hồi chiêu — còn ${runtime.cooldown_turns_left} lần tung xúc xắc`
       });
     }
 
@@ -1503,9 +1515,8 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     runtime.used_this_turn = true;
     runtime.last_used_at = now;
     runtime.last_used_turn = gs.turn_number;
-    runtime.next_available_at = now + Number(tarotDef.cooldown_seconds || 0) * 1000;
-    // Cooldown theo lượt (song song với cooldown_seconds)
-    runtime.cooldown_turns_left = Number(tarotDef.cooldown_turns ?? 0);
+    // Cooldown tính theo số lần tung xúc xắc — đây là cơ chế chính
+    runtime.cooldown_turns_left = Number(tarotDef.cooldown_turns ?? tarotDef.cooldown_seconds ?? 0);
 
     io.to(`game_${room_id}`).emit("game:tarot_used", {
       room_id,
@@ -1532,12 +1543,22 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     const cur = getCurrentTurnPlayer(room_id);
     if (!cur || cur.user_id !== socket.user_id) return socket.emit("game:error", { message: "Chưa tới lượt của bạn!" });
 
+    // ── Giảm cooldown_turns_left của tất cả thẻ khi người chơi tung xúc xắc ──
+    Object.values(cur.tarot_runtime || {}).forEach(rt => {
+      if ((rt.cooldown_turns_left ?? 0) > 0) {
+        rt.cooldown_turns_left -= 1;
+      }
+    });
+
     gs.phase = "ROLLING";
     const dice = Math.floor(Math.random() * 6) + 1;
     console.log(`🎲 ${cur.name} rolled ${dice} in room ${room_id}`);
     io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:dice_result", {
       room_id, socket_id: socket.id, user_id: socket.user_id, name: cur.name, dice,
     });
+
+    // Emit tarot state mới sau khi cooldown đã giảm
+    emitTarotState(room_id);
   });
 
   // ── GAME MOVE DONE ───────────────────────────────────────────────

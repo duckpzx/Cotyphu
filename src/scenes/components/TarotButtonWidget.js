@@ -81,24 +81,69 @@ export default class TarotButtonWidget {
     const bx    = this._bx;
     const by    = this._by;
     if (!g) return;
+    const onCd = this._onCooldown; // tất cả thẻ đang hồi
     g.clear();
     // Bóng
     g.fillStyle(0x000000, 0.3);
     g.fillRoundedRect(bx - BW / 2 + 3 * S, by - BH / 2 + 5 * S, BW, BH, BH / 2);
-    // Nền gradient vàng
-    g.fillGradientStyle(
-      hover ? 0xffdd55 : 0xffcc00,
-      hover ? 0xffdd55 : 0xffcc00,
-      hover ? 0xff9900 : 0xdd7700,
-      hover ? 0xff9900 : 0xdd7700, 1
-    );
+    // Nền gradient — xám khi cooldown, vàng khi sẵn sàng
+    if (onCd) {
+      g.fillGradientStyle(0x888888, 0x888888, 0x555555, 0x555555, 1);
+    } else {
+      g.fillGradientStyle(
+        hover ? 0xffdd55 : 0xffcc00,
+        hover ? 0xffdd55 : 0xffcc00,
+        hover ? 0xff9900 : 0xdd7700,
+        hover ? 0xff9900 : 0xdd7700, 1
+      );
+    }
     g.fillRoundedRect(bx - BW / 2, by - BH / 2, BW, BH, BH / 2);
     // Shine
     g.fillStyle(0xffffff, hover ? 0.32 : 0.20);
     g.fillRoundedRect(bx - BW / 2 + 8 * S, by - BH / 2 + 4 * S, BW - 16 * S, BH * 0.38, BH / 2 - 4 * S);
     // Viền
-    g.lineStyle(2 * S, 0xffffff, 0.8);
+    g.lineStyle(2 * S, onCd ? 0xaaaaaa : 0xffffff, 0.8);
     g.strokeRoundedRect(bx - BW / 2, by - BH / 2, BW, BH, BH / 2);
+  }
+
+  /**
+   * Cập nhật trạng thái cooldown của nút dựa trên tarot runtime.
+   * Gọi sau mỗi lần server emit tarot_state.
+   */
+  updateCooldownState() {
+    const sc    = this.scene;
+    const myUid = sc._myUserId?.();
+    if (!myUid) return;
+
+    const myState  = sc.tarotStateByUserId?.[myUid];
+    const me       = (sc.gamePlayers || []).find(p => Number(p.user_id) === Number(myUid));
+    const activeIds = sc._normalizeTarotIds?.(me?.active_tarot_ids) || [];
+    const runtime  = myState?.tarot_runtime || {};
+
+    // Tất cả thẻ đang hồi?
+    const allOnCd = activeIds.length > 0 && activeIds.every(id => {
+      return Number(runtime[id]?.cooldown_turns_left ?? 0) > 0;
+    });
+
+    this._onCooldown = allOnCd;
+    this._drawBtn(false, this._S, this._BW, this._BH);
+
+    // Cập nhật label
+    if (this._labelTxt) {
+      if (myState?.used_tarot_this_turn) {
+        this._labelTxt.setText("THẺ BÀI ✓").setColor("#aaaaaa");
+      } else if (allOnCd) {
+        // Tìm cooldown thấp nhất
+        let minCd = Infinity;
+        activeIds.forEach(id => {
+          const left = Number(runtime[id]?.cooldown_turns_left ?? 0);
+          if (left > 0 && left < minCd) minCd = left;
+        });
+        this._labelTxt.setText(`THẺ BÀI ⏳${minCd}`).setColor("#cccccc");
+      } else {
+        this._labelTxt.setText("THẺ BÀI").setColor("#fff2bf");
+      }
+    }
   }
 
   show() {
