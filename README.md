@@ -255,17 +255,12 @@ Thẻ "Bảo Vệ" cho phép bạn khóa 1 hành tinh khỏi mọi tác động 
 ## Credits
 
 - Game design & code: [duckpzx](https://github.com/duckpzx)
-- Phaser 3 community vì docs tốt
-- Stack Overflow vì... mọi thứ
-- Coffee vì tồn tại
 
 ---
 
 <div align="center">
 
-**"Vận may chỉ mỉm cười với người biết chuẩn bị."**
-
-*(Và người biết dùng thẻ Tarot đúng lúc)*
+**"Vận may mỉm cười với người biết chuẩn bị."**
 
 Made with ☕ and a lot of dice rolls.
 

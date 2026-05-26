@@ -6,7 +6,7 @@ dotenv.config();
 import express from "express";
 import http from "http";
 import cors from "cors";
-import compression from "compression";
+import compression from "compression        ";
 import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";

@@ -26,6 +26,55 @@ export default class FriendPanel {
     this._myUserId  = playerData?.user?.id || playerData?.id || null;
   }
 
+  /**
+   * Tạo màu gradient ngẫu nhiên dựa trên tên người dùng
+   * @param {string} name - Tên người dùng
+   * @returns {{ color1: number, color2: number }} - 2 màu cho gradient
+   */
+  _getAvatarColors(name) {
+    if (!name) name = "?";
+    
+    // Tạo hash từ tên để có màu nhất quán cho cùng 1 tên
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    
+    // Tạo hue từ hash (0-360 độ)
+    const hue = Math.abs(hash % 360);
+    
+    // Saturation cao (60-80%) để màu sắc rõ ràng
+    const sat1 = 60 + (Math.abs(hash >> 8) % 20);
+    const sat2 = 65 + (Math.abs(hash >> 16) % 15);
+    
+    // Lightness vừa phải (45-65%) để dễ đọc chữ trắng
+    const light1 = 45 + (Math.abs(hash >> 12) % 20);
+    const light2 = 50 + (Math.abs(hash >> 20) % 15);
+    
+    // Convert HSL to RGB
+    const hslToRgb = (h, s, l) => {
+      s /= 100;
+      l /= 100;
+      const k = n => (n + h / 30) % 12;
+      const a = s * Math.min(l, 1 - l);
+      const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+      return [
+        Math.round(255 * f(0)),
+        Math.round(255 * f(8)),
+        Math.round(255 * f(4))
+      ];
+    };
+    
+    const [r1, g1, b1] = hslToRgb(hue, sat1, light1);
+    const [r2, g2, b2] = hslToRgb(hue, sat2, light2);
+    
+    const color1 = (r1 << 16) | (g1 << 8) | b1;
+    const color2 = (r2 << 16) | (g2 << 8) | b2;
+    
+    return { color1, color2 };
+  }
+
   // ── PUBLIC ──────────────────────────────────────────────────────
 
   build(width, height) {
@@ -697,51 +746,21 @@ export default class FriendPanel {
     dotG.lineStyle(1.5, dotBorder, 1);
     dotG.strokeCircle(avX + avR - 4, midY + avR - 4, 6);
 
-    const charName = friend.character_name;
-    const skinId   = friend.skin_id || 1;
-    const frameKey = charName ? `${charName}_${skinId}_idle_000` : null;
-    const imgPath  = charName
-      ? `assets/characters/${charName}/${charName}_${skinId}/PNG/PNG Sequences/Idle Blinking/0_${charName}_Idle Blinking_000.png`
-      : null;
-
-    const renderAvatar = (key) => {
-      if (key && this.scene.textures.exists(key)) {
-        const maskG = this.scene.make.graphics({ add: false });
-        maskG.fillStyle(0xffffff);
-        maskG.fillCircle(avX, midY, avR - 1);
-        const mask = maskG.createGeometryMask();
-        const tex = this.scene.textures.get(key);
-        const nat = tex.source[0];
-        const scale = (avR * 2 / nat.width) * 2;
-        const img = push(this.scene.add.image(avX, midY, key)
-          .setOrigin(0.5, 0.35).setScale(scale).setDepth(D + 3));
-        img.setMask(mask);
-      } else {
-        const avFill = push(this.scene.add.graphics().setDepth(D + 2));
-        avFill.fillStyle(0xc4a865, 1);
-        avFill.fillCircle(avX, midY, avR - 1);
-        push(this.scene.add.text(avX, midY, (friend.name || "?").slice(0, 2).toUpperCase(), {
-          fontFamily: "Signika", fontSize: "14px", color: "#ffffff", fontStyle: "bold"
-        }).setOrigin(0.5).setDepth(D + 3));
-      }
-    };
-
-    if (frameKey && !this.scene.textures.exists(frameKey) && imgPath) {
-      const onDone = () => {
-        this.scene.load.off("filecomplete-image-" + frameKey, onDone);
-        this.scene.load.off("loaderror", onDone);
-        renderAvatar(frameKey);
-      };
-      this.scene.load.once("filecomplete-image-" + frameKey, onDone);
-      this.scene.load.once("loaderror", onDone);
-      this.scene.load.image(frameKey, imgPath);
-      this.scene.load.start();
-      const avFill = push(this.scene.add.graphics().setDepth(D + 2));
-      avFill.fillStyle(0xc4a865, 1);
-      avFill.fillCircle(avX, midY, avR - 1);
-    } else {
-      renderAvatar(frameKey);
-    }
+    // Hiển thị chữ cái đầu tên với gradient màu ngẫu nhiên
+    const { color1, color2 } = this._getAvatarColors(friend.name);
+    const avFill = push(this.scene.add.graphics().setDepth(D + 2));
+    avFill.fillGradientStyle(color1, color1, color2, color2, 1);
+    avFill.fillCircle(avX, midY, avR - 1);
+    
+    const initials = (friend.name || "?").slice(0, 2).toUpperCase();
+    push(this.scene.add.text(avX, midY, initials, {
+      fontFamily: "Signika",
+      fontSize: "18px",
+      color: "#ffffff",
+      fontStyle: "bold",
+      stroke: "rgba(0,0,0,0.4)",
+      strokeThickness: 3
+    }).setOrigin(0.5).setDepth(D + 3));
 
     // ── Tên + trạng thái ─────────────────────────────────────────
     push(this.scene.add.text(avX + avR + 12, midY - 9, friend.name || "?", {
@@ -882,55 +901,21 @@ export default class FriendPanel {
     avCircle.lineStyle(2.5, 0xaa8a54, 0.5);
     avCircle.strokeCircle(avX, midY, avR);
 
-    const charName = req.character_name;
-    const skinId   = req.skin_id || 1;
-    // Key và path giống hệt RoomScene._preloadPlayerSkins
-    const frameKey = charName ? `${charName}_${skinId}_idle_000` : null;
-    const imgPath  = charName
-      ? `assets/characters/${charName}/${charName}_${skinId}/PNG/PNG Sequences/Idle Blinking/0_${charName}_Idle Blinking_000.png`
-      : null;
-
-    const renderAvatar = (key) => {
-      if (key && this.scene.textures.exists(key)) {
-        const maskG = this.scene.make.graphics({ add: false });
-        maskG.fillStyle(0xffffff);
-        maskG.fillCircle(avX, midY, avR - 1);
-        const mask = maskG.createGeometryMask();
-
-        const tex = this.scene.textures.get(key);
-        const nat = tex.source[0];
-        const scale = (avR * 2 / nat.width) * 2;
-        const img = push(this.scene.add.image(avX, midY, key)
-          .setOrigin(0.5, 0.35).setScale(scale).setDepth(D + 3));
-        img.setMask(mask);
-      } else {
-        const avFill = push(this.scene.add.graphics().setDepth(D + 2));
-        avFill.fillStyle(0xc4a865, 1);
-        avFill.fillCircle(avX, midY, avR - 1);
-        push(this.scene.add.text(avX, midY, (req.from_name || "?").slice(0, 2).toUpperCase(), {
-          fontFamily: "Signika", fontSize: "14px", color: "#ffffff", fontStyle: "bold"
-        }).setOrigin(0.5).setDepth(D + 3));
-      }
-    };
-
-    if (frameKey && !this.scene.textures.exists(frameKey) && imgPath) {
-      // Load ảnh rồi render
-      const onDone = () => {
-        this.scene.load.off("filecomplete-image-" + frameKey, onDone);
-        this.scene.load.off("loaderror", onDone);
-        renderAvatar(frameKey);
-      };
-      this.scene.load.once("filecomplete-image-" + frameKey, onDone);
-      this.scene.load.once("loaderror", onDone);
-      this.scene.load.image(frameKey, imgPath);
-      this.scene.load.start();
-      // Hiện fallback trong lúc chờ load
-      const avFill = push(this.scene.add.graphics().setDepth(D + 2));
-      avFill.fillStyle(0xc4a865, 1);
-      avFill.fillCircle(avX, midY, avR - 1);
-    } else {
-      renderAvatar(frameKey);
-    }
+    // Hiển thị chữ cái đầu tên với gradient màu ngẫu nhiên
+    const { color1, color2 } = this._getAvatarColors(req.from_name);
+    const avFill = push(this.scene.add.graphics().setDepth(D + 2));
+    avFill.fillGradientStyle(color1, color1, color2, color2, 1);
+    avFill.fillCircle(avX, midY, avR - 1);
+    
+    const initials = (req.from_name || "?").slice(0, 2).toUpperCase();
+    push(this.scene.add.text(avX, midY, initials, {
+      fontFamily: "Arial Black, Arial, sans-serif",
+      fontSize: "16px",
+      color: "#ffffff",
+      fontStyle: "bold",
+      stroke: "rgba(0,0,0,0.3)",
+      strokeThickness: 3
+    }).setOrigin(0.5).setDepth(D + 3));
 
     // Tên
     push(this.scene.add.text(avX + avR + 12, midY, req.from_name || "?", {
@@ -1017,12 +1002,18 @@ export default class FriendPanel {
     rowBg.fillStyle(0x000000, 0.04);
     rowBg.fillRoundedRect(L, rowY + 2, W, H - 4, 8);
 
-    const avR = 22, avX = L + 14 + avR;
+    // ── Avatar circle với ảnh nhân vật ───────────────────────────
+    const avR = 22;
+    const avX = L + 14 + avR;
+
     const avCircle = push(this.scene.add.graphics().setDepth(D + 2));
-    avCircle.fillStyle(0x888888, 1);
-    avCircle.fillCircle(avX, midY, avR + 2);
-    avCircle.fillStyle(0xc4a865, 1);
-    avCircle.fillCircle(avX, midY, avR);
+    avCircle.lineStyle(2.5, 0x9d7d48, 1);
+    avCircle.strokeCircle(avX, midY, avR);
+
+    // Hiển thị chữ cái đầu tên thay vì ảnh nhân vật
+    const avFill = push(this.scene.add.graphics().setDepth(D + 2));
+    avFill.fillStyle(0xc4a865, 1);
+    avFill.fillCircle(avX, midY, avR - 1);
     push(this.scene.add.text(avX, midY, (user.name || "?").slice(0, 2).toUpperCase(), {
       fontFamily: "Signika", fontSize: "14px", color: "#ffffff", fontStyle: "bold"
     }).setOrigin(0.5).setDepth(D + 3));
