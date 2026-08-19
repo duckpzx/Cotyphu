@@ -6,7 +6,7 @@ dotenv.config();
 import express from "express";
 import http from "http";
 import cors from "cors";
-import compression from "compression        ";
+import compression from "compression";
 import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -181,7 +181,10 @@ function emitTarotState(room_id, user_id = null) {
 }
 
 function getEnemies(gs, cur) {
-  return (gs.players || []).filter(p => Number(p.user_id) !== Number(cur.user_id));
+  return (gs.players || []).filter(p =>
+    Number(p.user_id) !== Number(cur.user_id) &&
+    !isSameTeam(gs, cur.user_id, p.user_id)
+  );
 }
 
 function getTargetEnemy(gs, cur, requestedUserId = null) {
@@ -230,12 +233,8 @@ async function applyTarotEffect(gs, cur, tarotDef, payload = {}) {
   const effectType = tarotDef.effect_type;
   const room_id    = gs.room_id;
  
-  // ── Helper: lấy danh sách user_id đối thủ (hỗ trợ team 2v2) ──────────────
-  const getEnemyIds = () => {
-    const enemies = gs.players.filter(p => p.user_id !== cur.user_id);
-    // Team 2v2: trả về cả 2 đối thủ bên kia; 1vs1: chỉ 1 người
-    return enemies.map(e => e.user_id);
-  };
+  // ── Helper: lấy danh sách user_id đối thủ thật (hỗ trợ team 2v2) ──────────────
+  const getEnemyIds = () => getRealEnemyIds(gs, cur.user_id);
  
   // ── Helper: lấy tất cả cellState thuộc về user_id ──────────────────────────
   const getOwnedCellEntries = (userId) =>
@@ -257,8 +256,12 @@ async function applyTarotEffect(gs, cur, tarotDef, payload = {}) {
       const target = gs.players.find(p => Number(p.user_id) === targetUserId);
       if (!target) return false;
  
-      // Không cho phép target chính mình
+      // Không cho phép target chính mình hoặc đồng đội
       if (Number(target.user_id) === Number(cur.user_id)) return false;
+      if (isSameTeam(gs, cur.user_id, target.user_id)) {
+        socket.emit('game:tarot_denied', { message: 'Không thể dùng thẻ này lên đồng đội!' });
+        return false;
+      }
  
       // Tích lũy: nếu bị dùng 2 thẻ liên tiếp thì mất 2 lượt
       target.skip_next_turn = (target.skip_next_turn || 0) + 1;
@@ -437,6 +440,12 @@ async function applyTarotEffect(gs, cur, tarotDef, payload = {}) {
       if (!targetCell) return false; // ô trống
       if (Number(targetCell.owner_user_id) === Number(cur.user_id)) return false; // không được phá của mình
 
+      // Không được phá nhà đồng đội
+      if (isSameTeam(gs, cur.user_id, targetCell.owner_user_id)) {
+        socket.emit('game:tarot_denied', { message: 'Không thể phá tinh cầu của đồng đội!' });
+        return false;
+      }
+
       // Không thể phá ô đang được bảo vệ
       if ((targetCell.protected_turns || 0) > 0) {
         socket.emit('game:tarot_denied', { message: 'Tinh cầu này đang được bảo vệ!' });
@@ -482,6 +491,12 @@ async function applyTarotEffect(gs, cur, tarotDef, payload = {}) {
       if (!myCell || !enemyCell) return false;
       if (Number(myCell.owner_user_id)    !== Number(cur.user_id)) return false;
       if (Number(enemyCell.owner_user_id) === Number(cur.user_id)) return false;
+
+      // Không được hoán đổi với tinh cầu của đồng đội
+      if (isSameTeam(gs, cur.user_id, enemyCell.owner_user_id)) {
+        socket.emit('game:tarot_denied', { message: 'Không thể hoán đổi tinh cầu với đồng đội!' });
+        return false;
+      }
 
       // Không thể hoán đổi ô đang được bảo vệ
       if ((myCell.protected_turns || 0) > 0 || (enemyCell.protected_turns || 0) > 0) {
@@ -662,8 +677,33 @@ function shuffle(arr) {
   return a;
 }
 
+/**
+ * Xác định team_id dựa theo slot_index trong chế độ team_2v2.
+ * slot 0,1 => team 0  |  slot 2,3 => team 1
+ */
+function resolveTeamId(match_mode, slot_index) {
+  if (match_mode !== "team_2v2") return null;
+  return slot_index <= 1 ? 0 : 1;
+}
+
+/** Kiểm tra hai user_id có cùng team không (chỉ có nghĩa trong team_2v2) */
+function isSameTeam(gs, userIdA, userIdB) {
+  if (!gs.match_mode || gs.match_mode !== "team_2v2") return false;
+  const a = gs.players.find(p => Number(p.user_id) === Number(userIdA));
+  const b = gs.players.find(p => Number(p.user_id) === Number(userIdB));
+  if (!a || !b) return false;
+  return a.team_id === b.team_id && a.team_id !== null;
+}
+
+/** Lấy danh sách user_id là đối thủ thật (khác team) của cur */
+function getRealEnemyIds(gs, curUserId) {
+  return gs.players
+    .filter(p => Number(p.user_id) !== Number(curUserId) && !isSameTeam(gs, curUserId, p.user_id))
+    .map(p => p.user_id);
+}
+
 /** Khởi tạo game state */
-async function initGameState(room_id, sockets, bet_ecoin = 5000) {
+async function initGameState(room_id, sockets, bet_ecoin = 5000, match_mode = "solo_4") {
   const shuffled  = shuffle([...sockets]);
   const colorPool = shuffle([...PLANET_COLORS]);
 
@@ -674,6 +714,10 @@ async function initGameState(room_id, sockets, bet_ecoin = 5000) {
       const activeTarotIds = normalizeTarotIds(user?.active_tarot_ids);
       const tarotCards = await getTarotCardsByIds(activeTarotIds);
 
+      // slot_index được gán khi join phòng; fallback theo thứ tự shuffle
+      const slotIndex = typeof s.slot_index === "number" ? s.slot_index : i;
+      const teamId    = resolveTeamId(match_mode, slotIndex);
+
       return {
         socket_id: s.id,
         user_id: s.user_id,
@@ -682,6 +726,8 @@ async function initGameState(room_id, sockets, bet_ecoin = 5000) {
         planet_color: colorPool[i % colorPool.length],
         cash: bet_ecoin * 20,
         index: 0,
+        slot_index: slotIndex,
+        team_id: teamId,
 
         characterName: s.character_name || "Dark_Oracle",
         skin: s.skin_id || 1,
@@ -696,6 +742,7 @@ async function initGameState(room_id, sockets, bet_ecoin = 5000) {
 
   gameStates[room_id] = {
     room_id,
+    match_mode,
     players: gamePlayers,
     current_turn_index: 0,
     phase: "IDLE",
@@ -819,36 +866,88 @@ function triggerTaxBoost(room_id) {
 // ── Xử lý kết thúc game + payout ecoin ──────────────────────────
 async function handleGameOver(room_id, gs, allPlayerIds) {
   const winner = gs.players[0];
-  if (!winner) { delete gameStates[room_id]; return; }
+  if (!winner) {
+    // Không có người thắng (tất cả đều thua) — đánh dấu phòng finished rồi xóa state
+    try { await roomRepo.updateRoomStatus(room_id, "finished"); } catch(e) {}
+    delete gameStates[room_id];
+    return;
+  }
 
-  const bet = Number(gs.bet_ecoin) || 0;
-  const loserIds = allPlayerIds.filter(id => Number(id) !== Number(winner.user_id));
-  const winAmount = bet * loserIds.length; // winner nhận tổng cược của losers
+  const bet       = Number(gs.bet_ecoin) || 0;
+  const loserIds  = allPlayerIds.filter(id => Number(id) !== Number(winner.user_id));
+  const winAmount = bet * loserIds.length;
 
-  // Cập nhật ecoin trong DB
+  // ── 1. Cập nhật ecoin + stats trong DB ───────────────────────────
   try {
     if (winAmount > 0) {
       await db.query("UPDATE users SET ecoin = ecoin + ? WHERE id = ?", [winAmount, winner.user_id]);
     }
     for (const loserId of loserIds) {
       if (bet > 0) {
-        // Trừ ecoin, không để âm
         await db.query(
           "UPDATE users SET ecoin = GREATEST(0, ecoin - ?) WHERE id = ?",
           [bet, loserId]
         );
       }
     }
-    // Cập nhật total_games và total_wins
-    await db.query("UPDATE users SET total_games = total_games + 1, total_wins = total_wins + 1 WHERE id = ?", [winner.user_id]);
+    await db.query(
+      "UPDATE users SET total_games = total_games + 1, total_wins = total_wins + 1 WHERE id = ?",
+      [winner.user_id]
+    );
     for (const loserId of loserIds) {
       await db.query("UPDATE users SET total_games = total_games + 1 WHERE id = ?", [loserId]);
     }
     console.log(`🏆 Game over room ${room_id}: winner=${winner.name}(+${winAmount}), losers=[${loserIds}](-${bet} each)`);
   } catch (err) {
-    console.error("handleGameOver DB error:", err);
+    console.error("handleGameOver DB (ecoin/stats) error:", err);
   }
 
+  // ── 2. Lưu kết quả ván đấu vào game_results ──────────────────────
+  try {
+    // Đảm bảo bảng tồn tại
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS game_results (
+        id            INT AUTO_INCREMENT PRIMARY KEY,
+        room_id       INT          NOT NULL,
+        match_mode    VARCHAR(20)  NOT NULL DEFAULT 'solo_4',
+        bet_ecoin     INT          NOT NULL DEFAULT 0,
+        winner_id     INT          NOT NULL,
+        winner_name   VARCHAR(100) NOT NULL,
+        win_amount    INT          NOT NULL DEFAULT 0,
+        all_player_ids JSON        NOT NULL,
+        played_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_room    (room_id),
+        INDEX idx_winner  (winner_id),
+        INDEX idx_played  (played_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    await db.query(
+      `INSERT INTO game_results
+         (room_id, match_mode, bet_ecoin, winner_id, winner_name, win_amount, all_player_ids)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        room_id,
+        gs.match_mode || "solo_4",
+        bet,
+        winner.user_id,
+        winner.name,
+        winAmount,
+        JSON.stringify(allPlayerIds),
+      ]
+    );
+  } catch (err) {
+    console.error("handleGameOver DB (game_results) error:", err);
+  }
+
+  // ── 3. Đánh dấu phòng là 'finished' ─────────────────────────────
+  try {
+    await roomRepo.updateRoomStatus(room_id, "finished");
+  } catch (err) {
+    console.error("handleGameOver updateRoomStatus error:", err);
+  }
+
+  // ── 4. Broadcast kết quả cho tất cả ─────────────────────────────
   io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:game_over", {
     winner_user_id: winner.user_id,
     winner_name:    winner.name,
@@ -856,6 +955,7 @@ async function handleGameOver(room_id, gs, allPlayerIds) {
     bet_ecoin:      bet,
   });
 
+  // ── 5. Xóa game state khỏi bộ nhớ ───────────────────────────────
   delete gameStates[room_id];
 }
 
@@ -997,7 +1097,7 @@ function endTurn(room_id) {
                 user_id: next.user_id, name: next.name, dest_index: 0, reason: "Hết giờ 2 lần liên tiếp"
               });
               io.to(`room_${room_id}`).to(`game_${room_id}`).emit("playerMoved", {
-                id: next.socket_id, index: 0, characterName: next.name, skin: next.skin || 1
+                id: next.socket_id, index: 0, user_id: next.user_id, characterName: next.name, skin: next.skin || 1
               });
             } else {
               next.must_answer_next = true;
@@ -1104,6 +1204,8 @@ function emitGameStateSync(room_id) {
       index: p.index || 0,
       cash: p.cash || 0,
       planet_color: p.planet_color,
+      team_id: p.team_id ?? null,
+      slot_index: p.slot_index ?? null,
       active_tarot_ids: p.active_tarot_ids || [],
       used_tarot_this_turn: !!p.used_tarot_this_turn,
       has_extra_roll: !!p.has_extra_roll,
@@ -1247,7 +1349,14 @@ io.on("connection", (socket) => {
         name: data?.name || user.name || "Player",
         characterName: (data?.characterName || activeChar?.name || "Dark_Oracle").replace(/ /g, "_"),
         skin: Number(data?.skin) || activeChar?.active_skin_number || 1,
-        index: 0,
+        // Lấy index đúng từ gameState nếu đang trong ván (không hardcode 0)
+        index: (() => {
+          if (room_id && gameStates[room_id]) {
+            const gp = gameStates[room_id].players.find(p => p.user_id === user_id);
+            if (gp) return gp.index || 0;
+          }
+          return 0;
+        })(),
         planet_color: assignedColor,
         active_tarot_ids: activeTarotIds
       };
@@ -1414,8 +1523,9 @@ io.on("connection", (socket) => {
       if (nonHost.length > 0 && !nonHost.every(s => s.is_ready)) { socket.emit("room:error", { message: "Vẫn còn người chưa sẵn sàng!" }); return; }
 
       await roomRepo.updateRoomStatus(room_id, "playing");
-      const bet_ecoin = Number(room.bet_ecoin) || 5000;
-      const gs        = await initGameState(room_id, sockets, bet_ecoin);
+      const bet_ecoin  = Number(room.bet_ecoin) || 5000;
+      const match_mode = room.match_mode || "solo_4";
+      const gs         = await initGameState(room_id, sockets, bet_ecoin, match_mode);
       const first     = getCurrentTurnPlayer(room_id);
       console.log(`🎮 Game init room ${room_id}, bet=${bet_ecoin}, buildCost=${gs.build_cost}`);
 
@@ -1427,6 +1537,7 @@ io.on("connection", (socket) => {
           players: gs.players, current_turn: first.socket_id,
           current_turn_user_id: first.user_id, turn_number: 1,
           room_id, build_cost: gs.build_cost, bet_ecoin,
+          match_mode: gs.match_mode,
         });
       }, 3700);
     } catch (err) { console.error("room:start error:", err); }
@@ -1460,8 +1571,22 @@ io.on("connection", (socket) => {
       build_cost: gs.build_cost,
       bet_ecoin: gs.bet_ecoin,
       cellStates: gs.cellStates,
-      server_now_ms: Date.now()
+      server_now_ms: Date.now(),
+      match_mode: gs.match_mode,
     });
+
+    // Báo cho tất cả người khác biết vị trí đúng của người vừa reconnect
+    if (p) {
+      socket.to(`game_${room_id}`).emit("game:player_reconnected", {
+        socket_id:     socket.id,
+        user_id:       p.user_id,
+        name:          p.name,
+        index:         p.index  || 0,
+        planet_color:  p.planet_color,
+        characterName: p.characterName || "Dark_Oracle",
+        skin:          p.skin  || 1,
+      });
+    }
 
     emitTarotState(room_id);
   });
@@ -1767,6 +1892,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
             });
             io.to(`room_${room_id}`).to(`game_${room_id}`).emit("playerMoved", {
               id: cur.socket_id,
+              user_id: cur.user_id,
               index: destIndex,
               characterName: cur.name,
               skin: cur.skin || 1
@@ -1808,7 +1934,9 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
 
         // Downgrade enemy cell
         if (picked.type === "downgrade_enemy_cell") {
-          const enemies = gs.players.filter(p => p.user_id !== cur.user_id);
+          const enemies = gs.players.filter(p =>
+            p.user_id !== cur.user_id && !isSameTeam(gs, cur.user_id, p.user_id)
+          );
           if (enemies.length > 0) {
             const targetEnemy = enemies[Math.floor(Math.random() * enemies.length)];
             const enemyCells = Object.entries(gs.cellStates).filter(([_, c]) => c.owner_user_id === targetEnemy.user_id);
@@ -1832,7 +1960,9 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
 
         // Send enemy back
         if (picked.type === "send_enemy_back") {
-          const enemies = gs.players.filter(p => p.user_id !== cur.user_id);
+          const enemies = gs.players.filter(p =>
+            p.user_id !== cur.user_id && !isSameTeam(gs, cur.user_id, p.user_id)
+          );
           if (enemies.length > 0) {
             const targetEnemy = enemies[Math.floor(Math.random() * enemies.length)];
             const oldIdx = targetEnemy.index;
@@ -2039,6 +2169,19 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     // Ô của mình => bỏ qua
     if (cell.owner_user_id === socket.user_id) {
       setTimeout(() => endTurn(room_id), 400);
+      return;
+    }
+
+    // Ô của đồng đội (team_2v2) => miễn thuê
+    if (isSameTeam(gs, socket.user_id, cell.owner_user_id)) {
+      io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:teammate_cell", {
+        user_id:        socket.user_id,
+        name:           cur.name,
+        owner_user_id:  cell.owner_user_id,
+        owner_name:     gs.players.find(p => Number(p.user_id) === Number(cell.owner_user_id))?.name || "?",
+        cell_index:     idx,
+      });
+      setTimeout(() => endTurn(room_id), 900);
       return;
     }
 
@@ -2367,6 +2510,68 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     setTimeout(() => endTurn(room_id), 2000);
   });
 
+  // ── GAME SURRENDER (đầu hàng chủ động) ─────────────────────────
+  socket.on("game:surrender", async ({ room_id, user_id }) => {
+    const gs = gameStates[room_id];
+    if (!gs) return;
+
+    const surrenderingPlayer = gs.players.find(p => Number(p.user_id) === Number(user_id));
+    if (!surrenderingPlayer) return;
+
+    const allPlayerIds = gs.players.map(p => p.user_id);
+    const isTeam2v2    = gs.match_mode === "team_2v2";
+
+    // Xóa nhà của người đầu hàng
+    Object.keys(gs.cellStates).forEach(ci => {
+      if (Number(gs.cellStates[ci].owner_user_id) === Number(user_id)) {
+        delete gs.cellStates[ci];
+      }
+    });
+
+    // Xóa player khỏi danh sách
+    gs.players = gs.players.filter(p => Number(p.user_id) !== Number(user_id));
+
+    // Broadcast: người này đầu hàng
+    io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:player_surrendered", {
+      user_id:  Number(user_id),
+      name:     surrenderingPlayer.name,
+      is_team:  isTeam2v2,
+      team_id:  surrenderingPlayer.team_id ?? null,
+    });
+
+    if (isTeam2v2) {
+      // Team 2v2: kiểm tra xem cả team đã thua chưa
+      const remainingByTeam = {};
+      gs.players.forEach(p => {
+        const tid = p.team_id ?? "none";
+        remainingByTeam[tid] = (remainingByTeam[tid] || 0) + 1;
+      });
+      const teamsLeft = Object.keys(remainingByTeam).length;
+
+      if (teamsLeft <= 1) {
+        // Chỉ còn 1 team → game over
+        await handleGameOver(room_id, gs, allPlayerIds);
+      } else {
+        // Đồng đội vẫn còn → tiếp tục
+        // Điều chỉnh turn_index nếu cần
+        if (gs.current_turn_index >= gs.players.length) {
+          gs.current_turn_index = 0;
+        }
+        setTimeout(() => endTurn(room_id), 2000);
+      }
+    } else {
+      // Solo: nếu còn ≥ 2 người thì tiếp tục, còn 1 người thì game over
+      if (gs.players.length <= 1) {
+        await handleGameOver(room_id, gs, allPlayerIds);
+      } else {
+        if (gs.current_turn_index >= gs.players.length) {
+          gs.current_turn_index = 0;
+        }
+        setTimeout(() => endTurn(room_id), 2000);
+      }
+    }
+  });
+
   // ── LEAVE / DISCONNECT ───────────────────────────────────────────
   socket.on("room:leave", async () => { await handleLeaveRoom(socket); });
   socket.on("disconnect", async () => {
@@ -2436,6 +2641,48 @@ app.get("/rooms", async (req, res) => {
   catch { res.status(500).json({ success: false, message: "Server error" }); }
 });
 
+// Kiểm tra xem user có đang trong ván đấu nào không (dùng cho reconnect)
+app.get("/api/active-game", async (req, res) => {
+  try {
+    const auth = req.headers.authorization || "";
+    if (!auth.startsWith("Bearer ")) return res.json({ active: false });
+    let decoded;
+    try { decoded = jwt.verify(auth.split(" ")[1], SECRET); }
+    catch { return res.json({ active: false }); }
+
+    const userId = Number(decoded.id);
+
+    // Tìm trong tất cả gameState xem user_id có player nào không
+    for (const [room_id, gs] of Object.entries(gameStates)) {
+      const player = gs.players.find(p => Number(p.user_id) === userId);
+      if (player) {
+        // Lấy thêm info phòng từ DB để gửi roomData cho client
+        const room = await roomRepo.getRoomById(Number(room_id)).catch(() => null);
+        return res.json({
+          active: true,
+          room_id: Number(room_id),
+          match_mode: gs.match_mode || "solo_4",
+          bet_ecoin: gs.bet_ecoin,
+          roomData: room ? {
+            id: room.id,
+            match_mode: room.match_mode,
+            bet_ecoin: room.bet_ecoin,
+            room_type: room.room_type,
+          } : { id: Number(room_id) },
+          player_name: player.name,
+          character_name: player.characterName || "Dark_Oracle",
+          skin_id: player.skin || 1,
+        });
+      }
+    }
+
+    res.json({ active: false });
+  } catch (err) {
+    console.error("GET /api/active-game error:", err);
+    res.json({ active: false });
+  }
+});
+
 // Verify room password trước khi vào
 app.post("/rooms/:id/verify-password", async (req, res) => {
   try {
@@ -2452,6 +2699,16 @@ app.post("/rooms/:id/verify-password", async (req, res) => {
 server.listen(3000, "0.0.0.0", () => {
   console.log("✅ Server ready at (tất cả interface)");
   startChatCleanupJob();
+
+  // ── Dọn dẹp các phòng bị kẹt khi server restart ──────────────
+  // Những phòng 'playing' còn sót từ lần chạy trước → đánh dấu 'finished'
+  db.query(
+    `UPDATE rooms SET room_status = 'finished', updated_at = NOW()
+     WHERE room_status = 'playing'`
+  ).then(([r]) => {
+    if (r.affectedRows > 0)
+      console.log(`🧹 Cleaned up ${r.affectedRows} stale 'playing' room(s) → 'finished'`);
+  }).catch(err => console.error("Startup room cleanup error:", err));
 });
 app.get("/tarots", async (req, res) => {
   try {

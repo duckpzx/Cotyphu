@@ -212,6 +212,17 @@ _closeTarotModal() { this.tarotModal?.close(); }
       this.canRoll = this.isMyTurn;
       this.gameRoomId = data.room_id || this.gameRoomId;
       this.serverClockOffsetMs = Number(data.server_now_ms || Date.now()) - Date.now();
+
+      // ── Lưu session reconnect ────────────────────────────────
+      try {
+        localStorage.setItem("activeGame", JSON.stringify({
+          room_id:     data.room_id,
+          match_mode:  data.match_mode || "solo_4",
+          bet_ecoin:   data.bet_ecoin,
+          roomData:    { id: data.room_id, match_mode: data.match_mode, bet_ecoin: data.bet_ecoin },
+          saved_at:    Date.now(),
+        }));
+      } catch(e) {}
       // Nhạc nền khi vào trận — dừng nhạc lobby nếu còn chạy
       try {
         const lobbyBgm = this.sound.get("lobby_bgm");
@@ -294,6 +305,76 @@ _closeTarotModal() { this.tarotModal?.close(); }
       this._bindMyTarotSlotClicks();
       this._refreshAllTarotCooldownUIs();
       this._startTarotUiTicker();
+
+      // ── Restore vị trí tất cả player từ game state ───────────────
+      // Luôn chạy: cả lần đầu vào lẫn reconnect
+      const isReconnect = this._isReconnecting;
+      this._isReconnecting = false;
+
+      data.players.forEach(p => {
+        const cellIdx = Number(p.index || 0);
+        const cell    = this.boardPath[cellIdx];
+        if (!cell) return;
+
+        const wx = cell.x * this.scale.width;
+        const wy = cell.y * this.scale.height;
+        const nameOffsetY = 140 * this.minRatio;
+
+        if (Number(p.user_id) === Number(myUid)) {
+          // ── Vị trí nhân vật mình ─────────────────────────────────
+          this.currentIndex = cellIdx;
+          if (this.player) {
+            this.player.x = wx;
+            this.player.y = wy;
+          }
+          if (this.playerNameText) {
+            this.playerNameText.x = wx;
+            this.playerNameText.y = wy - nameOffsetY;
+          }
+        } else {
+          // ── Vị trí nhân vật người khác ───────────────────────────
+          // Tìm sprite theo user_id (socket_id đã đổi sau reconnect)
+          let op = Object.values(this.otherPlayers).find(
+            o => Number(o.user_id) === Number(p.user_id)
+          );
+
+          if (!op && isReconnect) {
+            // Reconnect muộn: tạo mới sprite tại đúng ô
+            this.addOtherPlayer({
+              id:            p.socket_id,
+              user_id:       p.user_id,
+              name:          p.name,
+              characterName: p.characterName || "Dark_Oracle",
+              skin:          p.skin || 1,
+              index:         cellIdx,
+              planet_color:  p.planet_color,
+            });
+            op = this.otherPlayers[p.socket_id];
+          }
+
+          if (op) {
+            // Remap key sang socket_id mới nếu cần
+            const oldKey = Object.keys(this.otherPlayers).find(
+              k => Number(this.otherPlayers[k]?.user_id) === Number(p.user_id)
+            );
+            if (oldKey && p.socket_id && oldKey !== p.socket_id) {
+              this.otherPlayers[p.socket_id] = op;
+              delete this.otherPlayers[oldKey];
+            }
+            // Teleport đến vị trí đúng (không animate)
+            op.x = wx;
+            op.y = wy;
+            op.index = cellIdx;
+            if (op.shadow)   { op.shadow.x   = wx;              op.shadow.y   = wy + 5; }
+            if (op.nameText) { op.nameText.x  = wx;              op.nameText.y = wy - nameOffsetY; }
+            if (op.nameText && p.name && op.nameText.text !== p.name) op.nameText.setText(p.name);
+          }
+        }
+      });
+
+      if (isReconnect) {
+        this._showToast("🔄 Đã kết nối lại ván đấu!", "#44ccff", 3000);
+      }
     });
 
     // ── game:turn_changed ────────────────────────────────────────
@@ -387,10 +468,81 @@ _closeTarotModal() { this.tarotModal?.close(); }
       if (player.id !== this.socket.id) this.addOtherPlayer(player);
     });
 
+    // ── game:player_reconnected — người chơi kết nối lại ─────────
+    // Server gửi vị trí đúng ngay sau game:request_state
+    this.socket.on("game:player_reconnected", (data) => {
+      const myUid = this._myUserId();
+      if (Number(data.user_id) === Number(myUid)) return; // không xử lý cho chính mình
+
+      // Tìm sprite hiện có theo user_id
+      let op = Object.values(this.otherPlayers).find(
+        o => Number(o.user_id) === Number(data.user_id)
+      );
+
+      const cellIdx = Number(data.index || 0);
+      const cell    = this.boardPath[cellIdx];
+      if (!cell) return;
+
+      const wx = cell.x * this.scale.width;
+      const wy = cell.y * this.scale.height;
+
+      if (op) {
+        // Sprite đã tồn tại — remap sang socket_id mới và teleport đến đúng ô
+        const oldKey = Object.keys(this.otherPlayers).find(
+          k => Number(this.otherPlayers[k]?.user_id) === Number(data.user_id)
+        );
+        if (oldKey && oldKey !== data.socket_id) {
+          this.otherPlayers[data.socket_id] = op;
+          delete this.otherPlayers[oldKey];
+        }
+        // Đặt vị trí đúng không animate
+        op.x = wx;
+        op.y = wy;
+        op.index = cellIdx;
+        if (op.shadow)   { op.shadow.x = wx; op.shadow.y = wy + 5; }
+        if (op.nameText) { op.nameText.x = wx; op.nameText.y = wy - 140 * this.minRatio; }
+        // Cập nhật tên nếu thay đổi
+        if (op.nameText && data.name) op.nameText.setText(data.name);
+        op.setVisible(true);
+        op.shadow?.setVisible(true);
+        op.nameText?.setVisible(true);
+      } else {
+        // Sprite chưa tồn tại (vd: client reload trễ) — tạo mới tại đúng ô
+        this.addOtherPlayer({
+          id:            data.socket_id,
+          user_id:       data.user_id,
+          name:          data.name,
+          characterName: data.characterName || "Dark_Oracle",
+          skin:          data.skin || 1,
+          index:         cellIdx,
+          planet_color:  data.planet_color,
+        });
+      }
+
+      this._showToast(`🔄 ${data.name} đã kết nối lại`, "#44ccff", 2500);
+    });
+
     // ── playerMoved ───────────────────────────────────────────────
     this.socket.on("playerMoved", (data) => {
       if (data.id === this.socket.id) return;
-      const other = this.otherPlayers[data.id];
+
+      // Tìm theo socket_id trước, fallback theo user_id (sau reconnect socket_id đổi)
+      let other = this.otherPlayers[data.id];
+      if (!other && data.user_id) {
+        other = Object.values(this.otherPlayers).find(
+          o => Number(o.user_id) === Number(data.user_id)
+        );
+        // Remap key sang socket_id mới
+        if (other) {
+          const oldKey = Object.keys(this.otherPlayers).find(
+            k => Number(this.otherPlayers[k]?.user_id) === Number(data.user_id)
+          );
+          if (oldKey && oldKey !== data.id) {
+            this.otherPlayers[data.id] = other;
+            delete this.otherPlayers[oldKey];
+          }
+        }
+      }
       if (!other) return;
 
       const startIndex  = other.index || 0;
@@ -463,10 +615,12 @@ _closeTarotModal() { this.tarotModal?.close(); }
 
     // ── playerDisconnected ────────────────────────────────────────
     this.socket.on("playerDisconnected", (id) => {
-      if (this.otherPlayers[id]) {
-        this.otherPlayers[id].shadow?.destroy();
-        this.otherPlayers[id].nameText?.destroy();
-        this.otherPlayers[id].destroy();
+      // id là socket_id cũ — tìm và xóa sprite tương ứng
+      const target = this.otherPlayers[id];
+      if (target) {
+        target.shadow?.destroy();
+        target.nameText?.destroy();
+        target.destroy();
         delete this.otherPlayers[id];
       }
     });
@@ -609,6 +763,31 @@ _closeTarotModal() { this.tarotModal?.close(); }
         this._startBankruptcyResolution(data);
       } else {
         this._showToast(`💸 ${data.payer_name} không đủ tiền trả thuê ô ${data.cell_index}!`, "#ff8800");
+      }
+    });
+
+    // Đồng đội dẫm vào nhà nhau => miễn phí
+    this.socket.on("game:teammate_cell", (data) => {
+      const myUid = this._myUserId();
+      const isMe  = data.user_id === myUid;
+      const isMyCellOwned = data.owner_user_id === myUid;
+
+      const moverSprite = this._getSpriteByUserId(data.user_id);
+      if (moverSprite) {
+        this._showFloatingMoney(
+          moverSprite.x,
+          moverSprite.y - moverSprite.displayHeight * 0.6,
+          "🤝 Đồng đội",
+          "#44ccff"
+        );
+      }
+
+      if (isMe) {
+        this._showToast(`🤝 Nhà đồng đội ${data.owner_name} — miễn thuê!`, "#44ccff");
+      } else if (isMyCellOwned) {
+        this._showToast(`🤝 Đồng đội ${data.name} qua nhà bạn — miễn thuê`, "#44ccff");
+      } else {
+        this._showToast(`🤝 ${data.name} qua nhà đồng đội — miễn thuê`, "#aaaaaa");
       }
     });
 
@@ -1095,6 +1274,9 @@ _closeTarotModal() { this.tarotModal?.close(); }
     if (!bankruptPlayer) return;
 
     if (data.user_id === myUid) {
+      // Phá sản = kết thúc ván của mình — xóa session reconnect
+      try { localStorage.removeItem("activeGame"); } catch(e) {}
+      this._intentionalExit = true;
       this._showBankruptcyLoseScreen(bankruptPlayer.name);
     } else {
       this._showOtherPlayerBankrupt(bankruptPlayer.name);
@@ -1104,8 +1286,67 @@ _closeTarotModal() { this.tarotModal?.close(); }
     this._refreshPlayerPanelsFromGameState();
   });
 
+  // ── game:player_surrendered — đầu hàng chủ động ─────────────────
+  this.socket.on("game:player_surrendered", (data) => {
+    const myUid = this._myUserId();
+
+    // Xóa nhà của người đầu hàng khỏi bản đồ
+    if (this.cellStates) {
+      Object.keys(this.cellStates).forEach(ci => {
+        if (Number(this.cellStates[ci]?.owner_user_id) === Number(data.user_id)) {
+          // Xóa visual orb
+          const cell = this.boardPath[Number(ci)];
+          if (cell) {
+            if (this._orbSprites?.[ci]) {
+              this._orbSprites[ci].forEach?.(o => { try { o?.destroy(); } catch(e){} });
+              delete this._orbSprites[ci];
+            }
+            this.paintCellGlowAnimated(cell, 0x444444);
+          }
+          delete this.cellStates[ci];
+        }
+      });
+    }
+
+    // Ẩn sprite nhân vật của người đầu hàng
+    const op = Object.values(this.otherPlayers).find(
+      o => Number(o.user_id) === Number(data.user_id)
+    );
+    if (op) {
+      op.setVisible(false);
+      op.shadow?.setVisible(false);
+      op.nameText?.setVisible(false);
+    }
+
+    // Xóa khỏi danh sách player
+    this.gamePlayers = (this.gamePlayers || []).filter(
+      p => Number(p.user_id) !== Number(data.user_id)
+    );
+    this._refreshPlayerPanelsFromGameState();
+
+    if (Number(data.user_id) === Number(myUid)) {
+      // Mình đầu hàng
+      try { localStorage.removeItem("activeGame"); } catch(e) {}
+      this._intentionalExit = true;
+      if (data.is_team) {
+        this._showToast("🏳️ Bạn đã đầu hàng! Đồng đội tiếp tục chiến đấu...", "#ffaa44", 4000);
+        // Chuyển sang màn hình chờ spectator nhẹ
+        this.time.delayedCall(3000, () => this._showSurrenderWaitScreen());
+      } else {
+        this._showSurrenderLoseScreen(data.name);
+      }
+    } else {
+      // Người khác đầu hàng
+      const teamNote = data.is_team ? " (đồng đội vẫn tiếp tục)" : "";
+      this._showToast(`🏳️ ${data.name} đã đầu hàng!${teamNote}`, "#ffaa44", 3500);
+    }
+  });
+
   this.socket.on("game:game_over", (data) => {
     const myUid = this._myUserId();
+    // Xóa session reconnect — ván đã kết thúc
+    try { localStorage.removeItem("activeGame"); } catch(e) {}
+    this._intentionalExit = true;
     const isWinner = data.winner_user_id === myUid;
     this.time.delayedCall(isWinner ? 0 : 1200, () => {
       this._showGameOverScreen(isWinner, data.winner_name);
@@ -1980,6 +2221,7 @@ this.socket.on("game:tarot_denied", (data) => {
     }
 
     this.load.image("card_slot_small", "./assets/ui/tarot/card.png");
+    this.load.image("chat_btn",        "./assets/ui/lobby/chat.png");
     for (let i = 1; i <= 10; i++) {
       this.load.image(`tarot_${i}`,       `./assets/resources/Tarot/resize/thebai_${i}.png`);
       this.load.image(`tarot_large_${i}`, `./assets/resources/Tarot/thebai_${i}.png`);
@@ -2432,7 +2674,31 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
       auth:{ token }
     });
 
+    // ── Flag reconnect (vào lại từ ván đang dở) ───────────────────
+    this._isReconnecting = !!(data?._reconnecting);
+
     this.socket.on("connect", () => {
+      this.socket.emit("join", {
+        room_id:       this.gameRoomId,
+        name:          playerData?.user?.name || "Player",
+        user_id:       playerData?.user?.id,
+        characterName: this.characterName || "Dark_Oracle",
+        skin:          this.mySkin || 1
+      });
+      if (this.gameRoomId) {
+        // Dù là lần đầu hay reconnect, luôn request state từ server
+        setTimeout(() => {
+          this.socket.emit("game:request_state", { room_id: this.gameRoomId });
+        }, 400);
+      }
+    });
+
+    // Xử lý mất kết nối trong ván — tự động thử lại
+    this.socket.on("disconnect", (reason) => {
+      console.warn("⚠ Socket disconnect trong ván:", reason);
+    });
+    this.socket.on("reconnect", (attempt) => {
+      console.log(`✅ Socket reconnected (attempt ${attempt}), re-requesting game state`);
       this.socket.emit("join", {
         room_id:       this.gameRoomId,
         name:          playerData?.user?.name || "Player",
@@ -2443,7 +2709,7 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
       if (this.gameRoomId) {
         setTimeout(() => {
           this.socket.emit("game:request_state", { room_id: this.gameRoomId });
-        }, 600);
+        }, 400);
       }
     });
 
@@ -3672,12 +3938,21 @@ this.input.keyboard.on("keydown-Y", () => {
           color:"#ff8888", align:"center" }
       ).setOrigin(0.5).setDepth(D+2));
 
-      // Nút xác nhận phá sản
-      this._makePanelBtn(push, width/2, height/2 + PH/2 - 55*S, 200*S, 48*S, D,
-        0xcc2222, 0x881111, "💀 Xác nhận thua", () => {
+      // 2 nút ngang: Phá sản | Đầu Hàng
+      const btnW = 200*S, btnH = 48*S, btnGap = 18*S;
+      this._makePanelBtn(push,
+        width/2 - btnW/2 - btnGap/2, height/2 + PH/2 - 55*S, btnW, btnH, D,
+        0xcc2222, 0x881111, "💀 Phá sản", () => {
           this._clearBankruptcyUI();
           this._stopDarkMapEffect();
           this._triggerBankruptcy();
+        });
+      this._makePanelBtn(push,
+        width/2 + btnW/2 + btnGap/2, height/2 + PH/2 - 55*S, btnW, btnH, D,
+        0x886600, 0x554400, "🏳️ Đầu Hàng", () => {
+          this._clearBankruptcyUI();
+          this._stopDarkMapEffect();
+          this._triggerSurrender();
         });
       return;
     }
@@ -3769,8 +4044,15 @@ this.input.keyboard.on("keydown-Y", () => {
       { fontFamily:"Signika", fontSize:Math.floor(15*S)+"px", color, align:"center" }
     ).setOrigin(0.5).setDepth(D+3));
 
-    // Nút xác nhận
-    this._makePanelBtn(push, width/2, height/2 + PH/2 - 55*S, 240*S, 48*S, D,
+    // Nút xác nhận bán (trái) + Đầu Hàng (phải)
+    const mainBtnW = canPay ? 240*S : 240*S;
+    const surrBtnW = 170*S;
+    const btnGap   = 14*S;
+    const mainBtnX = canPay
+      ? width/2 - surrBtnW/2 - btnGap/2   // dịch sang trái để nhường chỗ nút Đầu Hàng
+      : width/2;                            // giữa khi không chọn được
+
+    this._makePanelBtn(push, mainBtnX, height/2 + PH/2 - 55*S, mainBtnW, 48*S, D,
       canPay ? 0x22aa44 : 0x555555, canPay ? 0x116622 : 0x333333,
       canPay ? "✅ Xác nhận bán & trả nợ" : "Chọn thêm tinh cầu...",
       canPay ? () => {
@@ -3785,7 +4067,6 @@ this.input.keyboard.on("keydown-Y", () => {
         const totalSellPrice = cellsToSell.reduce((s, [, v]) => s + v.sellPrice, 0);
         const requiredRentVal = this._bankruptcyRentData.required_rent;
 
-        // Gửi 1 event duy nhất với toàn bộ ô cần bán
         this.socket.emit("game:sell_and_pay_rent", {
           room_id: this.gameRoomId,
           seller_user_id: myUid,
@@ -3801,7 +4082,18 @@ this.input.keyboard.on("keydown-Y", () => {
         this._selectedSellCells = {};
       } : null
     );
-  }
+
+    // Nút Đầu Hàng — luôn hiện dù có/không thể trả nợ
+    const surrX = canPay
+      ? mainBtnX + mainBtnW/2 + btnGap + surrBtnW/2
+      : width/2 + mainBtnW/2 + btnGap + surrBtnW/2;
+    this._makePanelBtn(push, surrX, height/2 + PH/2 - 55*S, surrBtnW, 48*S, D,
+      0x886600, 0x554400, "🏳️ Đầu Hàng", () => {
+        this._clearBankruptcyUI();
+        this._stopDarkMapEffect();
+        this._triggerSurrender();
+      });
+  }  // ← đóng _updateDebtSummary
 
   _makePanelBtn(push, cx, cy, bw, bh, D, colorTop, colorBot, label, onClick) {
     const S = this.minRatio;
@@ -3827,6 +4119,17 @@ this.input.keyboard.on("keydown-Y", () => {
   _triggerBankruptcy() {
     if (this.gameRoomId && this.socket) {
       this.socket.emit("game:bankruptcy", {
+        room_id: this.gameRoomId,
+        user_id: this._myUserId()
+      });
+    }
+  }
+
+  _triggerSurrender() {
+    if (this.gameRoomId && this.socket) {
+      this._intentionalExit = true;
+      try { localStorage.removeItem("activeGame"); } catch(e) {}
+      this.socket.emit("game:surrender", {
         room_id: this.gameRoomId,
         user_id: this._myUserId()
       });
@@ -3896,6 +4199,81 @@ this.input.keyboard.on("keydown-Y", () => {
       objs.forEach(o => { try { o?.destroy(); } catch(e){} });
       this.scene.start("RoomListScene");
     });
+  }
+
+  // Màn hình đầu hàng solo — tương tự bankruptcy nhưng chữ khác
+  _showSurrenderLoseScreen(name) {
+    const { width, height } = this.scale;
+    const S = this.minRatio;
+    const D = 300;
+    const objs = [];
+    const push = o => { objs.push(o); return o; };
+
+    const overlay = push(this.add.rectangle(width/2, height/2, width, height, 0x1a1200, 0).setDepth(D));
+    this.tweens.add({ targets: overlay, fillAlpha: 0.88, duration: 800 });
+
+    push(this.add.text(width/2, height/2 - 120*S, "🏳️",
+      { fontSize: Math.floor(72*S)+"px" }
+    ).setOrigin(0.5).setDepth(D+1).setAlpha(0));
+    this.tweens.add({ targets: objs[objs.length-1], alpha: 1, y: height/2 - 130*S, duration: 600, delay: 300 });
+
+    const txt = push(this.add.text(width/2, height/2 - 20*S, "BẠN ĐÃ ĐẦU HÀNG",
+      { fontFamily:"Signika", fontSize:Math.floor(42*S)+"px",
+        color:"#ffaa00", fontStyle:"bold",
+        stroke:"#000000", strokeThickness: Math.floor(5*S) }
+    ).setOrigin(0.5).setDepth(D+1).setAlpha(0).setScale(0.4));
+    this.tweens.add({ targets: txt, alpha: 1, scaleX: 1, scaleY: 1, duration: 500, delay: 600, ease:"Back.easeOut" });
+
+    push(this.add.text(width/2, height/2 + 50*S, "Bạn đã chọn rút khỏi ván đấu",
+      { fontFamily:"Signika", fontSize:Math.floor(20*S)+"px", color:"#ffddaa" }
+    ).setOrigin(0.5).setDepth(D+1).setAlpha(0));
+    this.tweens.add({ targets: objs[objs.length-1], alpha: 1, duration: 400, delay: 900 });
+
+    this.time.delayedCall(4000, () => {
+      objs.forEach(o => { try { o?.destroy(); } catch(e){} });
+      this.scene.start("RoomListScene");
+    });
+  }
+
+  // Team 2v2: mình đầu hàng nhưng đồng đội vẫn còn — chờ ở màn hình nhẹ
+  _showSurrenderWaitScreen() {
+    const { width, height } = this.scale;
+    const S = this.minRatio;
+    const D = 290;
+    const objs = [];
+    const push = o => { objs.push(o); return o; };
+
+    const overlay = push(this.add.rectangle(width/2, height/2, width, height, 0x000a1a, 0.75).setDepth(D));
+
+    push(this.add.text(width/2, height/2 - 60*S, "🏳️ Bạn đã đầu hàng",
+      { fontFamily:"Signika", fontSize:Math.floor(28*S)+"px",
+        color:"#ffaa44", fontStyle:"bold", stroke:"#000", strokeThickness:4*S }
+    ).setOrigin(0.5).setDepth(D+1));
+
+    push(this.add.text(width/2, height/2 + 10*S, "Đồng đội vẫn đang chiến đấu...\nĐang chờ kết thúc ván đấu",
+      { fontFamily:"Signika", fontSize:Math.floor(18*S)+"px",
+        color:"#aaccff", align:"center" }
+    ).setOrigin(0.5).setDepth(D+1));
+
+    // Nút về lobby
+    const btnG = push(this.add.graphics().setDepth(D+2));
+    const btnW = 200*S, btnH = 46*S;
+    const btnX = width/2 - btnW/2, btnY = height/2 + 100*S - btnH/2;
+    btnG.fillStyle(0x1a4a8a, 1);
+    btnG.fillRoundedRect(btnX, btnY, btnW, btnH, 12*S);
+    push(this.add.text(width/2, height/2 + 100*S, "▶ Về Sảnh",
+      { fontFamily:"Signika", fontSize:Math.floor(17*S)+"px", color:"#ffffff", fontStyle:"bold" }
+    ).setOrigin(0.5).setDepth(D+3));
+    const zone = push(this.add.zone(width/2, height/2 + 100*S, btnW, btnH)
+      .setInteractive({ useHandCursor: true }).setDepth(D+4));
+    zone.on("pointerover",  () => btnG.setAlpha(0.7));
+    zone.on("pointerout",   () => btnG.setAlpha(1));
+    zone.on("pointerdown",  () => {
+      objs.forEach(o => { try { o?.destroy(); } catch(e){} });
+      this.scene.start("RoomListScene");
+    });
+
+    this._surrenderWaitObjs = objs;
   }
 
   // Màn hình kết thúc game (thắng/thua)
@@ -4827,6 +5205,11 @@ this.input.keyboard.on("keydown-Y", () => {
     this._destroyGameChatPanel();
     this._gameChatBtnObjs?.forEach(o => { try { o?.destroy(); } catch(e){} });
     this._gameChatBtnObjs = [];
+    // Chỉ xóa session reconnect khi người dùng chủ động thoát (flag _intentionalExit = true)
+    // Không xóa khi trang bị reload/unload — để SplashScene có thể reconnect
+    if (this._intentionalExit) {
+      try { localStorage.removeItem("activeGame"); } catch(e) {}
+    }
   }
 
   // ── LOADING SCREEN ────────────────────────────────────────────────────

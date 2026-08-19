@@ -348,11 +348,9 @@ export default class SplashScene extends Phaser.Scene {
     lbl.textContent = "BẤM BẤT KÌ ĐỂ TIẾP TỤC";
 
     if (STYLE === "shimmer") {
-      // Icon + chữ nằm trong cùng pill
       playBtn.appendChild(lbl);
       ui.appendChild(playBtn);
     } else {
-      // Icon trên, chữ dưới
       ui.appendChild(playBtn);
       ui.appendChild(lbl);
     }
@@ -362,34 +360,17 @@ export default class SplashScene extends Phaser.Scene {
     this._splashUI    = ui;
     this._splashStyle = style;
 
-    // ── Click handler — dùng DOM trực tiếp thay vì Phaser input ──
-    // Phaser input không nhận khi click vào DOM element đè lên canvas
-    const doEnter = () => {
+    // ── Kiểm tra ván đấu đang dở ─────────────────────────
+    this._checkActiveGame(ui, lbl, playBtn);
+
+    // ── Click handler vào lobby ────────────────────────────
+    const doEnterLobby = () => {
       if (this._entering) return;
       this._entering = true;
-
-      // Hiệu ứng: icon scale up + fade out
-      playBtn.style.transition = "transform 0.3s ease, opacity 0.3s ease";
-      playBtn.style.transform  = "scale(1.4)";
-      playBtn.style.opacity    = "0";
-      if (lbl) { lbl.style.transition = "opacity 0.2s"; lbl.style.opacity = "0"; }
-
-      // Bỏ blur canvas dần
-      let blurVal = 6;
-      const blurInterval = setInterval(() => {
-        blurVal = Math.max(0, blurVal - 1);
-        this.game.canvas.style.filter = blurVal > 0 ? `blur(${blurVal}px)` : "";
-        if (blurVal === 0) clearInterval(blurInterval);
-      }, 40);
-
+      this._animateExit(playBtn, lbl);
       setTimeout(() => {
         this._cleanup();
-        if (!this.sound.get("lobby_bgm")) {
-          try {
-            const bgm = this.sound.add("lobby_bgm", { loop: true, volume: 0.56 });
-            bgm.play();
-          } catch(e) {}
-        }
+        this._playLobbyBgm();
         this.cameras.main.fadeOut(400, 0, 0, 0);
         this.cameras.main.once("camerafadeoutcomplete", () => {
           this.scene.start("LobbyScene");
@@ -397,18 +378,174 @@ export default class SplashScene extends Phaser.Scene {
       }, 320);
     };
 
-    // Bắt cả click DOM lẫn Phaser (để đảm bảo hoạt động)
-    playBtn.addEventListener("click", doEnter);
-    ui.addEventListener("click", doEnter);
-    this.input.once("pointerdown", doEnter);
+    playBtn.addEventListener("click", doEnterLobby);
+    ui.addEventListener("click", doEnterLobby);
+    this.input.once("pointerdown", doEnterLobby);
+  }
+
+  // ── Kiểm tra có ván đấu đang dở không ───────────────────
+  _checkActiveGame(ui, lbl, playBtn) {
+    let saved = null;
+    try {
+      const raw = localStorage.getItem("activeGame");
+      if (raw) saved = JSON.parse(raw);
+    } catch(e) {}
+
+    // Không có session hoặc session quá cũ (> 2 tiếng) → bỏ qua
+    if (!saved?.room_id) return;
+    const age = Date.now() - (saved.saved_at || 0);
+    if (age > 2 * 60 * 60 * 1000) {
+      try { localStorage.removeItem("activeGame"); } catch(e) {}
+      return;
+    }
+
+    // Có session — thêm nút "Quay lại ván đấu"
+    const reconnectStyle = document.createElement("style");
+    reconnectStyle.textContent = `
+      #splash-reconnect {
+        margin-top: 14px;
+        padding: 10px 28px;
+        background: linear-gradient(135deg, #1a5fa8 0%, #0d3570 100%);
+        border: 1.5px solid rgba(100,180,255,0.5);
+        border-radius: 30px;
+        color: #fff;
+        font-family: 'Signika', sans-serif;
+        font-size: 15px;
+        font-weight: 700;
+        cursor: pointer;
+        pointer-events: all;
+        box-shadow: 0 0 18px rgba(30,120,255,0.45);
+        animation: splash-pulse 2.5s ease-out infinite;
+        transition: transform 0.15s;
+        text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+      }
+      #splash-reconnect:hover { transform: scale(1.07); }
+      #splash-reconnect:active { transform: scale(0.95); }
+      #splash-reconnect-note {
+        font-family: 'Signika', sans-serif;
+        font-size: 12px;
+        color: rgba(180,210,255,0.7);
+        pointer-events: none;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+        margin-top: 4px;
+      }
+    `;
+    document.head.appendChild(reconnectStyle);
+    this._reconnectStyle = reconnectStyle;
+
+    const reconnectBtn = document.createElement("button");
+    reconnectBtn.id = "splash-reconnect";
+    reconnectBtn.textContent = "⚔️ QUAY LẠI VÁN ĐẤU";
+
+    const note = document.createElement("div");
+    note.id = "splash-reconnect-note";
+    note.textContent = "Phòng đang chờ bạn quay lại...";
+
+    ui.appendChild(reconnectBtn);
+    ui.appendChild(note);
+
+    // Click reconnect — vào thẳng BoardScene với room_id đã lưu
+    reconnectBtn.addEventListener("click", (e) => {
+      e.stopPropagation(); // không trigger doEnterLobby
+      if (this._entering) return;
+      this._entering = true;
+
+      reconnectBtn.textContent  = "⏳ Đang kết nối...";
+      reconnectBtn.style.opacity = "0.7";
+
+      this._animateExit(reconnectBtn, null);
+
+      // Xác nhận với server ván đó còn tồn tại rồi mới đi
+      this._verifyAndReconnect(saved);
+    });
+  }
+
+  // ── Xác minh server còn game và redirect ─────────────────
+  async _verifyAndReconnect(saved) {
+    const { SERVER_URL } = await import("../config.js");
+    let stillActive = false;
+    try {
+      const token = JSON.parse(localStorage.getItem("playerData"))?.token;
+      if (token) {
+        const res = await fetch(`${SERVER_URL}/api/active-game`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const json = await res.json();
+        stillActive = json.active && Number(json.room_id) === Number(saved.room_id);
+        // Cập nhật roomData từ server (mới nhất)
+        if (stillActive && json.roomData) {
+          saved.roomData = json.roomData;
+        }
+      }
+    } catch(e) {}
+
+    if (!stillActive) {
+      // Ván đã kết thúc — xóa session và về lobby
+      try { localStorage.removeItem("activeGame"); } catch(e) {}
+      // Reset flag để doEnterLobby hoạt động
+      this._entering = false;
+      const reconnectBtn = document.getElementById("splash-reconnect");
+      if (reconnectBtn) {
+        reconnectBtn.textContent  = "❌ Ván đã kết thúc";
+        reconnectBtn.style.background = "linear-gradient(135deg, #5a1a1a 0%, #3a0d0d 100%)";
+        setTimeout(() => {
+          this._entering = false;
+          const note = document.getElementById("splash-reconnect-note");
+          if (note) note.textContent = "Bấm để vào Sảnh";
+          reconnectBtn.textContent = "▶ VÀO SẢNH";
+          reconnectBtn.style.background = "";
+        }, 1800);
+      }
+      return;
+    }
+
+    // Ván vẫn còn → vào thẳng BoardScene
+    this._cleanup();
+    this.cameras.main.fadeOut(400, 0, 0, 0);
+    this.cameras.main.once("camerafadeoutcomplete", () => {
+      this.scene.start("BoardScene", {
+        roomData:      saved.roomData || { id: saved.room_id },
+        _reconnecting: true,
+      });
+    });
+  }
+
+  _animateExit(btn, lbl) {
+    if (btn) {
+      btn.style.transition = "transform 0.3s ease, opacity 0.3s ease";
+      btn.style.transform  = "scale(1.4)";
+      btn.style.opacity    = "0";
+    }
+    if (lbl) {
+      lbl.style.transition = "opacity 0.2s";
+      lbl.style.opacity    = "0";
+    }
+    // Bỏ blur canvas dần
+    let blurVal = 6;
+    const blurInterval = setInterval(() => {
+      blurVal = Math.max(0, blurVal - 1);
+      this.game.canvas.style.filter = blurVal > 0 ? `blur(${blurVal}px)` : "";
+      if (blurVal === 0) clearInterval(blurInterval);
+    }, 40);
+  }
+
+  _playLobbyBgm() {
+    if (!this.sound.get("lobby_bgm")) {
+      try {
+        const bgm = this.sound.add("lobby_bgm", { loop: true, volume: 0.56 });
+        bgm.play();
+      } catch(e) {}
+    }
   }
 
   _cleanup() {
     this.game.canvas.style.filter = "";
     this._splashUI?.remove();
     this._splashStyle?.remove();
-    this._splashUI    = null;
-    this._splashStyle = null;
+    this._reconnectStyle?.remove();
+    this._splashUI        = null;
+    this._splashStyle     = null;
+    this._reconnectStyle  = null;
   }
 
   shutdown() {
