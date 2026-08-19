@@ -1,62 +1,61 @@
 import { setupClickSound, playOutSound } from "../utils/clickSound.js";
-import { createLoadingOverlay } from "../utils/loadingOverlay.js";
-import { getActiveProfile, getPlayerData } from "../server/utils/playerData.js";
+import { getActiveProfile, getPlayerData }  from "../server/utils/playerData.js";
+import { SERVER_URL }   from "../config.js";
 
-// ═══════════════════════════════════════════════════════════════════
-//  LabScene — Nghiên Cứu / Nâng cấp thẻ bài
-//
-//  DEBUG MODE: Bật DEBUG_COORDS = true để click vào bất kỳ chỗ nào
-//  trên màn hình → hiện tọa độ tương đối (rx, ry) + đặt nhân vật
-//  lên đó. Copy các tọa độ vào PLATFORM_SPOTS bên dưới rồi tắt debug.
-// ═══════════════════════════════════════════════════════════════════
-const DEBUG_COORDS = true; // ← tắt về false sau khi lấy đủ tọa độ
-
-// Tọa độ các tảng đá (tỉ lệ 0-1 so với width/height)
-// rx = x / width,  ry = y / height
-// Điền vào đây sau khi dùng debug mode để click lên từng tảng
+// ── Tọa độ 6 tảng đá (lấy từ debug mode) ────────────────────────
 const PLATFORM_SPOTS = [
-  // { rx: 0.18, ry: 0.55, label: "Tảng trái nhỏ" },
-  // { rx: 0.32, ry: 0.62, label: "Tảng trái cầu" },
-  // { rx: 0.50, ry: 0.48, label: "Tảng trung tâm" },
-  // { rx: 0.73, ry: 0.52, label: "Tảng phải lớn" },
-  // { rx: 0.87, ry: 0.58, label: "Tảng phải nhỏ" },
+  { rx: 0.143, ry: 0.597, label: "Spot 1", flipX: false },
+  { rx: 0.2,   ry: 0.439, label: "Spot 2", flipX: false },
+  { rx: 0.488, ry: 0.453, label: "Spot 3", flipX: false },
+  { rx: 0.657, ry: 0.403, label: "Spot 4", flipX: true  },
+  { rx: 0.848, ry: 0.516, label: "Spot 5", flipX: true  },
+  { rx: 0.713, ry: 0.606, label: "Spot 6", flipX: true  },
 ];
 
 export default class LabScene extends Phaser.Scene {
     constructor() { super("LabScene"); }
 
+    // ────────────────────────────────────────────────────────────────
     preload() {
         this.load.image("lab-bg", "assets/nen_2.png");
         this.load.image("out",    "assets/ui/shared/return.png");
 
-        // Load idle frames nhân vật (giống BoardScene)
-        const characters = [
-          'Dark_Oracle','Forest_Ranger','Golem','Minotaur',
-          'Necromancer_of_the_Shadow','Reaper_Man','Zombie_Villager'
-        ];
-        characters.forEach(character => {
-          for (let skin = 1; skin <= 3; skin++) {
+        // Load 5 idle frames phù thủy cho Spot 3
+        for (let i = 0; i <= 4; i++) {
+            const num = String(i).padStart(3, "0");
+            this.load.image(`wizard_idle_${num}`,
+                `./assets/characters/Wizard/PNG/wizard/1_IDLE_${num}.png`
+            );
+        }
+
+        // Chỉ load nhân vật của mình
+        try {
+            const profile   = getActiveProfile(this);
+            const character = (profile.characterName || "Dark_Oracle").replace(/ /g, "_");
+            const skin      = profile.skin_id || 1;
             for (let i = 0; i < 18; i++) {
-              const num = String(i).padStart(3, "0");
-              this.load.image(
-                `${character}_${skin}_idle_${num}`,
-                `./assets/characters/${character}/${character}_${skin}/PNG/PNG Sequences/Idle/0_${character}_Idle_${num}.png`
-              );
+                const num = String(i).padStart(3, "0");
+                const key = `${character}_${skin}_idle_${num}`;
+                if (!this.textures.exists(key)) {
+                    this.load.image(key,
+                        `./assets/characters/${character}/${character}_${skin}/PNG/PNG Sequences/Idle/0_${character}_Idle_${num}.png`
+                    );
+                }
             }
-          }
-        });
+        } catch(e) {}
     }
 
+    // ────────────────────────────────────────────────────────────────
     create() {
         const { width, height } = this.scale;
         setupClickSound(this);
 
+        this._memberSprites = {}; // user_id → { sprite, shadow, nameText }
+        this._mySpotIndex   = null;
+
         // ── Nền ──────────────────────────────────────────────────────
         const bg = this.add.image(width / 2, height / 2, "lab-bg");
         bg.setScale(Math.max(width / bg.width, height / bg.height));
-
-        // ── Loading overlay ───────────────────────────────────────────
-        const loading = createLoadingOverlay(this);
 
         // ── Nút Back ─────────────────────────────────────────────────
         const backBtn = this.add.image(48, 48, "out")
@@ -66,186 +65,300 @@ export default class LabScene extends Phaser.Scene {
             this.tweens.add({ targets: backBtn, scale: 0.7, duration: 80, yoyo: true });
             this.time.delayedCall(160, () => {
                 this.cameras.main.fadeOut(200);
-                this.cameras.main.once("camerafadeoutcomplete", () => this.scene.start("LobbyScene"));
+                this.cameras.main.once("camerafadeoutcomplete", () => {
+                    this._leaveLabRoom();
+                    this.scene.start("LobbyScene");
+                });
             });
         });
+
         this.add.text(105, 55, "NGHIÊN CỨU", {
             fontFamily: "Signika", fontSize: "32px", color: "#ffffff", fontStyle: "bold",
             stroke: "#003388", strokeThickness: 6,
             shadow: { offsetX: 2, offsetY: 3, color: "#001166", blur: 6, fill: true },
         }).setOrigin(0, 0.5).setPadding(8, 6, 8, 6).setDepth(200);
 
-        // ── Tạo animations nhân vật ───────────────────────────────────
-        this._createIdleAnims();
+        // ── Phù thủy NPC tại Spot 3 ──────────────────────────────────
+        this._spawnWizard(width, height);
 
-        // ── Đặt nhân vật người chơi lên tảng đá ─────────────────────
-        this._spawnMyCharacter(width, height);
-
-        // ── Debug: click để lấy tọa độ ───────────────────────────────
-        if (DEBUG_COORDS) {
-            this._setupDebugMode(width, height);
-        }
-
-        this.time.delayedCall(100, () => loading.destroy());
+        // ── Kết nối socket và join Lab ────────────────────────────────
+        this._connectAndJoin();
     }
 
-    // ─────────────────────────────────────────────────────────────────
-    //  Tạo idle animation cho tất cả nhân vật / skin
-    // ─────────────────────────────────────────────────────────────────
-    _createIdleAnims() {
-        const characters = [
-          'Dark_Oracle','Forest_Ranger','Golem','Minotaur',
-          'Necromancer_of_the_Shadow','Reaper_Man','Zombie_Villager'
-        ];
-        characters.forEach(character => {
-            for (let skin = 1; skin <= 3; skin++) {
-                const key = `${character}_${skin}_idle`;
-                if (this.anims.exists(key)) continue;
-                const frames = [];
-                for (let i = 0; i < 18; i++) {
-                    frames.push({ key: `${character}_${skin}_idle_${String(i).padStart(3,"0")}` });
-                }
-                this.anims.create({ key, frames, frameRate: 12, repeat: -1 });
-            }
+    // ────────────────────────────────────────────────────────────────
+    //  Phù thủy NPC tĩnh tại Spot 3 (không phải player)
+    // ────────────────────────────────────────────────────────────────
+    _spawnWizard(width, height) {
+        const spot = PLATFORM_SPOTS[2]; // Spot 3 = index 2
+        if (!spot) return;
+
+        const minR = Math.min(width / 1920, height / 1080);
+        const sx   = spot.rx * width;
+        const sy   = spot.ry * height;
+
+        // Tạo animation idle phù thủy (5 frames)
+        if (!this.anims.exists("wizard_idle")) {
+            const frames = [];
+            for (let i = 0; i <= 4; i++)
+                frames.push({ key: `wizard_idle_${String(i).padStart(3,"0")}` });
+            this.anims.create({
+                key: "wizard_idle", frames,
+                frameRate: 8, repeat: -1
+            });
+        }
+
+        // Shadow
+        this.add.ellipse(sx, sy + 4, 44 * minR, 16 * minR, 0x000000, 0.3)
+            .setOrigin(0.5).setDepth(9);
+
+        // Sprite phù thủy — hơi to hơn nhân vật player
+        const wizard = this.add.sprite(sx, sy, "wizard_idle_000")
+            .setScale(0.43 * minR).setOrigin(0.5, 0.8).setDepth(10)
+            .setFlipX(spot.flipX ?? false);
+
+        if (this.anims.exists("wizard_idle")) wizard.play("wizard_idle");
+
+        // Nhãn — đẩy lên cao hơn đầu nhân vật
+        this.add.text(sx, sy - 120 * minR, "Phù Thủy", {
+            fontFamily: "Signika", fontSize: Math.floor(22 * minR) + "px",
+            color: "#cc88ff", fontStyle: "bold",
+            stroke: "#000000", strokeThickness: 5,
+        }).setOrigin(0.5).setDepth(12);
+
+        // Hiệu ứng glow tím nhẹ xung quanh
+        const glow = this.add.graphics().setDepth(8);
+        glow.fillStyle(0x9933ff, 0.08);
+        glow.fillCircle(sx, sy - 20 * minR, 52 * minR);
+
+        // Lưu để dùng lại nếu cần
+        this._wizardSprite = wizard;
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    //  Kết nối socket (hoặc dùng lại socket đã có) → join lab room
+    // ────────────────────────────────────────────────────────────────
+    _connectAndJoin() {
+        const pd      = getPlayerData(this);
+        const profile = getActiveProfile(this);
+        const token   = pd?.token;
+
+        // Dùng lại socket từ registry nếu có
+        let socket = this.registry.get("gameSocket");
+        if (socket && socket.connected) {
+            this._socket = socket;
+        } else {
+            this._socket = io(SERVER_URL, {
+                transports: ["websocket", "polling"],
+                reconnection: true,
+                reconnectionAttempts: 5,
+                auth: { token },
+            });
+        }
+
+        const charName = (profile.characterName || "Dark_Oracle").replace(/ /g, "_");
+        const skin     = profile.skin_id || 1;
+        const name     = pd?.user?.name || "Player";
+
+        // Preload frame nhân vật người khác khi cần
+        this._charName = charName;
+        this._skin     = skin;
+        this._myName   = name;
+
+        const doJoin = () => {
+            this._socket.emit("lab:join", { name, charName, skin });
+        };
+
+        if (this._socket.connected) {
+            doJoin();
+        } else {
+            this._socket.once("connect", doJoin);
+        }
+
+        // ── Nhận danh sách phòng khi vào ─────────────────────────────
+        this._socket.on("lab:joined", (data) => {
+            this._labId      = data.lab_id;
+            this._mySpotIndex = data.spot_index;
+            this._buildLabInfo(data.lab_id);
+            // Spawn tất cả thành viên hiện có
+            data.members.forEach(m => this._spawnMember(m));
+        });
+
+        // ── Người mới vào ─────────────────────────────────────────────
+        this._socket.on("lab:member_joined", (data) => {
+            this._spawnMember(data);
+            this._showNotice(`🧪 ${data.name} đã vào phòng`);
+        });
+
+        // ── Người rời ────────────────────────────────────────────────
+        this._socket.on("lab:member_left", (data) => {
+            this._removeMember(data.user_id);
         });
     }
 
-    // ─────────────────────────────────────────────────────────────────
-    //  Spawn nhân vật mình lên tảng đá đầu tiên (hoặc trung tâm)
-    // ─────────────────────────────────────────────────────────────────
-    _spawnMyCharacter(width, height) {
-        const profile = getActiveProfile(this);
-        const character = (profile.characterName || "Dark_Oracle").replace(/ /g, "_");
-        const skin      = profile.skin_id || 1;
-        const animKey   = `${character}_${skin}_idle`;
+    // ────────────────────────────────────────────────────────────────
+    //  Hiển thị lab_id góc trên phải
+    // ────────────────────────────────────────────────────────────────
+    _buildLabInfo(labId) {
+        const { width } = this.scale;
+        this._labInfoText?.destroy();
+        this._labInfoText = this.add.text(width - 16, 16,
+            `🧪 Phòng: ${labId}`, {
+            fontFamily: "Signika", fontSize: "16px",
+            color: "#aaddff", stroke: "#000", strokeThickness: 3,
+        }).setOrigin(1, 0).setDepth(200);
+    }
 
-        // Vị trí mặc định: tảng trung tâm (điều chỉnh sau khi có debug coords)
-        const spot = PLATFORM_SPOTS.length > 0
-            ? PLATFORM_SPOTS[0]
-            : { rx: 0.50, ry: 0.52 }; // fallback tảng giữa
+    // ────────────────────────────────────────────────────────────────
+    //  Spawn nhân vật một thành viên lên đúng spot
+    // ────────────────────────────────────────────────────────────────
+    _spawnMember(member) {
+        const { width, height }  = this.scale;
+        const minR = Math.min(width / 1920, height / 1080);
+
+        const spot = PLATFORM_SPOTS[member.spot_index];
+        if (!spot) return;
 
         const sx = spot.rx * width;
         const sy = spot.ry * height;
 
-        const minR = Math.min(width / 1920, height / 1080);
-        const frameKey = `${character}_${skin}_idle_000`;
+        const character = (member.charName || "Dark_Oracle").replace(/ /g, "_");
+        const skin      = member.skin || 1;
+        const animKey   = `${character}_${skin}_idle`;
 
-        if (this.textures.exists(frameKey)) {
-            const sprite = this.add.sprite(sx, sy, frameKey)
-                .setScale(0.26 * minR)
-                .setOrigin(0.5, 0.8)
-                .setDepth(10);
+        // Load frames nếu chưa có (lazy load)
+        const frame0 = `${character}_${skin}_idle_000`;
+        if (!this.textures.exists(frame0)) {
+            // Load 18 frames rồi spawn sau
+            for (let i = 0; i < 18; i++) {
+                const num = String(i).padStart(3,"0");
+                const k   = `${character}_${skin}_idle_${num}`;
+                if (!this.textures.exists(k)) {
+                    this.load.image(k,
+                        `./assets/characters/${character}/${character}_${skin}/PNG/PNG Sequences/Idle/0_${character}_Idle_${num}.png`
+                    );
+                }
+            }
+            this.load.once("complete", () => {
+                this._buildAnim(animKey, character, skin);
+                this._doSpawnMember(member, sx, sy, minR, animKey);
+            });
+            this.load.start();
+            return;
+        }
 
-            if (this.anims.exists(animKey)) sprite.play(animKey);
+        this._buildAnim(animKey, character, skin);
+        this._doSpawnMember(member, sx, sy, minR, animKey);
+    }
 
-            // Shadow
-            this.add.ellipse(sx, sy + 4, 38 * minR, 14 * minR, 0x000000, 0.3)
-                .setOrigin(0.5).setDepth(9);
+    _buildAnim(key, character, skin) {
+        if (this.anims.exists(key)) return;
+        const frames = [];
+        for (let i = 0; i < 18; i++)
+            frames.push({ key: `${character}_${skin}_idle_${String(i).padStart(3,"0")}` });
+        this.anims.create({ key, frames, frameRate: 12, repeat: -1 });
+    }
 
-            // Tên
-            const pd = getPlayerData(this);
-            const name = pd?.user?.name || "Bạn";
-            this.add.text(sx, sy - 50 * minR, name, {
-                fontFamily: "Signika", fontSize: Math.floor(18 * minR) + "px",
-                color: "#ffffff", fontStyle: "bold",
-                stroke: "#000000", strokeThickness: 4,
-            }).setOrigin(0.5).setDepth(11);
+    _doSpawnMember(member, sx, sy, minR, animKey) {
+        // Xóa sprite cũ nếu đã có
+        this._removeMember(member.user_id);
+
+        const isMe = Number(member.user_id) === Number(getPlayerData(this)?.user?.id);
+        const spot = PLATFORM_SPOTS[member.spot_index];
+        const shouldFlip = spot?.flipX ?? false;
+
+        const character = (member.charName || "Dark_Oracle").replace(/ /g, "_");
+        const skin      = member.skin || 1;
+        const frame0    = `${character}_${skin}_idle_000`;
+
+        const sprite = this.add.sprite(sx, sy, frame0)
+            .setScale(0.26 * minR).setOrigin(0.5, 0.8).setDepth(10 + (isMe ? 1 : 0))
+            .setFlipX(shouldFlip);
+        if (this.anims.exists(animKey)) sprite.play(animKey);
+
+        // Viền sáng cho mình
+        if (isMe) {
+            sprite.setTint(0xeeffee);
+        }
+
+        const shadow = this.add.ellipse(sx, sy + 4, 38 * minR, 14 * minR, 0x000000, 0.3)
+            .setOrigin(0.5).setDepth(9);
+
+        const nameColor = isMe ? "#ffff88" : "#ffffff";
+        const nameText  = this.add.text(sx, sy - 120 * minR, member.name || "Player", {
+            fontFamily: "Signika", fontSize: Math.floor(22 * minR) + "px",
+            color: nameColor, fontStyle: "bold",
+            stroke: "#000000", strokeThickness: 5,
+        }).setOrigin(0.5).setDepth(12);
+
+        // Nhãn "Bạn" nếu là mình
+        let meTag = null;
+        if (isMe) {
+            meTag = this.add.text(sx, sy - 142 * minR, "[ Bạn ]", {
+                fontFamily: "Signika", fontSize: Math.floor(14 * minR) + "px",
+                color: "#88ffcc", stroke: "#000", strokeThickness: 3,
+            }).setOrigin(0.5).setDepth(12);
+        }
+
+        this._memberSprites[member.user_id] = { sprite, shadow, nameText, meTag };
+
+        // Hiệu ứng nhảy xuống khi xuất hiện
+        const origY = sy;
+        sprite.y = sy - 80 * minR;
+        sprite.setAlpha(0);
+        this.tweens.add({
+            targets: sprite, y: origY, alpha: 1,
+            duration: 400, ease: "Bounce.easeOut",
+        });
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    _removeMember(userId) {
+        const existing = this._memberSprites[userId];
+        if (!existing) return;
+        try { existing.sprite?.destroy();   } catch(e) {}
+        try { existing.shadow?.destroy();   } catch(e) {}
+        try { existing.nameText?.destroy(); } catch(e) {}
+        try { existing.meTag?.destroy();    } catch(e) {}
+        delete this._memberSprites[userId];
+    }
+
+    _leaveLabRoom() {
+        if (this._socket) {
+            try { this._socket.emit("lab:leave"); } catch(e) {}
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────
-    //  DEBUG MODE — click để xem tọa độ tương đối
-    // ─────────────────────────────────────────────────────────────────
-    _setupDebugMode(width, height) {
-        const minR = Math.min(width / 1920, height / 1080);
-        const D = 300;
-
-        // Banner thông báo
-        const banner = this.add.text(width / 2, height - 36, "🔧 DEBUG: Click vào tảng đá để lấy tọa độ", {
-            fontFamily: "Signika", fontSize: "15px", color: "#ffff00",
-            stroke: "#000000", strokeThickness: 3,
-            backgroundColor: "#00000088", padding: { x: 10, y: 4 },
-        }).setOrigin(0.5).setDepth(D);
-
-        // List tọa độ đã lấy
-        const coordList = [];
-        const logText = this.add.text(8, 80, "", {
-            fontFamily: "monospace", fontSize: "12px", color: "#00ff88",
-            stroke: "#000000", strokeThickness: 2,
-            backgroundColor: "#00000088", padding: { x: 6, y: 4 },
-        }).setDepth(D).setWordWrapWidth(width * 0.5);
-
-        // Cursor highlight
-        const cursor = this.add.graphics().setDepth(D - 1);
-
-        this.input.on("pointermove", (ptr) => {
-            const rx = (ptr.x / width).toFixed(3);
-            const ry = (ptr.y / height).toFixed(3);
-            cursor.clear();
-            cursor.lineStyle(1, 0xffff00, 0.35);
-            cursor.strokeCircle(ptr.x, ptr.y, 22 * minR);
-        });
-
-        this.input.on("pointerdown", (ptr) => {
-            const rx = +(ptr.x / width).toFixed(3);
-            const ry = +(ptr.y / height).toFixed(3);
-            const label = `Spot ${coordList.length + 1}`;
-
-            coordList.push({ rx, ry, label });
-
-            // Đánh dấu chấm
-            const dot = this.add.graphics().setDepth(D);
-            dot.fillStyle(0xff4444, 1);
-            dot.fillCircle(ptr.x, ptr.y, 6 * minR);
-            dot.lineStyle(2, 0xffffff, 0.8);
-            dot.strokeCircle(ptr.x, ptr.y, 6 * minR);
-
-            this.add.text(ptr.x + 10, ptr.y - 8, label, {
-                fontFamily: "monospace", fontSize: "11px", color: "#ffff44",
-                stroke: "#000000", strokeThickness: 2,
-            }).setDepth(D + 1);
-
-            // Cập nhật log
-            const lines = coordList.map(s =>
-                `{ rx: ${s.rx}, ry: ${s.ry}, label: "${s.label}" },`
-            ).join("\n");
-            logText.setText("// PLATFORM_SPOTS:\n" + lines);
-
-            // In ra console để copy
-            console.log(`🗺️ ${label}: { rx: ${rx}, ry: ${ry} }`);
-            console.log("📋 Full array:\nconst PLATFORM_SPOTS = [\n" +
-                coordList.map(s => `  { rx: ${s.rx}, ry: ${s.ry}, label: "${s.label}" },`).join("\n") +
-                "\n];");
-        });
-
-        // Nút RESET
-        const resetG = this.add.graphics().setDepth(D);
-        resetG.fillStyle(0x883300, 1);
-        resetG.fillRoundedRect(width - 100, height - 56, 90, 32, 8);
-        const resetTxt = this.add.text(width - 55, height - 40, "RESET", {
-            fontFamily: "Signika", fontSize: "14px", color: "#ffffff", fontStyle: "bold",
-        }).setOrigin(0.5).setDepth(D + 1).setInteractive({ cursor: "pointer" });
-        resetTxt.on("pointerdown", () => {
-            coordList.length = 0;
-            logText.setText("");
-            this.scene.restart(); // reload lại scene
-        });
-
-        // Nút COPY (mở popup JS)
-        const copyG = this.add.graphics().setDepth(D);
-        copyG.fillStyle(0x004488, 1);
-        copyG.fillRoundedRect(width - 100, height - 92, 90, 32, 8);
-        const copyTxt = this.add.text(width - 55, height - 76, "COPY", {
-            fontFamily: "Signika", fontSize: "14px", color: "#ffffff", fontStyle: "bold",
-        }).setOrigin(0.5).setDepth(D + 1).setInteractive({ cursor: "pointer" });
-        copyTxt.on("pointerdown", () => {
-            const out = "const PLATFORM_SPOTS = [\n" +
-                coordList.map(s => `  { rx: ${s.rx}, ry: ${s.ry}, label: "${s.label}" },`).join("\n") +
-                "\n];";
-            navigator.clipboard?.writeText(out)
-                .then(() => alert("✅ Đã copy vào clipboard!\n\n" + out))
-                .catch(() => prompt("Copy nội dung này:", out));
+    _showNotice(msg) {
+        const { width, height } = this.scale;
+        const t = this.add.text(width / 2, height - 60, msg, {
+            fontFamily: "Signika", fontSize: "16px",
+            color: "#aaffdd", stroke: "#000", strokeThickness: 3,
+            backgroundColor: "#00000077", padding: { x: 12, y: 5 },
+        }).setOrigin(0.5).setDepth(300).setAlpha(0);
+        this.tweens.add({ targets: t, alpha: 1, duration: 200,
+            onComplete: () => this.time.delayedCall(2500, () => {
+                this.tweens.add({ targets: t, alpha: 0, duration: 300,
+                    onComplete: () => { try { t.destroy(); } catch(e){} }
+                });
+            })
         });
     }
-}
 
+    shutdown() {
+        this._leaveLabRoom();
+        // Cleanup sprites
+        Object.values(this._memberSprites || {}).forEach(s => {
+            try { s.sprite?.destroy();   } catch(e) {}
+            try { s.shadow?.destroy();   } catch(e) {}
+            try { s.nameText?.destroy(); } catch(e) {}
+            try { s.meTag?.destroy();    } catch(e) {}
+        });
+        this._memberSprites = {};
+        // Tắt các socket listeners của lab để không bị duplicate
+        if (this._socket) {
+            this._socket.off("lab:joined");
+            this._socket.off("lab:member_joined");
+            this._socket.off("lab:member_left");
+        }
+    }
+}

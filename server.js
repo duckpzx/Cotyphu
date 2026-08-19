@@ -1222,6 +1222,42 @@ function emitGameStateSync(room_id) {
   io.to(`game_${room_id}`).emit("game:state_sync", payload);
 }
 
+// ===== LAB ROOM STATE =====
+const MAX_LAB_SLOTS  = 6;          // Số tảng đá = 6 spots
+const labRooms       = new Map();  // Map<labId, { members: Map<user_id, memberData> }>
+let   labRoomCounter = 0;
+
+function labMemberList(lab) {
+  return [...lab.members.values()];
+}
+
+function handleLabLeave(socket) {
+  const labId = socket.lab_room_id;
+  if (!labId) return;
+  socket.lab_room_id = null;
+  socket.leave(`lab_${labId}`);
+
+  const lab = labRooms.get(labId);
+  if (!lab) return;
+
+  const removed = lab.members.get(socket.user_id);
+  lab.members.delete(socket.user_id);
+
+  // Báo cho người khác
+  if (removed) {
+    io.to(`lab_${labId}`).emit("lab:member_left", {
+      user_id:    socket.user_id,
+      spot_index: removed.spot_index,
+    });
+  }
+
+  // Dọn lab rỗng
+  if (lab.members.size === 0) {
+    labRooms.delete(labId);
+    console.log(`🧹 Lab ${labId} removed (empty)`);
+  }
+}
+
 // ===== SOCKET EVENTS =====
 io.on("connection", (socket) => {
   console.log(`\n✅ Connected: ${socket.id} | user_id: ${socket.user_id}`);
@@ -2576,11 +2612,16 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
   socket.on("room:leave", async () => { await handleLeaveRoom(socket); });
   socket.on("disconnect", async () => {
     console.log(`❌ Disconnected: ${socket.id}`);
+
+    // Rời Lab nếu đang ở Lab
+    if (socket.lab_room_id) {
+      handleLabLeave(socket);
+    }
+
     await handleLeaveRoom(socket);
     delete players[socket.id];
     io.emit("playerDisconnected", socket.id);
 
-    // ── Untrack online user ──────────────────────────────────────────
     const uid = Number(socket.user_id);
     if (onlineUserSockets.has(uid)) {
       onlineUserSockets.get(uid).delete(socket.id);
@@ -2590,8 +2631,61 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     }
   });
 
+  // ── LAB ROOMS ────────────────────────────────────────────────────
+  // Mỗi lab room chứa tối đa MAX_LAB_SLOTS người, mỗi người 1 spot
+  // không trùng nhau. Khi full tự tạo lab mới.
 
+  socket.on("lab:join", (data) => {
+    const user_id  = socket.user_id;
+    const name     = data?.name     || socket.player_name || "Player";
+    const charName = data?.charName || "Dark_Oracle";
+    const skin     = data?.skin     || 1;
 
+    // Tìm lab có chỗ trống (chưa full)
+    let labId = null;
+    for (const [lid, lab] of labRooms.entries()) {
+      if (lab.members.size < MAX_LAB_SLOTS) { labId = lid; break; }
+    }
+
+    // Không có lab trống → tạo lab mới
+    if (!labId) {
+      labId = `lab_${++labRoomCounter}`;
+      labRooms.set(labId, { members: new Map() });
+    }
+
+    const lab = labRooms.get(labId);
+
+    // Nếu user đã ở lab khác → rời trước
+    if (socket.lab_room_id && socket.lab_room_id !== labId) {
+      handleLabLeave(socket);
+    }
+
+    // Chọn spot_index chưa bị dùng
+    const usedSpots = new Set([...lab.members.values()].map(m => m.spot_index));
+    let spot_index = 0;
+    while (usedSpots.has(spot_index)) spot_index++;
+
+    // Lưu vào lab
+    lab.members.set(user_id, { user_id, name, charName, skin, spot_index, socket_id: socket.id });
+    socket.lab_room_id = labId;
+    socket.join(`lab_${labId}`);
+
+    // Gửi cho chính mình: danh sách đầy đủ + spot của mình
+    socket.emit("lab:joined", {
+      lab_id:     labId,
+      spot_index,
+      members:    labMemberList(lab),
+    });
+
+    // Báo cho người khác trong lab: có người mới
+    socket.to(`lab_${labId}`).emit("lab:member_joined", {
+      user_id, name, charName, skin, spot_index,
+    });
+
+    console.log(`🧪 ${name} joined lab ${labId} (spot ${spot_index}), total: ${lab.members.size}`);
+  });
+
+  socket.on("lab:leave", () => { handleLabLeave(socket); });
 });
 
 // ===== ROUTES =====
