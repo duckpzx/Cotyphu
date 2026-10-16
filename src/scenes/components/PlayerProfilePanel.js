@@ -473,8 +473,18 @@ export default class PlayerProfilePanel {
           renderBg();
         } else {
           if (this.scene.textures.exists(bgKey)) this.scene.textures.remove(bgKey);
+          // Chuẩn hóa path: đảm bảo bắt đầu từ assets/
+          const safePath = bgPath.startsWith("assets/") ? bgPath
+            : bgPath.startsWith("/") ? bgPath.slice(1)
+            : `assets/ui/bg/${bgPath.split("/").pop()}`;
           this.scene.load.once(`filecomplete-image-${bgKey}`, renderBg);
-          this.scene.load.image(bgKey, bgPath);
+          this.scene.load.once("loaderror", (file) => {
+            // Bỏ qua lỗi load bg — không hiển thị broken image
+            if (file?.key === bgKey) {
+              try { this.scene.textures.remove(bgKey); } catch(e) {}
+            }
+          });
+          this.scene.load.image(bgKey, safePath);
           this.scene.load.start();
         }
       }

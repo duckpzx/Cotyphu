@@ -1347,9 +1347,21 @@ _closeTarotModal() { this.tarotModal?.close(); }
     // Xóa session reconnect — ván đã kết thúc
     try { localStorage.removeItem("activeGame"); } catch(e) {}
     this._intentionalExit = true;
+
+    // Cập nhật ecoin mới vào localStorage ngay
+    if (data.ecoins_after && myUid && data.ecoins_after[myUid] !== undefined) {
+      try {
+        const pd = JSON.parse(localStorage.getItem("playerData") || "null");
+        if (pd?.user) {
+          pd.user.ecoin = data.ecoins_after[myUid];
+          localStorage.setItem("playerData", JSON.stringify(pd));
+        }
+      } catch(e) {}
+    }
+
     const isWinner = data.winner_user_id === myUid;
     this.time.delayedCall(isWinner ? 0 : 1200, () => {
-      this._showGameOverScreen(isWinner, data.winner_name);
+      this._showGameOverScreen(isWinner, data.winner_name, data);
     });
   });
 

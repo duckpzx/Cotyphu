@@ -1,4 +1,4 @@
-import { getPlayerData, setPlayerData, getActiveProfile } from "../server/utils/playerData.js";
+﻿import { getPlayerData, setPlayerData, getActiveProfile } from "../server/utils/playerData.js";
 import EcoinManager from "../server/utils/ecoinManager.js";
 import ChatWidget from "./components/ChatWidget.js";
 import FriendPanel from "./components/FriendPanel.js";
@@ -296,6 +296,27 @@ createTopBar() {
   })
   .setOrigin(0, 0.5)
   .setDepth(104);
+
+  // ── Click vào cụm profile → mở panel thông tin + lịch sử ─────────
+  const profileZone = this.add.zone(
+    profileX + 20 + profileBgWidth / 2,
+    y,
+    profileBgWidth + avatarSize / 2,
+    profileBgHeight + 10
+  ).setInteractive({ cursor: "pointer" }).setDepth(110);
+
+  profileZone.on("pointerover", () => {
+    profileBg.setAlpha(0.7);
+    name.setTint(0xffff88);
+  });
+  profileZone.on("pointerout", () => {
+    profileBg.setAlpha(1);
+    name.clearTint();
+  });
+  profileZone.on("pointerdown", () => {
+    this.tweens.add({ targets: profileBg, alpha: 0.3, duration: 80, yoyo: true });
+    this._openMyProfilePanel(width, height);
+  });
 
 // ===== CỤM COIN (KHUNG NỀN THẪM) =====
   const coinX = 310;
@@ -1600,5 +1621,670 @@ createTopBar() {
       backgroundColor: "#00000099", padding: { x: 16, y: 8 }
     }).setOrigin(0.5).setDepth(300);
     this.tweens.add({ targets: t, alpha: 0, delay: 1800, duration: 400, onComplete: () => t.destroy() });
+  }
+
+// ─────────────────────────────────────────────────────────────────
+  //  PANEL THÔNG TIN CÁ NHÂN + LỊCH SỬ TRẬN ĐẤU (ĐỒNG BỘ GIAO DIỆN FRIEND)
+  // ─────────────────────────────────────────────────────────────────
+  _openMyProfilePanel(width, height) {
+    if (this._myProfilePanelOpen) return;
+    this._myProfilePanelOpen = true;
+
+    const objs = [];
+    const push = o => { objs.push(o); return o; };
+    const D = 250;
+
+    const tabBtns    = [];
+    const tabContent = [];
+
+    const closeAll = () => {
+      this._myProfilePanelOpen = false;
+      tabBtns.forEach(o => { try { o?.destroy(); } catch(e){} });
+      tabContent.forEach(o => { try { o?.destroy(); } catch(e){} });
+      objs.forEach(o => { try { o?.destroy(); } catch(e){} });
+    };
+
+    const PW = Math.min(600, width - 40);
+    const PH = Math.min(460, height - 60);
+    const PX = width / 2, PY = height / 2;
+    const L  = PX - PW / 2, T = PY - PH / 2;
+    const R  = 16;
+
+    // ── Dimmer ────────────────────────────────────────────────────
+    const dim = push(this.add.graphics().setDepth(D).setAlpha(0));
+    dim.fillStyle(0x000000, 0.62);
+    dim.fillRect(0, 0, width, height);
+    this.tweens.add({ targets: dim, alpha: 1, duration: 200 });
+    push(this.add.zone(PX, PY, width, height).setInteractive().setDepth(D))
+      .on("pointerdown", closeAll);
+
+    // ── Panel nền chính (Viền trắng + Nền kem vàng giống Friend) ──
+    const pg = push(this.add.graphics().setDepth(D + 1));
+    // Bóng đổ
+    pg.fillStyle(0x000000, 0.28);
+    pg.fillRoundedRect(L + 6, T + 6, PW, PH, R);
+    // Nền gradient kem vàng
+    pg.fillGradientStyle(0xf6eac6, 0xf6eac6, 0xede0b0, 0xede0b0, 1);
+    pg.fillRoundedRect(L, T, PW, PH, R);
+    // Viền ngoài sáng đồng bộ với popup Friend
+    pg.lineStyle(3, 0xffffff, 1);
+    pg.strokeRoundedRect(L, T, PW, PH, R);
+    // Gloss trên
+    pg.fillStyle(0xffffff, 0.22);
+    pg.fillRoundedRect(L + 6, T + 4, PW - 12, 20, 8);
+
+    // Viền đứt nét vàng bên trong
+    const ins = 10, cR = R - 4;
+    pg.lineStyle(1.5, 0xb8922e, 0.5);
+    const dD = (x1, y1, x2, y2) => {
+      const dist = Phaser.Math.Distance.Between(x1, y1, x2, y2);
+      const ang  = Phaser.Math.Angle.Between(x1, y1, x2, y2);
+      for (let d = 0; d < dist; d += 14) {
+        pg.beginPath();
+        pg.moveTo(x1 + Math.cos(ang) * d, y1 + Math.sin(ang) * d);
+        pg.lineTo(x1 + Math.cos(ang) * Math.min(d + 8, dist), y1 + Math.sin(ang) * Math.min(d + 8, dist));
+        pg.strokePath();
+      }
+    };
+    dD(L + ins + cR, T + ins, L + PW - ins - cR, T + ins);
+    dD(L + PW - ins, T + ins + cR, L + PW - ins, T + PH - ins - cR);
+    dD(L + PW - ins - cR, T + PH - ins, L + ins + cR, T + PH - ins);
+    dD(L + ins, T + PH - ins - cR, L + ins, T + ins + cR);
+
+    // Chặn click xuyên panel
+    push(this.add.zone(PX, PY, PW, PH).setInteractive().setDepth(D + 1));
+
+    // ── Header pill & Tabs ────────────────────────────────────────
+  // ── Header pill tiêu đề (Căn chỉnh và kích thước chuẩn bằng bảng Nạp Ecoin) ──
+    const pillW  = 280; // Kích thước chiều rộng chuẩn bằng bảng Nạp Ecoin
+    const pillH  = 44;  // Chiều cao chuẩn bằng bảng Nạp Ecoin
+    const pillR2 = 22;  // Bán kính bo tròn
+    const pillCY = T;   // Đặt tâm Y nằm đúng ngay đường viền trên cùng của panel (T) để nhô lên ngoài
+
+    const pg2 = push(this.add.graphics().setDepth(D + 2));
+    // Bóng đổ phía dưới pill
+    pg2.fillStyle(0x000000, 0.2);
+    pg2.fillRoundedRect(PX - pillW / 2 + 4, pillCY - pillH / 2 + 5, pillW, pillH, pillR2);
+    // Nền gradient vàng nâu
+    pg2.fillGradientStyle(0xd4a030, 0xd4a030, 0xb07820, 0xb07820, 1);
+    pg2.fillRoundedRect(PX - pillW / 2, pillCY - pillH / 2, pillW, pillH, pillR2);
+    // Gloss sáng phía trên
+    pg2.fillStyle(0xffffff, 0.28);
+    pg2.fillRoundedRect(PX - pillW / 2 + 8, pillCY - pillH / 2 + 6, pillW - 16, pillH * 0.38, pillR2 - 2);
+    // Viền ngoài đậm
+    pg2.lineStyle(2.5, 0x8b5e1a, 1);
+    pg2.strokeRoundedRect(PX - pillW / 2, pillCY - pillH / 2, pillW, pillH, pillR2);
+
+    // Text tiêu đề bên trong pill
+    push(this.add.text(PX, pillCY, "THÔNG TIN CÁ NHÂN", {
+      fontFamily: "Signika", fontSize: "20px", color: "#4a2000",
+      fontStyle: "bold", stroke: "#ffffffaa", strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(D + 3));
+
+    // ── Nút X góc trên phải panel (Đặt dịch ra ngoài góc khung đúng chuẩn) ──
+    const closeX = L + PW - 2;
+    const closeY = T - 2;
+    const closeImg = push(this.add.image(closeX, closeY, "close_btn")
+      .setDisplaySize(38, 38).setOrigin(0.5).setDepth(D + 6)
+      .setInteractive({ cursor: "pointer" }));
+    closeImg.on("pointerover",  () => closeImg.setAlpha(0.75));
+    closeImg.on("pointerout",   () => closeImg.setAlpha(1));
+    closeImg.on("pointerdown",  () => {
+      this.tweens.add({ targets: closeImg, scale: 0.85, duration: 60, yoyo: true });
+      closeAll();
+    });
+
+    // ── Dời vị trí của 2 Tab (Thông Tin / Lịch Sử Trận) xuống thấp hơn một chút để không bị che bởi pill tiêu đề mới ──
+    const TAB_Y = T + 30;
+    const TAB_H = 32;
+    const PAD   = 22;
+    const GAP   = 12;
+    const TAB_W = (PW - PAD * 2 - GAP) / 2;
+    const tabs  = ["Thông Tin", "Lịch Sử Trận"];
+    let activeTab = 0;
+
+    const pd    = this.registry.get("playerData") || JSON.parse(localStorage.getItem("playerData") || "null");
+    const token = pd?.token;
+    const uid   = pd?.user?.id;
+
+    const drawTabs = () => {
+      tabBtns.forEach(o => { try { o?.destroy(); } catch(e){} });
+      tabBtns.length = 0;
+      tabs.forEach((label, i) => {
+        const tx = L + PAD + i * (TAB_W + GAP);
+        const isAct = i === activeTab;
+        const tg = this.add.graphics().setDepth(D + 2);
+        tg.fillStyle(isAct ? 0xb88028 : 0x8a6530, 1);
+        tg.fillRoundedRect(tx, TAB_Y, TAB_W, TAB_H, 8);
+        tg.lineStyle(1.5, isAct ? 0xf5d77f : 0x6b4a10, isAct ? 1 : 0.5);
+        tg.strokeRoundedRect(tx, TAB_Y, TAB_W, TAB_H, 8);
+        if (isAct) {
+          tg.fillStyle(0xffffff, 0.18);
+          tg.fillRoundedRect(tx + 4, TAB_Y + 3, TAB_W - 8, TAB_H * 0.35, 5);
+        }
+        const tt = this.add.text(tx + TAB_W / 2, TAB_Y + TAB_H / 2, label, {
+          fontFamily: "Signika", fontSize: "14px",
+          color: isAct ? "#fff8dc" : "#d8b880", fontStyle: "bold",
+        }).setOrigin(0.5).setDepth(D + 3);
+        const tz = this.add.zone(tx + TAB_W / 2, TAB_Y + TAB_H / 2, TAB_W, TAB_H)
+          .setInteractive({ cursor: "pointer" }).setDepth(D + 4);
+        tz.on("pointerdown", () => {
+          if (activeTab === i) return;
+          playTabSound(this);
+          activeTab = i;
+          drawTabs();
+          renderContent();
+        });
+        tabBtns.push(tg, tt, tz);
+      });
+    };
+
+    const CONTENT_Y = TAB_Y + TAB_H + 8;
+    const CONTENT_H = PH - (CONTENT_Y - T) - 20;
+
+    const clearContent = () => {
+      tabContent.forEach(o => { try { o?.destroy(); } catch(e){} });
+      tabContent.length = 0;
+    };
+
+    // ── TAB 1: THÔNG TIN (Bố cục chuẩn giống PlayerProfilePanel) ──
+    const renderInfoTab = () => {
+      const profile = getActiveProfile(this);
+      const user    = pd?.user || {};
+
+      const COL_W  = Math.floor((PW - PAD * 2 - GAP) / 2);
+      const BODY_T = CONTENT_Y;
+      const BODY_H = CONTENT_H;
+      const IP     = 12; // Inner padding
+      const leftX  = L + PAD;
+      const rightX = L + PAD + COL_W + GAP;
+
+      // ── Vẽ 2 khung card trái & phải giống hệt bên Friend ────────
+      const makeInset = (ix, iy, iw, ih) => {
+        const g = this.add.graphics().setDepth(D + 2);
+        // Nền vàng kem đậm vừa phải giống Friend
+        g.fillStyle(0xeed698, 1);
+        g.fillRoundedRect(ix, iy, iw, ih, 10);
+        g.lineStyle(1.5, 0xb89040, 0.85);
+        g.strokeRoundedRect(ix, iy, iw, ih, 10);
+        // Viền sáng inset
+        g.lineStyle(1, 0xfff4d0, 0.5);
+        g.strokeRoundedRect(ix + 1, iy + 1, iw - 2, ih - 2, 9);
+        tabContent.push(g);
+      };
+      makeInset(leftX,  BODY_T, COL_W, BODY_H);
+      makeInset(rightX, BODY_T, COL_W, BODY_H);
+
+      // ── CỘT TRÁI: Tên + Nhân vật + Khung cảnh nền ──────────────
+      const charName = (profile.characterName || "Dark_Oracle").replace(/ /g, "_");
+      const skin     = profile.skin_id || 1;
+      const userName = user.name || this.playerName;
+
+      // Tên người chơi (To, rõ như bên Friend)
+      tabContent.push(this.add.text(leftX + IP + 2, BODY_T + IP, userName, {
+        fontFamily: "Signika", fontSize: "18px",
+        fontStyle: "bold", color: "#4a2500",
+      }).setDepth(D + 4));
+
+      // Tên nhân vật bên dưới
+      tabContent.push(this.add.text(leftX + IP + 2, BODY_T + IP + 22,
+        charName.replace(/_/g, " "), {
+        fontFamily: "Signika", fontSize: "13px",
+        fontStyle: "bold", color: "#8a5a18",
+      }).setDepth(D + 4));
+
+      // Khung hiển thị Nhân vật
+      const AVT_TOP = BODY_T + IP + 46;
+      const AVT_H   = BODY_H - IP * 2 - 46;
+      const AVT_W   = COL_W - IP * 2;
+      const AVX     = leftX + IP + AVT_W / 2;
+      const AVY     = AVT_TOP + AVT_H / 2;
+
+      // Mask bo góc cho cả ảnh nền và nhân vật
+      const maskG = this.make.graphics({ add: false });
+      maskG.fillStyle(0xffffff);
+      maskG.fillRoundedRect(leftX + IP, AVT_TOP, AVT_W, AVT_H, 8);
+      const geomMask = maskG.createGeometryMask();
+      tabContent.push(maskG);
+
+      // Nền khung nhân vật — sẽ được render sau khi biết active_bg_path
+      const avBg = this.add.graphics().setDepth(D + 3);
+      // Vẽ gradient mặc định trước, sẽ bị thay khi bg load xong
+      avBg.fillGradientStyle(0x0d3b4c, 0x165b6d, 0x091e26, 0x123542, 1);
+      avBg.fillRoundedRect(leftX + IP, AVT_TOP, AVT_W, AVT_H, 8);
+
+      // Helper: render ảnh nền vào khung avatar
+      const DEFAULT_BG_PATH = "assets/ui/bg/0-ngocphumedia_0.png";
+      const renderAvatarBg = (bgKey, bgPath) => {
+        if (!this._myProfilePanelOpen) return;
+        const doShow = (key) => {
+          if (!this._myProfilePanelOpen) return;
+          if (!this.textures.exists(key) || this.textures.get(key).key === "__MISSING") return;
+          avBg.clear();
+          const bgImg = this.add.image(AVX, AVY, key).setDepth(D + 3).setMask(geomMask);
+          const tex = this.textures.get(key);
+          const ia  = tex.source[0].width / tex.source[0].height;
+          const fa  = AVT_W / AVT_H;
+          bgImg.setDisplaySize(ia > fa ? AVT_H * ia : AVT_W, ia > fa ? AVT_H : AVT_W / ia);
+          tabContent.push(bgImg);
+          this._myProfileAvBgImg = bgImg;
+        };
+
+        const loadBg = (key, path, onFail) => {
+          if (this.textures.exists(key) && this.textures.get(key).key !== "__MISSING") {
+            doShow(key); return;
+          }
+          if (this.textures.exists(key)) this.textures.remove(key);
+          this.load.once(`filecomplete-image-${key}`, () => doShow(key));
+          this.load.once("loaderror", (file) => {
+            if (file?.key === key) {
+              try { this.textures.remove(key); } catch(e) {}
+              onFail?.();
+            }
+          });
+          this.load.image(key, path);
+          this.load.start();
+        };
+
+        // Thử load bg chính, nếu lỗi thì dùng fallback mặc định
+        loadBg(bgKey, bgPath, () => {
+          loadBg("profile_bg_default", DEFAULT_BG_PATH, null);
+        });
+      };
+
+      // Viền khung ảnh nhân vật
+      const avBorder = this.add.graphics().setDepth(D + 6);
+      avBorder.lineStyle(2, 0x9d7d48, 1);
+      avBorder.strokeRoundedRect(leftX + IP, AVT_TOP, AVT_W, AVT_H, 8);
+      tabContent.push(avBg, avBorder);
+
+      // Scale nhân vật vừa vặn
+      const charDisplayH = Math.min(AVT_H * 0.82, AVT_W * 0.82);
+
+      const doSpawnChar = () => {
+        if (!this._myProfilePanelOpen) return;
+        try { this._avatarPlaceholder?.destroy(); } catch(e) {}
+        const fk = `${charName}_${skin}_idle_000`;
+        if (!this.textures.exists(fk)) return;
+        const sp = this.add.sprite(AVX, AVY + AVT_H * 0.05, fk)
+          .setDisplaySize(charDisplayH, charDisplayH)
+          .setDepth(D + 5).setMask(geomMask);
+        const ak = `${charName}_${skin}_idle`;
+        if (!this.anims.exists(ak)) {
+          const frames = [];
+          for (let i = 0; i < 18; i++)
+            frames.push({ key: `${charName}_${skin}_idle_${String(i).padStart(3, "0")}` });
+          this.anims.create({ key: ak, frames, frameRate: 12, repeat: -1 });
+        }
+        sp.play(ak);
+        tabContent.push(sp);
+        this.tweens.add({ targets: sp, y: "-=5", duration: 1500, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+      };
+
+      const fk0 = `${charName}_${skin}_idle_000`;
+      if (this.textures.exists(fk0)) {
+        doSpawnChar();
+      } else {
+        const ph = this.add.text(AVX, AVY, "⏳", { fontSize: "24px" })
+          .setOrigin(0.5).setDepth(D + 4);
+        this._avatarPlaceholder = ph;
+        tabContent.push(ph);
+        for (let i = 0; i < 18; i++) {
+          const num = String(i).padStart(3, "0");
+          const k   = `${charName}_${skin}_idle_${num}`;
+          if (!this.textures.exists(k))
+            this.load.image(k, `./assets/characters/${charName}/${charName}_${skin}/PNG/PNG Sequences/Idle/0_${charName}_Idle_${num}.png`);
+        }
+        this.load.once("complete", doSpawnChar);
+        this.load.start();
+      }
+
+      // ── CỘT PHẢI: 2 Badge Trận/Thắng + 2 Thẻ Bài Lớn (Giống Friend) ─
+      const BADGE_H  = 32;
+      const badgeGap = 10;
+      const bw       = Math.floor((COL_W - IP * 2 - badgeGap) / 2);
+      const b1cx     = rightX + IP + bw / 2;
+      const b2cx     = rightX + IP + bw + badgeGap + bw / 2;
+      const badgeCY  = BODY_T + IP + 6 + BADGE_H / 2;
+
+      const drawBadge = (cx, label) => {
+        const g = this.add.graphics().setDepth(D + 3);
+        // Đổ bóng nhẹ
+        g.fillStyle(0x000000, 0.18);
+        g.fillRoundedRect(cx - bw / 2 + 1, badgeCY - BADGE_H / 2 + 2, bw, BADGE_H, 7);
+        // Nền vàng đồng giống Friend
+        g.fillGradientStyle(0xc88a28, 0xc88a28, 0x966010, 0x966010, 1);
+        g.fillRoundedRect(cx - bw / 2, badgeCY - BADGE_H / 2, bw, BADGE_H, 7);
+        g.lineStyle(1.5, 0xf5d77f, 0.9);
+        g.strokeRoundedRect(cx - bw / 2, badgeCY - BADGE_H / 2, bw, BADGE_H, 7);
+        g.fillStyle(0xffffff, 0.22);
+        g.fillRoundedRect(cx - bw / 2 + 4, badgeCY - BADGE_H / 2 + 3, bw - 8, BADGE_H * 0.36, 4);
+        tabContent.push(g);
+
+        const t = this.add.text(cx, badgeCY, label, {
+          fontFamily: "Signika", fontSize: "14px",
+          color: "#fff8dc", fontStyle: "bold", stroke: "#3a2000", strokeThickness: 2.5,
+        }).setOrigin(0.5).setDepth(D + 4);
+        tabContent.push(t);
+        return t;
+      };
+
+      const b1 = drawBadge(b1cx, "Trận: 0");
+      const b2 = drawBadge(b2cx, "Thắng: 0");
+
+      // Khu vực 2 Thẻ Bài + Stats bar bên dưới
+      const STATS_BAR_H = 64; // chiều cao khu vực tỷ lệ thắng + ngày tham gia
+      const cardAreaTop = badgeCY + BADGE_H / 2 + 14;
+      const cardAreaH   = (BODY_T + BODY_H - IP) - cardAreaTop - STATS_BAR_H - 8;
+      const CARD_GAP    = 10;
+      const cardW       = Math.floor((COL_W - IP * 2 - CARD_GAP) / 2);
+      const cardH       = Math.min(Math.floor(cardW * 1.52), cardAreaH - 24);
+      const cardCY      = cardAreaTop + cardH / 2;
+      const c1cx        = rightX + IP + cardW / 2;
+      const c2cx        = rightX + IP + cardW + CARD_GAP + cardW / 2;
+
+      // Refs để update stats bar sau khi fetch xong
+      let _winRateTxt = null, _joinDateTxt = null;
+
+      // Vẽ stats bar (tỷ lệ thắng + ngày tham gia) ngay dưới thẻ bài
+      const statsBarY = cardAreaTop + cardAreaH + 8;
+      const sbX       = rightX + IP;
+      const sbW       = COL_W - IP * 2;
+
+      // Nền stats bar
+      const sbg = this.add.graphics().setDepth(D + 3);
+      sbg.fillStyle(0xd4a830, 0.18);
+      sbg.fillRoundedRect(sbX, statsBarY, sbW, STATS_BAR_H, 8);
+      sbg.lineStyle(1, 0xb8902e, 0.4);
+      sbg.strokeRoundedRect(sbX, statsBarY, sbW, STATS_BAR_H, 8);
+      tabContent.push(sbg);
+
+      // Chia đều bên trong: row1 ở 1/4, row2 ở 3/4 chiều cao stats bar
+      const BAR_H   = 6;   // chiều cao thanh progress bar
+      const ROW_PAD = 10;  // padding trái/phải bên trong stats bar
+
+      // Dòng 1: Tỷ lệ thắng + thanh progress
+      const row1Y = statsBarY + Math.round(STATS_BAR_H * 0.26);
+      // Dòng 2: Tham gia (cách row1 đủ để có thanh bar + khoảng thở)
+      const row2Y = statsBarY + Math.round(STATS_BAR_H * 0.76);
+
+      const winRateLabel = this.add.text(sbX + ROW_PAD, row1Y, "Tỷ lệ thắng:", {
+        fontFamily: "Signika", fontSize: "12px", color: "#8a6a30", fontStyle: "bold",
+      }).setOrigin(0, 0.5).setDepth(D + 4);
+      tabContent.push(winRateLabel);
+
+      _winRateTxt = this.add.text(sbX + sbW - ROW_PAD, row1Y, "—", {
+        fontFamily: "Signika", fontSize: "12px", color: "#4a2500", fontStyle: "bold",
+      }).setOrigin(1, 0.5).setDepth(D + 4);
+      tabContent.push(_winRateTxt);
+
+      // Thanh progress bar nằm giữa row1 và row2
+      const barY   = Math.round((row1Y + row2Y) / 2) - Math.round(BAR_H / 2);
+      const barBgG = this.add.graphics().setDepth(D + 3);
+      barBgG.fillStyle(0xb89040, 0.3);
+      barBgG.fillRoundedRect(sbX + ROW_PAD, barY, sbW - ROW_PAD * 2, BAR_H, 3);
+      tabContent.push(barBgG);
+
+      const barFillG = this.add.graphics().setDepth(D + 4);
+      tabContent.push(barFillG);
+      // barFillG sẽ được vẽ sau khi có dữ liệu
+      const _drawWinBar = (rate) => {
+        if (!this._myProfilePanelOpen) return;
+        barFillG.clear();
+        const fillW = Math.max(0, Math.min(1, rate / 100)) * (sbW - ROW_PAD * 2);
+        if (fillW <= 0) return;
+        const color = rate >= 60 ? 0x44cc44 : rate >= 40 ? 0xf0c030 : 0xdd4444;
+        barFillG.fillStyle(color, 1);
+        barFillG.fillRoundedRect(sbX + ROW_PAD, barY, fillW, BAR_H, 3);
+      };
+
+      tabContent.push(this.add.text(sbX + ROW_PAD, row2Y, "Tham gia:", {
+        fontFamily: "Signika", fontSize: "12px", color: "#8a6a30", fontStyle: "bold",
+      }).setOrigin(0, 0.5).setDepth(D + 4));
+
+      _joinDateTxt = this.add.text(sbX + sbW - ROW_PAD, row2Y, "—", {
+        fontFamily: "Signika", fontSize: "12px", color: "#4a2500", fontStyle: "bold",
+      }).setOrigin(1, 0.5).setDepth(D + 4);
+      tabContent.push(_joinDateTxt);
+
+      const renderTarotCards = (cards) => {
+        if (!cards || cards.length === 0) {
+          tabContent.push(this.add.text(rightX + COL_W / 2, cardAreaTop + cardAreaH / 2,
+            "Chưa trang bị thẻ bài", {
+            fontFamily: "Signika", fontSize: "14px",
+            color: "#8a6a30", fontStyle: "bold", align: "center",
+          }).setOrigin(0.5).setDepth(D + 4));
+          return;
+        }
+
+        [c1cx, c2cx].forEach((cx, i) => {
+          const card = cards[i];
+          if (!card) return;
+          const id   = card.id || card.tarot_id;
+          const key  = `tarot_large_${id}`;
+          const key2 = `tarot_${id}`;
+
+          // Bóng đổ thẻ bài
+          const sg = this.add.graphics().setDepth(D + 4);
+          sg.fillStyle(0x000000, 0.24);
+          sg.fillRoundedRect(cx - cardW / 2 + 3, cardCY - cardH / 2 + 4, cardW, cardH, 8);
+          tabContent.push(sg);
+
+          const doRenderCard = (usedKey) => {
+            if (!this._myProfilePanelOpen) return;
+            const tex = this.textures.get(usedKey);
+            if (!tex || tex.key === "__MISSING") return;
+            const asp = tex.source[0].width / tex.source[0].height;
+            let dw = cardW, dh = cardW / asp;
+            if (dh > cardH) { dh = cardH; dw = cardH * asp; }
+
+            tabContent.push(
+              this.add.image(cx, cardCY, usedKey).setDisplaySize(dw, dh).setDepth(D + 5)
+            );
+
+            // Tên thẻ bài rõ nét ở dưới giống bên Friend
+            if (card.name) {
+              tabContent.push(this.add.text(cx, cardCY + dh / 2 + 8, card.name, {
+                fontFamily: "Signika", fontSize: "12px",
+                fontStyle: "bold", color: "#4a2500", align: "center",
+                wordWrap: { width: cardW + 6 },
+              }).setOrigin(0.5, 0).setDepth(D + 4));
+            }
+          };
+
+          const tryLoad = (k, path, fallbackK, fallbackPath) => {
+            if (this.textures.exists(k)) { doRenderCard(k); return; }
+            this.load.once(`filecomplete-image-${k}`, () => doRenderCard(k));
+            this.load.once(`loaderror`, () => {
+              if (this.textures.exists(fallbackK)) { doRenderCard(fallbackK); return; }
+              this.load.once(`filecomplete-image-${fallbackK}`, () => doRenderCard(fallbackK));
+              this.load.image(fallbackK, fallbackPath);
+              this.load.start();
+            });
+            this.load.image(k, path);
+            this.load.start();
+          };
+
+          tryLoad(
+            key,  `assets/resources/Tarot/thebai_${id}.png`,
+            key2, `assets/resources/Tarot/resize/thebai_${id}.png`
+          );
+        });
+      };
+
+      // ── Fetch song song stats + thẻ bài + bg đang trang bị ──────
+      if (uid) {
+        Promise.all([
+          fetch(`${SERVER_URL}/users/${uid}/stats`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+          }).then(r => r.json()).catch(() => ({})),
+
+          fetch(`${SERVER_URL}/users/${uid}/tarots/active`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+          }).then(r => r.json()).catch(() => ({})),
+
+          fetch(`${SERVER_URL}/users/${uid}/backgrounds/bag`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+          }).then(r => r.json()).catch(() => ({ data: [] })),
+        ]).then(([statsData, tarotData, bagData]) => {
+          if (!this._myProfilePanelOpen) return;
+          const total = statsData.total_games || 0;
+          const wins  = statsData.total_wins  || 0;
+          b1.setText(`Trận: ${total}`);
+          b2.setText(`Thắng: ${wins}`);
+
+          // Cập nhật stats bar
+          const rate = total > 0 ? Math.round(wins / total * 100) : 0;
+          _winRateTxt?.setText(`${rate}%`);
+          _drawWinBar(rate);
+          if (statsData.created_at) {
+            const d = new Date(statsData.created_at);
+            _joinDateTxt?.setText(d.toLocaleDateString("vi-VN", {
+              day: "2-digit", month: "2-digit", year: "numeric"
+            }));
+          } else {
+            _joinDateTxt?.setText("N/A");
+          }
+
+          const cards = tarotData.active_tarots || tarotData.tarots || tarotData.data || [];
+          renderTarotCards(cards);
+
+          // Tìm bg đang trang bị trong danh sách bag
+          const activeBgId  = pd?.user?.active_bg_id || pd?.active_bg_id || null;
+          const bagList     = bagData?.data || [];
+          const activeBgRow = bagList.find(b => Number(b.id) === Number(activeBgId));
+          if (activeBgRow?.image_path) {
+            const bgKey  = `bg_${activeBgId}`;
+            const bgPath = activeBgRow.image_path.startsWith("assets/")
+              ? activeBgRow.image_path
+              : `assets/ui/bg/${activeBgRow.image_path.split("/").pop()}`;
+            renderAvatarBg(bgKey, bgPath);
+          } else {
+            // Không trang bị hoặc không tìm thấy bg → dùng ảnh mặc định
+            renderAvatarBg("profile_bg_default", "assets/ui/bg/0-ngocphumedia_0.png");
+          }
+        });
+      } else {
+        renderTarotCards([]);
+        renderAvatarBg("profile_bg_default", "assets/ui/bg/0-ngocphumedia_0.png");
+      }
+    };
+
+    // ── TAB 2: LỊCH SỬ TRẬN ─────────────────────────────────────
+    const renderHistoryTab = () => {
+      const S = Math.min(PW / 720, PH / 540);
+      const ROW_H = 44 * S;
+      const listX = L + PAD;
+      const listW = PW - PAD * 2;
+
+      const cols = [
+        { label: "#",          w: 0.06 },
+        { label: "Chế độ",     w: 0.18 },
+        { label: "Cược",       w: 0.15 },
+        { label: "Kết quả",    w: 0.16 },
+        { label: "Thắng/Thua", w: 0.20 },
+        { label: "Thời gian",  w: 0.25 }
+      ];
+      let hx = listX;
+      cols.forEach(c => {
+        const ht = this.add.text(hx + listW * c.w / 2, CONTENT_Y + 6, c.label, {
+          fontFamily: "Signika", fontSize: "12px",
+          color: "#7a5010", fontStyle: "bold",
+        }).setOrigin(0.5, 0).setDepth(D + 4);
+        tabContent.push(ht);
+        hx += listW * c.w;
+      });
+
+      const loadingTxt = this.add.text(L + PW / 2, CONTENT_Y + CONTENT_H / 2,
+        "⏳ Đang tải lịch sử...", {
+        fontFamily: "Signika", fontSize: "15px", color: "#7a5010",
+      }).setOrigin(0.5).setDepth(D + 4);
+      tabContent.push(loadingTxt);
+
+      if (!uid) { loadingTxt.setText("❌ Chưa đăng nhập"); return; }
+
+      fetch(`${SERVER_URL}/users/${uid}/history?limit=10`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      }).then(r => r.json()).then(data => {
+        if (!this._myProfilePanelOpen) return;
+        loadingTxt.destroy();
+
+        const history = data.history || [];
+        if (history.length === 0) {
+          const nt = this.add.text(L + PW / 2, CONTENT_Y + CONTENT_H / 2,
+            "Chưa có trận đấu nào", {
+            fontFamily: "Signika", fontSize: "15px", color: "#9a7040",
+          }).setOrigin(0.5).setDepth(D + 4);
+          tabContent.push(nt);
+          return;
+        }
+
+        history.forEach((row, i) => {
+          const ry = CONTENT_Y + 28 + i * ROW_H;
+          const rbg = this.add.graphics().setDepth(D + 3);
+          rbg.fillStyle(i % 2 === 0 ? 0xfdf0cc : 0xefd898, 0.75);
+          rbg.fillRoundedRect(listX, ry, listW, ROW_H - 3, 6);
+          tabContent.push(rbg);
+
+          const isWin = Number(row.winner_id) === Number(uid);
+          const modeMap = { solo_2: "1v1", solo_3: "1v1v1", solo_4: "FFA", team_2v2: "2v2" };
+          const mode = modeMap[row.match_mode] || row.match_mode;
+          const bet  = row.bet_ecoin >= 1000
+            ? (row.bet_ecoin / 1000).toFixed(row.bet_ecoin % 1000 === 0 ? 0 : 1) + "K"
+            : String(row.bet_ecoin);
+          const result = isWin ? "🏆 Thắng" : "💀 Thua";
+          const resultColor = isWin ? "#226622" : "#882222";
+          const delta = isWin
+            ? `+${row.win_amount >= 1000 ? (row.win_amount / 1000).toFixed(1) + "K" : row.win_amount}`
+            : `-${bet}`;
+          const deltaColor = isWin ? "#116611" : "#881111";
+          const date = new Date(row.played_at).toLocaleDateString("vi-VN", {
+            day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"
+          });
+
+          const vals = [String(i + 1), mode, bet + "⚡", result, delta, date];
+          let vx = listX;
+          cols.forEach((c, ci) => {
+            const color = ci === 3 ? resultColor : ci === 4 ? deltaColor : "#3a1a00";
+            const vt = this.add.text(vx + listW * c.w / 2, ry + ROW_H / 2, vals[ci], {
+              fontFamily: "Signika", fontSize: "12px", color,
+              fontStyle: ci === 3 || ci === 4 ? "bold" : "normal",
+            }).setOrigin(0.5).setDepth(D + 4);
+            tabContent.push(vt);
+            vx += listW * c.w;
+          });
+        });
+
+        const total = data.total || 0, wins = data.wins || 0;
+        const rate  = total > 0 ? Math.round(wins / total * 100) : 0;
+        const sg = this.add.graphics().setDepth(D + 3);
+        sg.fillStyle(0xb07820, 0.18);
+        sg.fillRoundedRect(listX, T + PH - 46, listW, 30, 8);
+        tabContent.push(sg);
+        tabContent.push(this.add.text(L + PW / 2, T + PH - 31,
+          `Tổng: ${total} trận  |  Thắng: ${wins}  |  Tỷ lệ thắng: ${rate}%`, {
+          fontFamily: "Signika", fontSize: "13px", color: "#5a3000", fontStyle: "bold",
+          align: "center",
+        }).setOrigin(0.5).setDepth(D + 4));
+      }).catch(() => {
+        if (!this._myProfilePanelOpen) return;
+        loadingTxt.setText("❌ Không tải được lịch sử");
+      });
+    };
+
+    const renderContent = () => {
+      clearContent();
+      if (activeTab === 0) renderInfoTab();
+      else                 renderHistoryTab();
+    };
+
+    drawTabs();
+    renderContent();
+
+    objs.forEach(o => { try { o?.setAlpha?.(0); } catch(e){} });
+    this.tweens.add({
+      targets: objs.filter(o => o?.setAlpha),
+      alpha: 1, duration: 200, ease: "Power2.easeOut",
+    });
   }
 }

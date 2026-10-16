@@ -877,7 +877,7 @@ async function handleGameOver(room_id, gs, allPlayerIds) {
   const loserIds  = allPlayerIds.filter(id => Number(id) !== Number(winner.user_id));
   const winAmount = bet * loserIds.length;
 
-  // ── 1. Cập nhật ecoin + stats trong DB ───────────────────────────
+  // ── 1. Cập nhật ecoin trong DB ──────────────────────────────────
   try {
     if (winAmount > 0) {
       await db.query("UPDATE users SET ecoin = ecoin + ? WHERE id = ?", [winAmount, winner.user_id]);
@@ -890,6 +890,13 @@ async function handleGameOver(room_id, gs, allPlayerIds) {
         );
       }
     }
+    console.log(`🏆 Game over room ${room_id}: winner=${winner.name}(+${winAmount}), losers=[${loserIds}](-${bet} each)`);
+  } catch (err) {
+    console.error("handleGameOver DB (ecoin) error:", err);
+  }
+
+  // ── 1b. Cập nhật total_games / total_wins nếu cột tồn tại ────────
+  try {
     await db.query(
       "UPDATE users SET total_games = total_games + 1, total_wins = total_wins + 1 WHERE id = ?",
       [winner.user_id]
@@ -897,45 +904,30 @@ async function handleGameOver(room_id, gs, allPlayerIds) {
     for (const loserId of loserIds) {
       await db.query("UPDATE users SET total_games = total_games + 1 WHERE id = ?", [loserId]);
     }
-    console.log(`🏆 Game over room ${room_id}: winner=${winner.name}(+${winAmount}), losers=[${loserIds}](-${bet} each)`);
   } catch (err) {
-    console.error("handleGameOver DB (ecoin/stats) error:", err);
+    // Bỏ qua nếu cột chưa tồn tại
+    if (!err.message?.includes("Unknown column")) {
+      console.error("handleGameOver DB (total_games) error:", err);
+    }
   }
 
   // ── 2. Lưu kết quả ván đấu vào game_results ──────────────────────
   try {
-    // Đảm bảo bảng tồn tại
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS game_results (
-        id            INT AUTO_INCREMENT PRIMARY KEY,
-        room_id       INT          NOT NULL,
-        match_mode    VARCHAR(20)  NOT NULL DEFAULT 'solo_4',
-        bet_ecoin     INT          NOT NULL DEFAULT 0,
-        winner_id     INT          NOT NULL,
-        winner_name   VARCHAR(100) NOT NULL,
-        win_amount    INT          NOT NULL DEFAULT 0,
-        all_player_ids JSON        NOT NULL,
-        played_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_room    (room_id),
-        INDEX idx_winner  (winner_id),
-        INDEX idx_played  (played_at)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    `);
-
     await db.query(
       `INSERT INTO game_results
          (room_id, match_mode, bet_ecoin, winner_id, winner_name, win_amount, all_player_ids)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
-        room_id,
+        Number(room_id),
         gs.match_mode || "solo_4",
         bet,
-        winner.user_id,
+        Number(winner.user_id),
         winner.name,
         winAmount,
-        JSON.stringify(allPlayerIds),
+        JSON.stringify(allPlayerIds.map(Number)),  // đảm bảo là mảng số
       ]
     );
+    console.log(`📝 Saved game_results for room ${room_id}`);
   } catch (err) {
     console.error("handleGameOver DB (game_results) error:", err);
   }
@@ -947,12 +939,23 @@ async function handleGameOver(room_id, gs, allPlayerIds) {
     console.error("handleGameOver updateRoomStatus error:", err);
   }
 
-  // ── 4. Broadcast kết quả cho tất cả ─────────────────────────────
+  // ── 4. Broadcast kết quả + ecoin mới cho từng người ────────────
+  // Lấy ecoin mới của từng player để client cập nhật ngay
+  const ecoinsAfter = {};
+  try {
+    const allIds = [...new Set([winner.user_id, ...loserIds])];
+    for (const pid of allIds) {
+      const [[row]] = await db.query("SELECT ecoin FROM users WHERE id = ?", [Number(pid)]);
+      if (row) ecoinsAfter[pid] = Number(row.ecoin);
+    }
+  } catch(e) {}
+
   io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:game_over", {
     winner_user_id: winner.user_id,
     winner_name:    winner.name,
     win_amount:     winAmount,
     bet_ecoin:      bet,
+    ecoins_after:   ecoinsAfter,  // { user_id: new_ecoin, ... }
   });
 
   // ── 5. Xóa game state khỏi bộ nhớ ───────────────────────────────
@@ -2795,7 +2798,6 @@ server.listen(3000, "0.0.0.0", () => {
   startChatCleanupJob();
 
   // ── Dọn dẹp các phòng bị kẹt khi server restart ──────────────
-  // Những phòng 'playing' còn sót từ lần chạy trước → đánh dấu 'finished'
   db.query(
     `UPDATE rooms SET room_status = 'finished', updated_at = NOW()
      WHERE room_status = 'playing'`
@@ -2803,6 +2805,25 @@ server.listen(3000, "0.0.0.0", () => {
     if (r.affectedRows > 0)
       console.log(`🧹 Cleaned up ${r.affectedRows} stale 'playing' room(s) → 'finished'`);
   }).catch(err => console.error("Startup room cleanup error:", err));
+
+  // ── Đảm bảo bảng game_results tồn tại ────────────────────────
+  db.query(`
+    CREATE TABLE IF NOT EXISTS game_results (
+      id             INT AUTO_INCREMENT PRIMARY KEY,
+      room_id        INT          NOT NULL,
+      match_mode     VARCHAR(20)  NOT NULL DEFAULT 'solo_4',
+      bet_ecoin      INT          NOT NULL DEFAULT 0,
+      winner_id      INT          NOT NULL,
+      winner_name    VARCHAR(100) NOT NULL,
+      win_amount     INT          NOT NULL DEFAULT 0,
+      all_player_ids JSON         NOT NULL,
+      played_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_room   (room_id),
+      INDEX idx_winner (winner_id),
+      INDEX idx_played (played_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `).then(() => console.log("✅ game_results table ready"))
+    .catch(err => console.error("game_results table error:", err));
 });
 app.get("/tarots", async (req, res) => {
   try {
@@ -2983,6 +3004,114 @@ app.get("/shop/skins", async (req, res) => {
   } catch (err) {
     console.error("GET /shop/skins error:", err);
     res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// GET /users/:userId/stats — Thống kê tổng trận / thắng + ngày tham gia
+app.get("/users/:userId/stats", async (req, res) => {
+  try {
+    const uid = Number(req.params.userId);
+
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) as total FROM game_results
+       WHERE all_player_ids LIKE ?`,
+      [`%${uid}%`]
+    );
+    const [[{ wins }]] = await db.query(
+      `SELECT COUNT(*) as wins FROM game_results WHERE winner_id = ?`,
+      [uid]
+    );
+    // Lấy ngày tham gia từ bảng users
+    let joinDate = null;
+    try {
+      const [[userRow]] = await db.query(
+        `SELECT * FROM users WHERE id = ? LIMIT 1`,
+        [uid]
+      );
+      if (userRow) {
+        // Thử các tên cột phổ biến (DB dùng "createAt" camelCase)
+        joinDate = userRow.createAt    || userRow.created_at || userRow.createdAt
+                || userRow.create_at   || userRow.register_date
+                || userRow.joined_at   || userRow.created || null;
+      }
+    } catch(e) { /* bỏ qua nếu lỗi */ }
+
+    res.json({
+      success:     true,
+      total_games: Number(total || 0),
+      total_wins:  Number(wins  || 0),
+      created_at:  joinDate || null,
+    });
+  } catch (err) {
+    console.error("GET /users/:userId/stats error:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
+// GET /users/:userId/history — Lịch sử trận đấu (tối đa 50)
+app.get("/users/:userId/history", async (req, res) => {
+  try {
+    const uid   = Number(req.params.userId);
+    const limit = Math.min(Number(req.query.limit) || 20, 50);
+
+    console.log(`📋 History request: uid=${uid}, limit=${limit}`);
+
+    // Đếm tổng số record trong bảng để debug
+    const [[countRow]] = await db.query("SELECT COUNT(*) as cnt FROM game_results");
+    console.log(`📊 Total game_results rows: ${countRow.cnt}`);
+
+    // Lấy tất cả rồi lọc trong JS — tránh mọi vấn đề SQL
+    const [allRows] = await db.query(
+      `SELECT id, room_id, match_mode, bet_ecoin, winner_id, winner_name, win_amount,
+              all_player_ids, played_at
+       FROM game_results
+       ORDER BY played_at DESC
+       LIMIT 200`
+    );
+
+    console.log(`📋 All rows fetched: ${allRows.length}`);
+
+    // Lọc những trận có uid tham gia
+    const rows = allRows.filter(r => {
+      try {
+        let ids = r.all_player_ids;
+        if (typeof ids === "string") ids = JSON.parse(ids);
+        return Array.isArray(ids) && ids.map(Number).includes(uid);
+      } catch(e) {
+        return false;
+      }
+    }).slice(0, limit);
+
+    console.log(`✅ Matched rows for uid=${uid}: ${rows.length}`);
+
+    // Tính stats từ game_results thay vì từ bảng users (tránh lỗi cột không tồn tại)
+    const total = allRows.filter(r => {
+      try {
+        let ids = r.all_player_ids;
+        if (typeof ids === "string") ids = JSON.parse(ids);
+        return Array.isArray(ids) && ids.map(Number).includes(uid);
+      } catch(e) { return false; }
+    }).length;
+    const wins = allRows.filter(r => Number(r.winner_id) === uid).length;
+
+    res.json({
+      success: true,
+      history: rows.map(r => ({
+        id:          r.id,
+        room_id:     r.room_id,
+        match_mode:  r.match_mode,
+        bet_ecoin:   Number(r.bet_ecoin),
+        winner_id:   Number(r.winner_id),
+        winner_name: r.winner_name,
+        win_amount:  Number(r.win_amount),
+        played_at:   r.played_at,
+      })),
+      total,
+      wins,
+    });
+  } catch (err) {
+    console.error("GET /users/:userId/history error:", err);
+    res.status(500).json({ success: false, history: [], message: err.message });
   }
 });
 
