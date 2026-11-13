@@ -38,6 +38,39 @@ export default class BoardScene extends Phaser.Scene {
     this._tarotModalObjs     = [];
   }
 
+  // ── MOBILE RECONNECT HANDLER ───────────────────────────────────
+  handleReconnect() {
+    console.log("🔄 BoardScene: Handling reconnect...");
+    
+    if (!this.socket || !this.gameRoomId) {
+      console.warn("⚠️ Cannot reconnect - no socket or room ID");
+      return;
+    }
+
+    // Nếu socket đã connected → force rejoin
+    if (this.socket.connected) {
+      console.log("✅ Socket connected - rejoining room");
+      const playerData = JSON.parse(localStorage.getItem("playerData") || "{}");
+      
+      this.socket.emit("join", {
+        room_id:       this.gameRoomId,
+        name:          playerData?.user?.name || "Player",
+        user_id:       playerData?.user?.id,
+        characterName: this.characterName || "Dark_Oracle",
+        skin:          this.mySkin || 1
+      });
+
+      // Request lại game state
+      setTimeout(() => {
+        this.socket.emit("game:request_state", { room_id: this.gameRoomId });
+      }, 500);
+    } else {
+      // Socket chưa connected → force reconnect
+      console.log("⚠️ Socket disconnected - attempting reconnect");
+      this.socket.connect();
+    }
+  }
+
   _normalizeTarotIds(raw) {
   let ids = raw ?? [];
   if (typeof ids === "string") {
@@ -1359,9 +1392,13 @@ _closeTarotModal() { this.tarotModal?.close(); }
       } catch(e) {}
     }
 
-    const isWinner = data.winner_user_id === myUid;
+    // Team mode: Check if my team won
+    const isTeam = data.is_team || false;
+    const winnerIds = data.winner_ids || [data.winner_user_id];
+    const isWinner = winnerIds.includes(myUid);
+
     this.time.delayedCall(isWinner ? 0 : 1200, () => {
-      this._showGameOverScreen(isWinner, data.winner_name, data);
+      this._showGameOverScreen(isWinner, data, isTeam, winnerIds);
     });
   });
 
@@ -2682,7 +2719,12 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
 
     const token = playerData?.token;
     this.socket = io(SERVER_URL, {
-      transports:['websocket','polling'], reconnection:true, reconnectionAttempts:5, timeout:10000,
+      transports:['websocket','polling'], 
+      reconnection:true, 
+      reconnectionAttempts:10, 
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout:20000,
       auth:{ token }
     });
 
@@ -2708,9 +2750,11 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
     // Xử lý mất kết nối trong ván — tự động thử lại
     this.socket.on("disconnect", (reason) => {
       console.warn("⚠ Socket disconnect trong ván:", reason);
+      this._showReconnectingIndicator();
     });
     this.socket.on("reconnect", (attempt) => {
       console.log(`✅ Socket reconnected (attempt ${attempt}), re-requesting game state`);
+      this._hideReconnectingIndicator();
       this.socket.emit("join", {
         room_id:       this.gameRoomId,
         name:          playerData?.user?.name || "Player",
@@ -2723,6 +2767,11 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
           this.socket.emit("game:request_state", { room_id: this.gameRoomId });
         }, 400);
       }
+    });
+    this.socket.on("reconnect_failed", () => {
+      console.error("❌ Reconnect failed");
+      this._hideReconnectingIndicator();
+      this._showAlert("Mất kết nối - vui lòng reload trang", "#ff4444", 5000);
     });
 
     this.setupSocketEvents();
@@ -4289,7 +4338,7 @@ this.input.keyboard.on("keydown-Y", () => {
   }
 
   // Màn hình kết thúc game (thắng/thua)
-  _showGameOverScreen(isWinner, winnerName) {
+  _showGameOverScreen(isWinner, data, isTeam = false, winnerIds = []) {
     const { width, height } = this.scale;
     const S = this.minRatio;
     const D = 300;
@@ -4299,6 +4348,12 @@ this.input.keyboard.on("keydown-Y", () => {
     const bgColor = isWinner ? 0x001a00 : 0x1a0000;
     const overlay = push(this.add.rectangle(width/2, height/2, width, height, bgColor, 0).setDepth(D));
     this.tweens.add({ targets: overlay, fillAlpha: 0.85, duration: 700 });
+
+    // Format winner names
+    const winnerNames = data.winner_names || [data.winner_name];
+    const winnerText = isTeam 
+      ? `${winnerNames.join(" & ")}`
+      : winnerNames[0];
 
     if (isWinner) {
       // Hiệu ứng thắng — vàng rực
@@ -4315,8 +4370,13 @@ this.input.keyboard.on("keydown-Y", () => {
       ).setOrigin(0.5).setDepth(D+1).setAlpha(0).setScale(0.3));
       this.tweens.add({ targets: winText, alpha:1, scaleX:1, scaleY:1, duration:600, delay:500, ease:"Back.easeOut" });
 
-      push(this.add.text(width/2, height/2 + 50*S, `🎉 ${winnerName} đã thắng cuộc!`,
-        { fontFamily:"Signika", fontSize:Math.floor(22*S)+"px", color:"#ffffff" }
+      // Display prize info
+      const prizeText = isTeam 
+        ? `🎉 ${winnerText} đã thắng!\n💰 Mỗi người nhận: ${this._formatMoney(data.win_amount)}`
+        : `🎉 ${winnerText} đã thắng cuộc!\n💰 Nhận: ${this._formatMoney(data.win_amount)}`;
+
+      push(this.add.text(width/2, height/2 + 50*S, prizeText,
+        { fontFamily:"Signika", fontSize:Math.floor(20*S)+"px", color:"#ffffff", align:"center" }
       ).setOrigin(0.5).setDepth(D+1).setAlpha(0));
       this.tweens.add({ targets: objs[objs.length-1], alpha:1, duration:400, delay:900 });
 
@@ -4354,8 +4414,12 @@ this.input.keyboard.on("keydown-Y", () => {
       ).setOrigin(0.5).setDepth(D+1).setAlpha(0).setScale(0.4));
       this.tweens.add({ targets: loseText, alpha:1, scaleX:1, scaleY:1, duration:500, delay:500, ease:"Back.easeOut" });
 
-      push(this.add.text(width/2, height/2 + 45*S, `🏆 ${winnerName} đã thắng cuộc`,
-        { fontFamily:"Signika", fontSize:Math.floor(20*S)+"px", color:"#aaaaaa" }
+      const lostMessage = isTeam
+        ? `🏆 ${winnerText} đã thắng cuộc\n💸 Bạn mất: ${this._formatMoney(data.bet_ecoin)}`
+        : `🏆 ${winnerText} đã thắng cuộc\n💸 Bạn mất: ${this._formatMoney(data.bet_ecoin)}`;
+
+      push(this.add.text(width/2, height/2 + 50*S, lostMessage,
+        { fontFamily:"Signika", fontSize:Math.floor(18*S)+"px", color:"#aaaaaa", align:"center" }
       ).setOrigin(0.5).setDepth(D+1).setAlpha(0));
       this.tweens.add({ targets: objs[objs.length-1], alpha:1, duration:400, delay:800 });
     }
@@ -5591,5 +5655,104 @@ this.input.keyboard.on("keydown-Y", () => {
         });
       });
     }
+  }
+
+  // ── RECONNECTING INDICATOR ─────────────────────────────────────
+  _showReconnectingIndicator() {
+    if (this._reconnectIndicator) return; // Already showing
+
+    const { width, height } = this.scale;
+    
+    // Backdrop
+    const backdrop = this.add.rectangle(
+      width / 2, 
+      height / 2, 
+      width, 
+      height, 
+      0x000000, 
+      0.5
+    ).setDepth(9999).setOrigin(0.5);
+
+    // Panel
+    const panelW = 300;
+    const panelH = 100;
+    const panel = this.add.rectangle(
+      width / 2,
+      height / 2,
+      panelW,
+      panelH,
+      0x1a1a1a,
+      0.95
+    ).setDepth(10000).setOrigin(0.5);
+
+    // Text
+    const text = this.add.text(
+      width / 2,
+      height / 2,
+      "🔄 Đang kết nối lại...",
+      {
+        fontFamily: "Signika",
+        fontSize: "18px",
+        color: "#ffcc00",
+        fontStyle: "bold"
+      }
+    ).setOrigin(0.5).setDepth(10001);
+
+    // Pulse animation
+    this.tweens.add({
+      targets: text,
+      alpha: 0.5,
+      duration: 800,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut"
+    });
+
+    this._reconnectIndicator = { backdrop, panel, text };
+  }
+
+  _hideReconnectingIndicator() {
+    if (!this._reconnectIndicator) return;
+
+    try {
+      this._reconnectIndicator.backdrop?.destroy();
+      this._reconnectIndicator.panel?.destroy();
+      this._reconnectIndicator.text?.destroy();
+    } catch (e) {
+      console.error("Error hiding reconnect indicator:", e);
+    }
+
+    this._reconnectIndicator = null;
+  }
+
+  _showAlert(message, color = "#ffcc00", duration = 3000) {
+    const { width, height } = this.scale;
+    
+    const text = this.add.text(width / 2, height - 100, message, {
+      fontFamily: "Signika",
+      fontSize: "16px",
+      color: color,
+      fontStyle: "bold",
+      backgroundColor: "#00000099",
+      padding: { x: 16, y: 10 }
+    }).setOrigin(0.5).setDepth(10000).setAlpha(0);
+
+    this.tweens.add({
+      targets: text,
+      alpha: 1,
+      y: height - 120,
+      duration: 200,
+      ease: "Back.easeOut",
+      onComplete: () => {
+        this.time.delayedCall(duration, () => {
+          this.tweens.add({
+            targets: text,
+            alpha: 0,
+            duration: 300,
+            onComplete: () => text.destroy()
+          });
+        });
+      }
+    });
   }
 }

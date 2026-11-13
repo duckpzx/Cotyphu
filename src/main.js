@@ -15,9 +15,42 @@ import LabScene from "./scenes/LabScene.js";
 
 import { SERVER_URL } from "./config.js";
 
+// ── CLEAN URL: Remove tracking params ─────────────────────────────
+// Zalo và các platform khác thêm tracking params gây lỗi CORS
+if (window.location.search) {
+  const cleanUrl = window.location.origin + window.location.pathname;
+  window.history.replaceState({}, document.title, cleanUrl);
+  console.log("🧹 Cleaned tracking params from URL");
+}
+
+// ── CHECK DEPENDENCIES ─────────────────────────────────────────────
+function checkDependencies() {
+  const missing = [];
+  
+  if (typeof Phaser === 'undefined') {
+    missing.push('Phaser.js');
+  }
+  
+  if (typeof io === 'undefined') {
+    missing.push('Socket.IO');
+  }
+  
+  if (missing.length > 0) {
+    console.error('❌ Missing dependencies:', missing.join(', '));
+    alert(`Lỗi tải thư viện: ${missing.join(', ')}\n\nVui lòng reload trang hoặc kiểm tra kết nối mạng.`);
+    return false;
+  }
+  
+  return true;
+}
+
 window.onload = async function () {
-  const root = document.getElementById("root-game");
-  const rect = root.getBoundingClientRect();
+  // Check if all dependencies loaded
+  if (!checkDependencies()) {
+    return;
+  }
+
+  console.log('✅ All dependencies loaded');
 
   // ── Auto-login: kiểm tra token còn hợp lệ không ──────────────
   let startScene = "LoginScene";
@@ -61,8 +94,8 @@ window.onload = async function () {
     scale: {
       mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,
-      width: rect.width,
-      height: rect.height,
+      width: 1128,
+      height: 636,
     },
     scene: [LoginScene, SplashScene, BoardScene, RegisterScene, RoomScene, LobbyScene, RoomListScene, CreateCharacterScene, TarotScene, BagScene, ShopScene, RatingScene, LabScene],
     physics: {
@@ -73,6 +106,15 @@ window.onload = async function () {
 
   const game = new Phaser.Game(config);
 
+  // Catch Phaser boot errors
+  game.events.once('boot', () => {
+    console.log('✅ Phaser game booted successfully');
+  });
+
+  game.events.on('error', (error) => {
+    console.error('❌ Phaser error:', error);
+  });
+
   // Start đúng scene
   game.events.once("ready", () => {
     if (startScene !== "LoginScene") {
@@ -82,8 +124,79 @@ window.onload = async function () {
     }
   });
 
+  // ── MOBILE VISIBILITY HANDLING ──────────────────────────────────
+  // Xử lý khi app vào background/foreground trên mobile
+  let isAppVisible = true;
+  let reconnectTimer = null;
+
+  const handleVisibilityChange = () => {
+    if (document.hidden) {
+      // App vào background
+      isAppVisible = false;
+      console.log("📱 App hidden - saving state");
+      
+      // Lưu thời điểm app bị hide
+      localStorage.setItem("appHiddenTime", Date.now().toString());
+    } else {
+      // App quay lại foreground
+      isAppVisible = true;
+      console.log("📱 App visible - checking reconnect");
+      
+      const hiddenTime = localStorage.getItem("appHiddenTime");
+      const now = Date.now();
+      
+      // Nếu bị hide quá 3 giây → có thể socket bị disconnect
+      if (hiddenTime && (now - parseInt(hiddenTime)) > 3000) {
+        console.log("⚠️ App was hidden for a while - forcing reconnect");
+        
+        // Delay một chút để app stable lại
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => {
+          // Trigger reconnect cho tất cả active scenes
+          const boardScene = game.scene.getScene("BoardScene");
+          const roomScene = game.scene.getScene("RoomScene");
+          
+          if (boardScene && boardScene.scene.isActive()) {
+            console.log("🔄 Reconnecting BoardScene...");
+            boardScene.handleReconnect?.();
+          }
+          
+          if (roomScene && roomScene.scene.isActive()) {
+            console.log("🔄 Reconnecting RoomScene...");
+            roomScene.handleReconnect?.();
+          }
+        }, 500);
+      }
+      
+      localStorage.removeItem("appHiddenTime");
+    }
+  };
+
+  // Listen visibility changes
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  
+  // iOS: pageshow/pagehide (bfcache)
+  window.addEventListener("pageshow", (e) => {
+    if (e.persisted) {
+      console.log("📱 Page restored from bfcache");
+      handleVisibilityChange();
+    }
+  });
+
+  // ── WINDOW RESIZE ───────────────────────────────────────────────
   window.addEventListener("resize", () => {
-    const r = root.getBoundingClientRect();
-    game.scale.resize(r.width, r.height);
+    game.scale.refresh();
+  });
+
+  // ── PREVENT ACCIDENTAL NAVIGATION ───────────────────────────────
+  // Ngăn pull-to-refresh trên mobile
+  document.body.addEventListener("touchmove", (e) => {
+    if (e.touches.length > 1) return; // Allow pinch zoom
+    e.preventDefault();
+  }, { passive: false });
+
+  // Cleanup
+  window.addEventListener("beforeunload", () => {
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
   });
 };

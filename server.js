@@ -865,23 +865,52 @@ function triggerTaxBoost(room_id) {
 
 // ── Xử lý kết thúc game + payout ecoin ──────────────────────────
 async function handleGameOver(room_id, gs, allPlayerIds) {
-  const winner = gs.players[0];
-  if (!winner) {
+  const isTeam = gs.match_mode === "team_2v2";
+  
+  // Lấy team thắng cuối (team còn lại)
+  const remainingPlayers = gs.players || [];
+  if (remainingPlayers.length === 0) {
     // Không có người thắng (tất cả đều thua) — đánh dấu phòng finished rồi xóa state
     try { await roomRepo.updateRoomStatus(room_id, "finished"); } catch(e) {}
     delete gameStates[room_id];
     return;
   }
 
-  const bet       = Number(gs.bet_ecoin) || 0;
-  const loserIds  = allPlayerIds.filter(id => Number(id) !== Number(winner.user_id));
-  const winAmount = bet * loserIds.length;
+  const bet = Number(gs.bet_ecoin) || 0;
+  let winnerIds = [];
+  let winnerNames = [];
+  let loserIds = [];
+
+  if (isTeam) {
+    // Team mode: Lấy cả team thắng
+    const winningTeamId = remainingPlayers[0].team_id;
+    winnerIds = remainingPlayers
+      .filter(p => p.team_id === winningTeamId)
+      .map(p => Number(p.user_id));
+    winnerNames = remainingPlayers
+      .filter(p => p.team_id === winningTeamId)
+      .map(p => p.name);
+    loserIds = allPlayerIds.filter(id => !winnerIds.includes(Number(id)));
+  } else {
+    // Solo mode: Chỉ 1 người thắng
+    winnerIds = [Number(remainingPlayers[0].user_id)];
+    winnerNames = [remainingPlayers[0].name];
+    loserIds = allPlayerIds.filter(id => Number(id) !== winnerIds[0]);
+  }
+
+  const totalWinAmount = bet * loserIds.length;
+  const amountPerWinner = isTeam ? Math.floor(totalWinAmount / winnerIds.length) : totalWinAmount;
 
   // ── 1. Cập nhật ecoin trong DB ──────────────────────────────────
   try {
-    if (winAmount > 0) {
-      await db.query("UPDATE users SET ecoin = ecoin + ? WHERE id = ?", [winAmount, winner.user_id]);
+    // Chia đều tiền thắng cho team (hoặc 1 người nếu solo)
+    for (const winnerId of winnerIds) {
+      if (amountPerWinner > 0) {
+        await db.query("UPDATE users SET ecoin = ecoin + ? WHERE id = ?", [amountPerWinner, winnerId]);
+      }
     }
+
+    // Trừ tiền thua
     for (const loserId of loserIds) {
       if (bet > 0) {
         await db.query(
@@ -890,17 +919,24 @@ async function handleGameOver(room_id, gs, allPlayerIds) {
         );
       }
     }
-    console.log(`🏆 Game over room ${room_id}: winner=${winner.name}(+${winAmount}), losers=[${loserIds}](-${bet} each)`);
+    
+    console.log(`🏆 Game over room ${room_id}:`);
+    console.log(`   ${isTeam ? 'Team' : 'Winner'}: ${winnerNames.join(', ')} (+${amountPerWinner} each)`);
+    console.log(`   Losers: [${loserIds}] (-${bet} each)`);
   } catch (err) {
     console.error("handleGameOver DB (ecoin) error:", err);
   }
 
   // ── 1b. Cập nhật total_games / total_wins nếu cột tồn tại ────────
   try {
-    await db.query(
-      "UPDATE users SET total_games = total_games + 1, total_wins = total_wins + 1 WHERE id = ?",
-      [winner.user_id]
-    );
+    // Update stats cho tất cả winners
+    for (const winnerId of winnerIds) {
+      await db.query(
+        "UPDATE users SET total_games = total_games + 1, total_wins = total_wins + 1 WHERE id = ?",
+        [winnerId]
+      );
+    }
+    // Update stats cho losers
     for (const loserId of loserIds) {
       await db.query("UPDATE users SET total_games = total_games + 1 WHERE id = ?", [loserId]);
     }
@@ -915,16 +951,17 @@ async function handleGameOver(room_id, gs, allPlayerIds) {
   try {
     await db.query(
       `INSERT INTO game_results
-         (room_id, match_mode, bet_ecoin, winner_id, winner_name, win_amount, all_player_ids)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         (room_id, match_mode, bet_ecoin, winner_id, winner_name, win_amount, all_player_ids, winner_team_ids)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         Number(room_id),
         gs.match_mode || "solo_4",
         bet,
-        Number(winner.user_id),
-        winner.name,
-        winAmount,
-        JSON.stringify(allPlayerIds.map(Number)),  // đảm bảo là mảng số
+        Number(winnerIds[0]), // Primary winner (for backward compat)
+        winnerNames.join(" & "), // "Player1 & Player2" cho team
+        totalWinAmount,
+        JSON.stringify(allPlayerIds.map(Number)),
+        isTeam ? JSON.stringify(winnerIds) : null, // Array winner IDs cho team
       ]
     );
     console.log(`📝 Saved game_results for room ${room_id}`);
@@ -940,10 +977,9 @@ async function handleGameOver(room_id, gs, allPlayerIds) {
   }
 
   // ── 4. Broadcast kết quả + ecoin mới cho từng người ────────────
-  // Lấy ecoin mới của từng player để client cập nhật ngay
   const ecoinsAfter = {};
   try {
-    const allIds = [...new Set([winner.user_id, ...loserIds])];
+    const allIds = [...new Set([...winnerIds, ...loserIds])];
     for (const pid of allIds) {
       const [[row]] = await db.query("SELECT ecoin FROM users WHERE id = ?", [Number(pid)]);
       if (row) ecoinsAfter[pid] = Number(row.ecoin);
@@ -951,11 +987,15 @@ async function handleGameOver(room_id, gs, allPlayerIds) {
   } catch(e) {}
 
   io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:game_over", {
-    winner_user_id: winner.user_id,
-    winner_name:    winner.name,
-    win_amount:     winAmount,
+    is_team:        isTeam,
+    winner_ids:     winnerIds,        // Array: [id1, id2] cho team, [id] cho solo
+    winner_names:   winnerNames,      // Array: ["Player1", "Player2"]
+    winner_user_id: winnerIds[0],     // Backward compat
+    winner_name:    winnerNames[0],   // Backward compat
+    win_amount:     amountPerWinner,  // Amount mỗi người nhận
+    total_win:      totalWinAmount,   // Tổng tiền thắng
     bet_ecoin:      bet,
-    ecoins_after:   ecoinsAfter,  // { user_id: new_ecoin, ... }
+    ecoins_after:   ecoinsAfter,
   });
 
   // ── 5. Xóa game state khỏi bộ nhớ ───────────────────────────────
@@ -2817,6 +2857,7 @@ server.listen(3000, "0.0.0.0", () => {
       winner_name    VARCHAR(100) NOT NULL,
       win_amount     INT          NOT NULL DEFAULT 0,
       all_player_ids JSON         NOT NULL,
+      winner_team_ids JSON        NULL,
       played_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_room   (room_id),
       INDEX idx_winner (winner_id),

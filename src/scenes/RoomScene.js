@@ -18,6 +18,34 @@ export default class RoomScene extends Phaser.Scene {
     this._startBtnRef = null; // tham chiếu nút Bắt Đầu để enable/disable
   }
 
+  // ── MOBILE RECONNECT HANDLER ───────────────────────────────────
+  handleReconnect() {
+    console.log("🔄 RoomScene: Handling reconnect...");
+    
+    if (!this.socket || !this.roomData?.id) {
+      console.warn("⚠️ Cannot reconnect - no socket or room ID");
+      return;
+    }
+
+    const roomId = this.roomData.id;
+
+    // Nếu socket đã connected → force rejoin room
+    if (this.socket.connected) {
+      console.log("✅ Socket connected - rejoining room", roomId);
+      const playerData = JSON.parse(localStorage.getItem("playerData") || "{}");
+      
+      this.socket.emit("room:join", {
+        room_id: roomId,
+        user_id: playerData?.user?.id,
+        name: playerData?.user?.name || "Player"
+      });
+    } else {
+      // Socket chưa connected → force reconnect
+      console.log("⚠️ Socket disconnected - attempting reconnect");
+      this.socket.connect();
+    }
+  }
+
   init(data) {
     console.log("🎮 RoomScene init data:", JSON.stringify(data));
     const raw = data?.roomData || {
@@ -155,6 +183,11 @@ export default class RoomScene extends Phaser.Scene {
 
     this.socket = io(SERVER_URL, {
       transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
       auth: { token }
     });
 

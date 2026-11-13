@@ -2226,7 +2226,21 @@ createTopBar() {
           rbg.fillRoundedRect(listX, ry, listW, ROW_H - 3, 6);
           tabContent.push(rbg);
 
-          const isWin = Number(row.winner_id) === Number(uid);
+          // Check if team mode và parse winner_team_ids
+          const isTeamMode = row.match_mode === "team_2v2";
+          let isWin = false;
+          
+          if (isTeamMode && row.winner_team_ids) {
+            try {
+              const winnerIds = JSON.parse(row.winner_team_ids);
+              isWin = winnerIds.includes(Number(uid));
+            } catch {
+              isWin = Number(row.winner_id) === Number(uid);
+            }
+          } else {
+            isWin = Number(row.winner_id) === Number(uid);
+          }
+
           const modeMap = { solo_2: "1v1", solo_3: "1v1v1", solo_4: "FFA", team_2v2: "2v2" };
           const mode = modeMap[row.match_mode] || row.match_mode;
           const bet  = row.bet_ecoin >= 1000

@@ -37,17 +37,30 @@
         }
 
         #root-game {
-        width: min(1128px, 95vw);
-        height: min(636px, calc(95vw * 636 / 1128));
-        max-width: 1128px;
-        max-height: 636px;
+        position: relative;
+        width: 100vw;
+        height: 100vh;
         background: rgb(255, 255, 255);
-        border: 2px solid #d1cfb7;
+        border: none;
         box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
         overflow: hidden;
         }
+
+        /* Desktop: giữ tỷ lệ 16:9 và max size */
+        @media (min-width: 768px) {
+        #root-game {
+            width: min(1128px, 95vw);
+            height: min(636px, calc(95vw * 636 / 1128));
+            max-width: 1128px;
+            max-height: 636px;
+            border: 2px solid #d1cfb7;
+        }
+        }
+
         #root-game, canvas {
         touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
         }
     </style>
   </head>
