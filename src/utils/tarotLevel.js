@@ -26,7 +26,9 @@ export function tarotImagePath(id, level, small = false) {
       ? `assets/resources/Tarot/Tarot_2/resize/thebai_${id}.png`
       : `assets/resources/Tarot/Tarot_2/thebai_${id}.png`;
   }
-  return `assets/resources/Tarot/Tarot_1/thebai_${id}.png`;
+  return small
+    ? `assets/resources/Tarot/Tarot_1/resize/thebai_${id}.png`
+    : `assets/resources/Tarot/Tarot_1/thebai_${id}.png`;
 }
 
 // Nếu texture `key` đang giữ sai cấp → xoá để load lại đúng cấp.

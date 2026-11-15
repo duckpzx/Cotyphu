@@ -547,7 +547,7 @@ buildSlot(cx, cy, w, h, idx) {
 
             // Cooldown — font lớn hơn, căn phải
             if (data.cooldown_seconds) {
-                this._effectObjs.push(this.add.text(boxX + w - 10, nameCY, `⏱ ${data.cooldown_seconds}s`, {
+                this._effectObjs.push(this.add.text(boxX + w - 10, nameCY, `⏱ ${data.cooldown_seconds} lượt · Lv.${data.level || 1}`, {
                     fontFamily: "Signika", fontSize: "13px", color: "#8b5e1a",
                 }).setOrigin(1, 0.5).setDepth(6));
             }
@@ -768,7 +768,16 @@ async loadTarotAssetsFromServer() {
         const uid = this.playerUserId;
         if (uid) {
             const r = await fetch(`${SERVER_URL}/users/${uid}/tarots/upgrades`).then(x => x.json());
-            if (r?.success) saveTarotLevels(this, r.levels || {});
+            if (r?.success) {
+                saveTarotLevels(this, r.levels || {});
+                // Thời gian hồi chiêu theo cấp: Lv1 lâu hơn Lv2
+                this.tarotList.forEach(t => {
+                    const lvl = Number(r.levels?.[t.id]) >= 2 ? 2 : 1;
+                    const table = lvl >= 2 ? r.config?.lv2_cooldown : r.config?.lv1_cooldown;
+                    const d = this.cardData[`tarot_${t.id}`];
+                    if (d) { d.level = lvl; if (table?.[t.id] != null) d.cooldown_seconds = table[t.id]; }
+                });
+            }
         }
     } catch (e) { /* dùng cấp đã lưu cục bộ */ }
 

@@ -141,14 +141,33 @@ export default class LabScene extends Phaser.Scene {
         wizard.on("pointerover", () => wizard.setTint(0xe0c0ff));
         wizard.on("pointerout",  () => wizard.clearTint());
 
-        const btn = this.add.text(sx, sy - 150 * minR, "🔮 NÂNG CẤP THẺ BÀI", {
-            fontFamily: "Signika", fontSize: Math.floor(20 * minR) + "px",
-            color: "#ffffff", fontStyle: "bold",
-            stroke: "#3a1060", strokeThickness: 5,
-            backgroundColor: "#7b2fd0", padding: { x: 12, y: 6 },
-        }).setOrigin(0.5).setDepth(13).setInteractive({ cursor: "pointer" });
-        btn.on("pointerup", openUpgrade);
-        this.tweens.add({ targets: btn, y: btn.y - 6, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+        const bw = Math.round(190 * minR), bh = Math.round(40 * minR);
+        const bx = sx, by0 = sy - 158 * minR;
+        const bg = this.add.graphics().setDepth(13);
+        const drawBtn = (hover) => {
+            bg.clear();
+            bg.fillStyle(0x000000, 0.3);
+            bg.fillRoundedRect(bx - bw / 2 + 3, by0 - bh / 2 + 5, bw, bh, bh / 2);
+            bg.fillGradientStyle(0xffd452, 0xffd452, 0xd48a10, 0xd48a10, 1);
+            bg.fillRoundedRect(bx - bw / 2, by0 - bh / 2, bw, bh, bh / 2);
+            bg.fillStyle(0xffffff, hover ? 0.4 : 0.25);
+            bg.fillRoundedRect(bx - bw / 2 + 8, by0 - bh / 2 + 4, bw - 16, bh * 0.38, bh / 2 - 3);
+            bg.lineStyle(2.5, 0x8b5e1a, 1);
+            bg.strokeRoundedRect(bx - bw / 2, by0 - bh / 2, bw, bh, bh / 2);
+        };
+        drawBtn(false);
+        const btnTxt = this.add.text(bx, by0, "NÂNG CẤP THẺ BÀI", {
+            fontFamily: "Signika", fontSize: Math.floor(17 * minR) + "px",
+            color: "#4a2000", fontStyle: "bold",
+        }).setOrigin(0.5).setDepth(14);
+        const btnZone = this.add.zone(bx, by0, bw, bh).setDepth(15).setInteractive({ cursor: "pointer" });
+        btnZone.on("pointerover", () => drawBtn(true));
+        btnZone.on("pointerout",  () => drawBtn(false));
+        btnZone.on("pointerup", () => {
+            this.tweens.add({ targets: [bg, btnTxt], scaleX: 0.95, scaleY: 0.95, duration: 60, yoyo: true,
+                onComplete: openUpgrade });
+        });
+        this.tweens.add({ targets: [bg, btnTxt, btnZone], y: "-=5", duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -203,7 +222,7 @@ export default class LabScene extends Phaser.Scene {
         // ── Người mới vào ─────────────────────────────────────────────
         this._socket.on("lab:member_joined", (data) => {
             this._spawnMember(data);
-            this._showNotice(`🧪 ${data.name} đã vào phòng`);
+            this._showNotice(`${data.name} đã vào phòng`);
         });
 
         // ── Người rời ────────────────────────────────────────────────
@@ -216,13 +235,9 @@ export default class LabScene extends Phaser.Scene {
     //  Hiển thị lab_id góc trên phải
     // ────────────────────────────────────────────────────────────────
     _buildLabInfo(labId) {
-        const { width } = this.scale;
+        // Không hiển thị mã phòng nữa (giao diện cũ)
         this._labInfoText?.destroy();
-        this._labInfoText = this.add.text(width - 16, 16,
-            `🧪 Phòng: ${labId}`, {
-            fontFamily: "Signika", fontSize: "16px",
-            color: "#aaddff", stroke: "#000", strokeThickness: 3,
-        }).setOrigin(1, 0).setDepth(200);
+        this._labInfoText = null;
     }
 
     // ────────────────────────────────────────────────────────────────

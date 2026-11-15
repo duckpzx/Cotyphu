@@ -131,7 +131,10 @@ async function getTarotCardsByIds(ids = [], userId = null) {
     const [lr] = await db.query("SELECT tarot_levels FROM users WHERE id = ?", [userId]);
     levels = parseJsonCol(lr[0]?.tarot_levels);
   } catch (e) { /* mặc định Lv1 */ }
-  return rows.map(r => ({ ...r, level: Number(levels[r.id]) >= 2 ? 2 : 1 }));
+  return rows.map(r => {
+    const level = Number(levels[r.id]) >= 2 ? 2 : 1;
+    return { ...r, level, cooldown_seconds: tarotCooldownFor(r.id, level, r.cooldown_seconds) };
+  });
 }
 
 function buildTarotRuntime(ids = []) {
@@ -1731,9 +1734,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     try {
       const [lvRows] = await db.query("SELECT tarot_levels FROM users WHERE id = ?", [cur.user_id]);
       const lv = parseJsonCol(lvRows[0]?.tarot_levels);
-      if ((Number(lv[tarotIdNum]) || 1) >= 2 && TAROT_LV2_COOLDOWN[tarotIdNum] != null) {
-        baseCd = TAROT_LV2_COOLDOWN[tarotIdNum];
-      }
+      baseCd = tarotCooldownFor(tarotIdNum, Number(lv[tarotIdNum]) || 1, baseCd);
     } catch (e) { console.warn("tarot level cooldown lookup failed", e.message); }
     runtime.cooldown_turns_left = baseCd;
 
@@ -2900,7 +2901,10 @@ app.get("/users/:userId/tarots/active", async (req, res) => {
     if (result?.success && Array.isArray(result.active_tarots)) {
       const d = await getUserTarotLevels(Number(req.params.userId));
       const lv = d?.levels || {};
-      result.active_tarots = result.active_tarots.map(t => ({ ...t, level: Number(lv[t.id]) >= 2 ? 2 : 1 }));
+      result.active_tarots = result.active_tarots.map(t => {
+        const level = Number(lv[t.id]) >= 2 ? 2 : 1;
+        return { ...t, level, cooldown_seconds: tarotCooldownFor(t.id, level, t.cooldown_seconds) };
+      });
     }
     res.json(result);
   } catch (err) {
@@ -2941,8 +2945,13 @@ const TAROT_LUCK_TIERS = [
 const TAROT_BASE_RATE = 40;
 const TAROT_PITY_STEP = 15;
 const TAROT_CRIT_CHANCE = 0.10;
-// cooldown (lượt) của thẻ khi lên Lv2
+// cooldown (số lần tung xúc xắc) theo cấp thẻ — Lv1 chờ lâu hơn Lv2
+const TAROT_LV1_COOLDOWN = { 1:6, 2:5, 3:5, 4:4, 5:5, 6:6, 7:7, 8:6, 9:5, 10:6 };
 const TAROT_LV2_COOLDOWN = { 1:3, 2:2, 3:3, 4:2, 5:2, 6:3, 7:4, 8:3, 9:2, 10:3 };
+function tarotCooldownFor(id, level, fallback = 0) {
+  const t = Number(level) >= 2 ? TAROT_LV2_COOLDOWN : TAROT_LV1_COOLDOWN;
+  return t[id] ?? fallback;
+}
 
 function parseJsonCol(v) {
   if (!v) return {};
@@ -2969,7 +2978,7 @@ app.get("/users/:userId/tarots/upgrades", async (req, res) => {
       success: true, ecoin: data.ecoin, levels: data.levels, pity: data.pity,
       config: { base_rate: TAROT_BASE_RATE, base_cost: TAROT_UPGRADE_BASE_COST,
                 pity_step: TAROT_PITY_STEP, tiers: TAROT_LUCK_TIERS,
-                lv2_cooldown: TAROT_LV2_COOLDOWN }
+                lv1_cooldown: TAROT_LV1_COOLDOWN, lv2_cooldown: TAROT_LV2_COOLDOWN }
     });
   } catch (err) {
     console.error("GET tarot upgrades error:", err);
