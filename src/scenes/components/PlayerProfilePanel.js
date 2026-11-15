@@ -2,6 +2,7 @@
  * PlayerProfilePanel — Panel xem thông tin sơ bộ người chơi trong RoomScene
  * v3 — Đẹp hơn: thu chiều cao, header có trang trí, stat badge, thẻ to
  */
+import { tarotLevelKey, tarotImagePath } from "../../utils/tarotLevel.js";
 export default class PlayerProfilePanel {
   constructor(scene, { socket, depth = 500 }) {
     this.scene  = scene;
@@ -363,7 +364,7 @@ export default class PlayerProfilePanel {
       this._tarotObjs = [];
       cards.forEach((card, i) => {
         const id  = card.tarot_id || card.id;
-        const key = `tarot_${id}`;
+        const key = tarotLevelKey(id, card.level, false);
         const cx  = startX + i * (cardW + GAP) + cardW / 2;
         const cy  = startY;
 
@@ -399,7 +400,8 @@ export default class PlayerProfilePanel {
       });
     };
 
-    const toLoad = cards.filter(c => !this.scene.textures.exists(`tarot_${c.tarot_id || c.id}`));
+    const lvKey = (c) => tarotLevelKey(c.tarot_id || c.id, c.level, false);
+    const toLoad = cards.filter(c => !this.scene.textures.exists(lvKey(c)));
     if (toLoad.length === 0) { renderCards(); return; }
 
     // Hiện placeholder skeleton trong khi chờ load
@@ -414,7 +416,7 @@ export default class PlayerProfilePanel {
       this._tarotObjs.push(sg);
     });
 
-    const pendingKeys = new Set(toLoad.map(c => `tarot_${c.tarot_id || c.id}`));
+    const pendingKeys = new Set(toLoad.map(lvKey));
     let loaded = 0;
     const done = (key) => {
       if (!pendingKeys.has(key)) return;
@@ -433,7 +435,7 @@ export default class PlayerProfilePanel {
     this.scene.load.on("loaderror",    onError);
     toLoad.forEach(c => {
       const id = c.tarot_id || c.id;
-      this.scene.load.image(`tarot_${id}`, `assets/resources/Tarot/thebai_${id}.png`);
+      this.scene.load.image(lvKey(c), tarotImagePath(id, Number(c.level) >= 2 ? 2 : 1, false));
     });
     this.scene.load.start();
   }

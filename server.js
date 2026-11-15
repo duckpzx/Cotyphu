@@ -123,9 +123,15 @@ async function getTarotByIdSafe(tarotId) {
   return null;
 }
 
-async function getTarotCardsByIds(ids = []) {
-  const rows = await Promise.all(ids.map(getTarotByIdSafe));
-  return rows.filter(Boolean);
+async function getTarotCardsByIds(ids = [], userId = null) {
+  const rows = (await Promise.all(ids.map(getTarotByIdSafe))).filter(Boolean);
+  if (!userId) return rows.map(r => ({ ...r, level: 1 }));
+  let levels = {};
+  try {
+    const [lr] = await db.query("SELECT tarot_levels FROM users WHERE id = ?", [userId]);
+    levels = parseJsonCol(lr[0]?.tarot_levels);
+  } catch (e) { /* mặc định Lv1 */ }
+  return rows.map(r => ({ ...r, level: Number(levels[r.id]) >= 2 ? 2 : 1 }));
 }
 
 function buildTarotRuntime(ids = []) {
@@ -712,7 +718,7 @@ async function initGameState(room_id, sockets, bet_ecoin = 5000, match_mode = "s
       const user = await userService.getUserById(s.user_id);
 
       const activeTarotIds = normalizeTarotIds(user?.active_tarot_ids);
-      const tarotCards = await getTarotCardsByIds(activeTarotIds);
+      const tarotCards = await getTarotCardsByIds(activeTarotIds, s.user_id);
 
       // slot_index được gán khi join phòng; fallback theo thứ tự shuffle
       const slotIndex = typeof s.slot_index === "number" ? s.slot_index : i;
@@ -1367,6 +1373,7 @@ io.on("connection", (socket) => {
         }
       }
 
+      const profLv = parseJsonCol(user?.tarot_levels);
       socket.emit("room:player:profile:result", {
         user_id:        Number(target_id),
         name:           user.name || user.username || "Player",
@@ -1374,7 +1381,7 @@ io.on("connection", (socket) => {
         skin_id:        ac?.active_skin_number || 1,
         active_bg_id:   user.active_bg_id || null,
         active_bg_path,
-        tarot_cards:    tarotCards.map(t => ({ tarot_id: t.id, name: t.name, icon: t.icon })),
+        tarot_cards:    tarotCards.map(t => ({ tarot_id: t.id, name: t.name, icon: t.icon, level: Number(profLv[t.id]) >= 2 ? 2 : 1 })),
         total_games:    user.total_games || 0,
         total_wins:     user.total_wins  || 0,
         friend_status,
@@ -1720,7 +1727,15 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     runtime.last_used_at = now;
     runtime.last_used_turn = gs.turn_number;
     // Cooldown tính theo số lần tung xúc xắc — đây là cơ chế chính
-    runtime.cooldown_turns_left = Number(tarotDef.cooldown_turns ?? tarotDef.cooldown_seconds ?? 0);
+    let baseCd = Number(tarotDef.cooldown_turns ?? tarotDef.cooldown_seconds ?? 0);
+    try {
+      const [lvRows] = await db.query("SELECT tarot_levels FROM users WHERE id = ?", [cur.user_id]);
+      const lv = parseJsonCol(lvRows[0]?.tarot_levels);
+      if ((Number(lv[tarotIdNum]) || 1) >= 2 && TAROT_LV2_COOLDOWN[tarotIdNum] != null) {
+        baseCd = TAROT_LV2_COOLDOWN[tarotIdNum];
+      }
+    } catch (e) { console.warn("tarot level cooldown lookup failed", e.message); }
+    runtime.cooldown_turns_left = baseCd;
 
     io.to(`game_${room_id}`).emit("game:tarot_used", {
       room_id,
@@ -2882,6 +2897,11 @@ app.get("/tarots", async (req, res) => {
 app.get("/users/:userId/tarots/active", async (req, res) => {
   try {
     const result = await tarotService.getActiveTarot(Number(req.params.userId));
+    if (result?.success && Array.isArray(result.active_tarots)) {
+      const d = await getUserTarotLevels(Number(req.params.userId));
+      const lv = d?.levels || {};
+      result.active_tarots = result.active_tarots.map(t => ({ ...t, level: Number(lv[t.id]) >= 2 ? 2 : 1 }));
+    }
     res.json(result);
   } catch (err) {
     console.error("GET active tarots error:", err);
@@ -2905,6 +2925,106 @@ app.post("/users/:userId/tarots/active", async (req, res) => {
       success: false,
       message: "Server error"
     });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+//  NÂNG CẤP TAROT (Lv1 → Lv2) bằng May Mắn — LabScene
+// ══════════════════════════════════════════════════════════════════
+const TAROT_UPGRADE_BASE_COST = 5000;
+const TAROT_LUCK_TIERS = [
+  { tier: 0, bonus: 0,  cost: 0     },
+  { tier: 1, bonus: 20, cost: 5000  },
+  { tier: 2, bonus: 40, cost: 15000 },
+  { tier: 3, bonus: 60, cost: 30000 },
+];
+const TAROT_BASE_RATE = 40;
+const TAROT_PITY_STEP = 15;
+const TAROT_CRIT_CHANCE = 0.10;
+// cooldown (lượt) của thẻ khi lên Lv2
+const TAROT_LV2_COOLDOWN = { 1:3, 2:2, 3:3, 4:2, 5:2, 6:3, 7:4, 8:3, 9:2, 10:3 };
+
+function parseJsonCol(v) {
+  if (!v) return {};
+  if (typeof v === "string") { try { return JSON.parse(v); } catch { return {}; } }
+  return v;
+}
+
+async function getUserTarotLevels(userId) {
+  const [rows] = await db.query(
+    "SELECT ecoin, tarot_levels, tarot_luck_pity FROM users WHERE id = ?", [userId]);
+  if (!rows[0]) return null;
+  return {
+    ecoin: Number(rows[0].ecoin) || 0,
+    levels: parseJsonCol(rows[0].tarot_levels),
+    pity: parseJsonCol(rows[0].tarot_luck_pity),
+  };
+}
+
+app.get("/users/:userId/tarots/upgrades", async (req, res) => {
+  try {
+    const data = await getUserTarotLevels(Number(req.params.userId));
+    if (!data) return res.json({ success: false, message: "Không tìm thấy user" });
+    res.json({
+      success: true, ecoin: data.ecoin, levels: data.levels, pity: data.pity,
+      config: { base_rate: TAROT_BASE_RATE, base_cost: TAROT_UPGRADE_BASE_COST,
+                pity_step: TAROT_PITY_STEP, tiers: TAROT_LUCK_TIERS,
+                lv2_cooldown: TAROT_LV2_COOLDOWN }
+    });
+  } catch (err) {
+    console.error("GET tarot upgrades error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+app.post("/users/:userId/tarots/upgrade", async (req, res) => {
+  try {
+    const userId  = Number(req.params.userId);
+    const tarotId = Number(req.body.tarot_id);
+    const tier    = TAROT_LUCK_TIERS.find(t => t.tier === Number(req.body.luck_tier ?? 0));
+    if (!tier || !Number.isInteger(tarotId))
+      return res.json({ success: false, message: "Dữ liệu không hợp lệ" });
+
+    const tarot = await tarotRepo.getTarotsByIds([tarotId]);
+    if (!tarot.length) return res.json({ success: false, message: "Thẻ không tồn tại" });
+
+    const data = await getUserTarotLevels(userId);
+    if (!data) return res.json({ success: false, message: "Không tìm thấy user" });
+
+    if ((Number(data.levels[tarotId]) || 1) >= 2)
+      return res.json({ success: false, message: "Thẻ đã đạt cấp tối đa" });
+
+    const cost = TAROT_UPGRADE_BASE_COST + tier.cost;
+    if (data.ecoin < cost)
+      return res.json({ success: false, message: `Không đủ Ecoin (cần ${cost})` });
+
+    const pity   = Number(data.pity[tarotId]) || 0;
+    const chance = Math.min(100, TAROT_BASE_RATE + tier.bonus + pity);
+    const roll   = Math.random() * 100;
+    const success = roll < chance;
+    const critical = success && Math.random() < TAROT_CRIT_CHANCE;
+    const refund = critical ? Math.floor(cost / 2) : 0;
+
+    if (success) {
+      data.levels[tarotId] = 2;
+      data.pity[tarotId] = 0;
+    } else {
+      data.pity[tarotId] = Math.min(100, pity + TAROT_PITY_STEP);
+    }
+    const newEcoin = data.ecoin - cost + refund;
+
+    await db.query(
+      "UPDATE users SET ecoin = ?, tarot_levels = ?, tarot_luck_pity = ? WHERE id = ?",
+      [newEcoin, JSON.stringify(data.levels), JSON.stringify(data.pity), userId]);
+
+    res.json({
+      success: true, upgraded: success, critical, chance: Math.round(chance),
+      cost, refund, ecoin: newEcoin, levels: data.levels, pity: data.pity,
+      tarot_id: tarotId, new_pity: data.pity[tarotId] || 0
+    });
+  } catch (err) {
+    console.error("POST tarot upgrade error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
@@ -3463,6 +3583,65 @@ app.post("/users/:userId/backgrounds/active", async (req, res) => {
     res.json({ success: true, message: "Đổi phông nền thành công" });
   } catch (err) {
     console.error("POST active background error:", err);
+    res.status(500).json({ success: false, message: "Lỗi server" });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// GET /ranking — Top 3 người chơi có số trận thắng nhiều nhất
+// Trả về: [{ rank, user_id, username, wins, characterName, skin_id }]
+// ══════════════════════════════════════════════════════════════════
+app.get("/ranking", async (req, res) => {
+  try {
+    // Đếm số trận thắng theo winner_id
+    const [winRows] = await db.query(`
+      SELECT winner_id, COUNT(*) AS wins
+      FROM game_results
+      WHERE winner_id IS NOT NULL
+      GROUP BY winner_id
+      ORDER BY wins DESC
+      LIMIT 3
+    `);
+
+    if (!winRows.length) {
+      return res.json({ success: true, ranking: [] });
+    }
+
+    const userIds = winRows.map(r => r.winner_id);
+
+    // Lấy thông tin username + nhân vật đang active
+    const [userRows] = await db.query(`
+      SELECT
+        u.id,
+        u.username,
+        u.active_character_id,
+        c.name           AS characterName,
+        COALESCE(cs.skin_number, 1) AS skin_id
+      FROM users u
+      LEFT JOIN user_characters uc ON uc.user_id = u.id AND uc.character_id = u.active_character_id
+      LEFT JOIN characters c ON c.id = uc.character_id
+      LEFT JOIN character_skins cs ON cs.id = uc.active_skin_id
+      WHERE u.id IN (${userIds.map(() => "?").join(",")})
+    `, userIds);
+
+    const userMap = {};
+    userRows.forEach(u => { userMap[u.id] = u; });
+
+    const ranking = winRows.map((r, i) => {
+      const u = userMap[r.winner_id] || {};
+      return {
+        rank: i + 1,
+        user_id: r.winner_id,
+        username: u.username || `Player ${r.winner_id}`,
+        wins: Number(r.wins),
+        characterName: u.characterName || "Dark_Oracle",
+        skin_id: u.skin_id || 1
+      };
+    });
+
+    res.json({ success: true, ranking });
+  } catch (err) {
+    console.error("GET /ranking error:", err);
     res.status(500).json({ success: false, message: "Lỗi server" });
   }
 });

@@ -1,6 +1,7 @@
 import { SERVER_URL } from "../config.js";
 import { setupClickSound, playOutSound } from "../utils/clickSound.js";
 import { createLoadingOverlay } from "../utils/loadingOverlay.js";
+import { getTarotLevel, saveTarotLevels, tarotImagePath, prepareLevelTexture, markLevelTexture } from "../utils/tarotLevel.js";
 export default class TarotScene extends Phaser.Scene {
     constructor() {
         super("TarotScene");
@@ -762,11 +763,19 @@ async loadTarotAssetsFromServer() {
         };
     });
 
-    // Load ảnh: chỉ load những key chưa có trong texture cache
-    const toLoad = this.tarotList.filter(tarot => {
-        const key = `tarot_${tarot.id}`;
-        return !this.textures.exists(key);
-    });
+    // Cấp thẻ: lấy mới nhất từ server (mặc định Lv1 = Tarot_1)
+    try {
+        const uid = this.playerUserId;
+        if (uid) {
+            const r = await fetch(`${SERVER_URL}/users/${uid}/tarots/upgrades`).then(x => x.json());
+            if (r?.success) saveTarotLevels(this, r.levels || {});
+        }
+    } catch (e) { /* dùng cấp đã lưu cục bộ */ }
+
+    // Load ảnh theo cấp: Lv1 → Tarot_1, Lv2 → Tarot_2 (texture sai cấp sẽ bị thay)
+    const toLoad = this.tarotList.filter(tarot =>
+        prepareLevelTexture(this, `tarot_${tarot.id}`, getTarotLevel(this, tarot.id))
+    );
 
     if (!toLoad.length) return;
 
@@ -781,12 +790,11 @@ async loadTarotAssetsFromServer() {
             done();
         });
         toLoad.forEach((tarot) => {
-            const key = `tarot_${tarot.id}`;
-            const iconValid = tarot.icon && (tarot.icon.includes('/') || tarot.icon.startsWith('http'));
-            const imgPath = iconValid ? tarot.icon : `assets/resources/Tarot/thebai_${tarot.id}.png`;
-            this.load.image(key, imgPath);
+            const lv = getTarotLevel(this, tarot.id);
+            this.load.image(`tarot_${tarot.id}`, tarotImagePath(tarot.id, lv));
         });
         this.load.start();
     });
+    this.tarotList.forEach(t => markLevelTexture(this, `tarot_${t.id}`, getTarotLevel(this, t.id)));
 }
 }

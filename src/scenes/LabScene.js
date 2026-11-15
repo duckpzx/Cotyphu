@@ -1,6 +1,7 @@
 import { setupClickSound, playOutSound } from "../utils/clickSound.js";
 import { getActiveProfile, getPlayerData }  from "../server/utils/playerData.js";
 import { SERVER_URL }   from "../config.js";
+import { openTarotUpgradeModal } from "./components/TarotUpgradeModal.js";
 
 // ── Tọa độ 6 tảng đá (lấy từ debug mode) ────────────────────────
 const PLATFORM_SPOTS = [
@@ -132,6 +133,22 @@ export default class LabScene extends Phaser.Scene {
 
         // Lưu để dùng lại nếu cần
         this._wizardSprite = wizard;
+
+        // ── Click phù thủy / nút để mở Lò Luyện Tarot ───────────────
+        const openUpgrade = () => openTarotUpgradeModal(this);
+        wizard.setInteractive({ cursor: "pointer", pixelPerfect: false });
+        wizard.on("pointerup", openUpgrade);
+        wizard.on("pointerover", () => wizard.setTint(0xe0c0ff));
+        wizard.on("pointerout",  () => wizard.clearTint());
+
+        const btn = this.add.text(sx, sy - 150 * minR, "🔮 NÂNG CẤP THẺ BÀI", {
+            fontFamily: "Signika", fontSize: Math.floor(20 * minR) + "px",
+            color: "#ffffff", fontStyle: "bold",
+            stroke: "#3a1060", strokeThickness: 5,
+            backgroundColor: "#7b2fd0", padding: { x: 12, y: 6 },
+        }).setOrigin(0.5).setDepth(13).setInteractive({ cursor: "pointer" });
+        btn.on("pointerup", openUpgrade);
+        this.tweens.add({ targets: btn, y: btn.y - 6, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
     }
 
     // ────────────────────────────────────────────────────────────────

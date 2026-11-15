@@ -4,6 +4,7 @@ import TarotButtonWidget from "./components/TarotButtonWidget.js";
 import CardSystem        from "./components/CardSystem.js";
 import { SERVER_URL }    from "../config.js";
 import { getActiveProfile, getPlayerData } from "../server/utils/playerData.js";
+import { getTarotLevel, tarotImagePath, prepareLevelTexture, markLevelTexture, tarotLevelKey, ensureTarotLevelTexture } from "../utils/tarotLevel.js";
 import ChatWidget        from "./components/ChatWidget.js";
 import {
   playBoardBuySound, playBoardErrSound, playBoardHunterSound,
@@ -2272,9 +2273,15 @@ this.socket.on("game:tarot_denied", (data) => {
     this.load.image("card_slot_small", "./assets/ui/tarot/card.png");
     this.load.image("chat_btn",        "./assets/ui/lobby/chat.png");
     for (let i = 1; i <= 10; i++) {
-      this.load.image(`tarot_${i}`,       `./assets/resources/Tarot/resize/thebai_${i}.png`);
+      const lv = getTarotLevel(this, i);
+      if (prepareLevelTexture(this, `tarot_${i}`, lv)) {
+        this.load.image(`tarot_${i}`, `./${tarotImagePath(i, lv, true)}`);
+      }
       this.load.image(`tarot_large_${i}`, `./assets/resources/Tarot/thebai_${i}.png`);
     }
+    this.load.once("complete", () => {
+      for (let i = 1; i <= 10; i++) markLevelTexture(this, `tarot_${i}`, getTarotLevel(this, i));
+    });
   }
 
   // =====================
@@ -2363,10 +2370,20 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
 
   panel.tarotSlots.forEach((slot, index) => {
     const tarotId = Number(ids[index] || 0);
-    const texKey = `tarot_${tarotId}`;
+    const cardInfo = (this.tarotCardsByUserId?.[userId] || [])
+      .find(c => Number(c.id ?? c.tarot_id) === tarotId);
+    const tarotLv = Number(cardInfo?.level) >= 2 ? 2 : 1;
+    const texKey = tarotLevelKey(tarotId, tarotLv, true);
 
     // luôn reset trước
     slot.tarotId = tarotId || null;
+
+    if (tarotId && !this.textures.exists(texKey)) {
+      // Load đúng cấp của người chơi này rồi vẽ lại
+      ensureTarotLevelTexture(this, tarotId, tarotLv, true, (k) => {
+        if (k && slot.tarotId === tarotId) this.updatePlayerTarotSlotsByUserId(userId, ids);
+      });
+    }
 
     if (tarotId && this.textures.exists(texKey)) {
       slot.icon.setTexture(texKey);

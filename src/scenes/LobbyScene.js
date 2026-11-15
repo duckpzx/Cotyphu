@@ -3,6 +3,7 @@ import EcoinManager from "../server/utils/ecoinManager.js";
 import ChatWidget from "./components/ChatWidget.js";
 import FriendPanel from "./components/FriendPanel.js";
 import { SERVER_URL } from "../config.js";
+import { tarotLevelKey, tarotImagePath } from "../utils/tarotLevel.js";
 import { setupClickSound, playTabSound, playOutSound } from "../utils/clickSound.js";
 
 // ── Helper: chọn background theo giờ trong ngày ──────────────────
@@ -2061,8 +2062,9 @@ createTopBar() {
           const card = cards[i];
           if (!card) return;
           const id   = card.id || card.tarot_id;
-          const key  = `tarot_large_${id}`;
-          const key2 = `tarot_${id}`;
+          const lvl  = Number(card.level) >= 2 ? 2 : 1;
+          const key  = tarotLevelKey(id, lvl, false);
+          const key2 = tarotLevelKey(id, lvl, true);
 
           // Bóng đổ thẻ bài
           const sg = this.add.graphics().setDepth(D + 4);
@@ -2106,8 +2108,8 @@ createTopBar() {
           };
 
           tryLoad(
-            key,  `assets/resources/Tarot/thebai_${id}.png`,
-            key2, `assets/resources/Tarot/resize/thebai_${id}.png`
+            key,  tarotImagePath(id, lvl, false),
+            key2, tarotImagePath(id, lvl, true)
           );
         });
       };
