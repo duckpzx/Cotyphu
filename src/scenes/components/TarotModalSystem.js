@@ -4,6 +4,7 @@
 //
 //  Tích hợp: this.tarotModal = new TarotModalSystem(scene)
 import { playBoardTarotSound } from "../../utils/clickSound.js";
+import { getTarotLevel, tarotLevelKey, ensureTarotLevelTexture } from "../../utils/tarotLevel.js";
 //
 //  Thay thế hoàn toàn file TarotModalSystem.js cũ.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -103,15 +104,12 @@ export default class TarotModalSystem {
 
     this._cardUIs = [];
 
-    // ── Làm tối map ───────────────────────────────────────────────────────
-    sc._startDarkMapEffect?.();
-
-    // ── Backdrop ──────────────────────────────────────────────────────────
+    // ── Backdrop đen bên dưới giống lúc mua nhà ────────────────────────────
     const backdrop = push(
-      sc.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0)
-        .setDepth(D).setInteractive()
+      sc.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.72)
+        .setDepth(D).setAlpha(0).setInteractive()
     );
-    sc.tweens.add({ targets: backdrop, alpha: 0.6, duration: 220, ease: 'Power2' });
+    sc.tweens.add({ targets: backdrop, alpha: 1, duration: 220, ease: 'Power2' });
     backdrop.on("pointerdown", () => this.close());
 
     // ── Tiêu đề — sẽ được vẽ lại trong layout block bên dưới ────────────
@@ -206,23 +204,56 @@ export default class TarotModalSystem {
     sc.tweens.add({ targets: nameText, alpha: 1, duration: 280, delay: delay + 60 });
     ui.nameText = nameText;
 
-    // Ảnh thẻ — giữ nguyên tỷ lệ, fit trong vùng ảnh
-    const imgKey = sc.textures.exists(`tarot_large_${card.id}`) ? `tarot_large_${card.id}` : `tarot_${card.id}`;
+    // Cấp thẻ chính xác (ưu tiên dữ liệu từ server, fallback playerData)
+    const lv = card.level != null ? (Number(card.level) >= 2 ? 2 : 1) : getTarotLevel(sc, card.id);
+
+    // Badge cấp LV1 / LV2 góc trên phải thẻ
+    const lvBg = push(sc.add.graphics().setDepth(D + 6).setAlpha(0));
+    lvBg.fillStyle(lv >= 2 ? 0x8b2cf5 : 0x1585b8, 1);
+    lvBg.fillRoundedRect(left + CW - 54 * S, top + 12 * S, 44 * S, 20 * S, 8 * S);
+    lvBg.lineStyle(1.5 * S, lv >= 2 ? 0xffd55a : 0x99e6ff, 0.9);
+    lvBg.strokeRoundedRect(left + CW - 54 * S, top + 12 * S, 44 * S, 20 * S, 8 * S);
+    const lvTxt = push(sc.add.text(left + CW - 32 * S, top + 22 * S, `LV${lv}`, {
+      fontFamily: "Signika", fontSize: Math.floor(11 * S) + "px",
+      color: "#ffffff", fontStyle: "bold"
+    }).setOrigin(0.5).setDepth(D + 7).setAlpha(0));
+    sc.tweens.add({ targets: [lvBg, lvTxt], alpha: 1, duration: 280, delay: delay + 60 });
+
+    // Ảnh thẻ — luôn load đúng texture theo cấp LV1 / LV2
     const IMG_AREA_W = CW * 0.78;
     const IMG_AREA_H = CH * 0.46;
     const IMG_CY     = top + CH * 0.22 + CH * 0.23; // giữa vùng ảnh
-    if (sc.textures.exists(imgKey)) {
-      const tex = sc.textures.get(imgKey);
-      const nat = tex.source[0];
-      const scaleX = IMG_AREA_W / nat.width;
-      const scaleY = IMG_AREA_H / nat.height;
-      const imgScale = Math.min(scaleX, scaleY); // giữ tỷ lệ
-      const img = push(sc.add.image(cx, IMG_CY, imgKey)
-        .setScale(imgScale).setDepth(D + 5).setAlpha(0)
-        .setTint(onCooldown ? 0x555555 : 0xffffff));
+    const lvlKey     = tarotLevelKey(card.id, lv, false);
+    const fallbackKey = sc.textures.exists(lvlKey)
+      ? lvlKey
+      : (sc.textures.exists(`tarot_${card.id}`) && sc.textures.get(`tarot_${card.id}`).customData?.tarotLevel === lv
+        ? `tarot_${card.id}`
+        : null);
+
+    const img = push(sc.add.image(cx, IMG_CY, fallbackKey || `tarot_${card.id}`)
+      .setDepth(D + 5).setAlpha(0)
+      .setTint(onCooldown ? 0x555555 : 0xffffff));
+
+    const fitCardImage = (texKey) => {
+      if (!img.scene || !sc.textures.exists(texKey)) return;
+      img.setTexture(texKey);
+      const nat = sc.textures.get(texKey).source[0];
+      if (nat?.width && nat?.height) {
+        img.setScale(Math.min(IMG_AREA_W / nat.width, IMG_AREA_H / nat.height));
+      }
+    };
+
+    if (fallbackKey) {
+      fitCardImage(fallbackKey);
       sc.tweens.add({ targets: img, alpha: 1, duration: 300, delay: delay + 80 });
-      ui.img = img;
+    } else {
+      ensureTarotLevelTexture(sc, card.id, lv, false, (loadedKey) => {
+        if (!img.scene) return;
+        fitCardImage(loadedKey || `tarot_${card.id}`);
+        sc.tweens.add({ targets: img, alpha: 1, duration: 240 });
+      });
     }
+    ui.img = img;
 
     // Mô tả — căn giữa dọc trong phần còn lại
     const descY = top + CH * 0.70;
@@ -444,6 +475,11 @@ export default class TarotModalSystem {
         this._enterSwapTargeting(card);
         return;
 
+      // Bảo Vệ — chọn tinh cầu của mình để bọc khiên
+      case 'protect_planet_turns':
+        this._enterProtectTargeting(card);
+        return;
+
       // Các thẻ không cần target: gửi thẳng
       // extra_roll | steal_cash_percent | move_forward_range |
       // tax_multiplier | recover_house_money
@@ -512,7 +548,7 @@ export default class TarotModalSystem {
     const pushP        = o => { panelObjs.push(o); this._objs.push(o); return o; };
 
     // Backdrop
-    const bd = pushP(sc.add.rectangle(width/2, height/2, width, height, 0x000000, 0.6).setDepth(D).setInteractive());
+    const bd = pushP(sc.add.rectangle(width/2, height/2, width, height, 0x000000, 0.72).setDepth(D).setInteractive());
     bd.on("pointerdown", () => { panelObjs.forEach(o => o?.destroy?.()); });
 
     pushP(sc.add.text(width/2, height/2 - 80*S, "Chọn đối thủ:", {
@@ -552,12 +588,22 @@ export default class TarotModalSystem {
   //  TARGETING: GIẢI TỎA — chọn tinh cầu đối thủ để phá
   // ─────────────────────────────────────────────────────────────────────────
 
+  _addTargetingDarkBackdrop() {
+    const sc = this.scene;
+    const { width, height } = sc.scale;
+    this._highlightObjs = this._highlightObjs || [];
+    const dim = sc.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.58)
+      .setDepth(450).setAlpha(0);
+    sc.tweens.add({ targets: dim, alpha: 1, duration: 200, ease: 'Power2' });
+    this._highlightObjs.push(dim);
+  }
+
   _enterDestroyTargeting(card) {
     const sc    = this.scene;
     const myUid = sc._myUserId();
     this.close();
 
-    sc._startDarkMapEffect?.();
+    this._addTargetingDarkBackdrop();
 
     const enemyCells = [];
     // Dùng overlay riêng — KHÔNG gọi paintCellGlowAnimated để không đổi màu gốc
@@ -583,6 +629,7 @@ export default class TarotModalSystem {
     });
 
     if (!enemyCells.length) {
+      this._clearHighlightObjs();
       sc._showToast("Không có tinh cầu đối thủ để phá hủy!", "#ff8888");
       sc._stopDarkMapEffect?.();
       return;
@@ -665,7 +712,7 @@ export default class TarotModalSystem {
     this._targetingMode = 'swap_step1';
     this._swapCard      = card;
 
-    sc._startDarkMapEffect?.();
+    this._addTargetingDarkBackdrop();
 
     // Step 1: highlight tinh cầu đối thủ bằng overlay ring — không đổi màu gốc
     this._enemyCells = [];
@@ -690,6 +737,7 @@ export default class TarotModalSystem {
     });
 
     if (!this._enemyCells.length) {
+      this._clearHighlightObjs();
       sc._showToast("Không có tinh cầu đối thủ!", "#ff8888");
       sc._stopDarkMapEffect?.();
       return;
@@ -709,10 +757,9 @@ export default class TarotModalSystem {
       this._clearHighlightObjs();
       sc._stopDarkMapEffect?.();
       sc._clearToasts?.();
-      sc._startDarkMapEffect?.();
+      this._addTargetingDarkBackdrop();
 
       const myCells = [];
-      this._highlightObjs = [];
       Object.entries(sc.cellStates || {}).forEach(([idx, cell]) => {
         if (Number(cell.owner_user_id) === Number(myUid)) {
           myCells.push(Number(idx));
@@ -733,6 +780,7 @@ export default class TarotModalSystem {
       });
 
       if (!myCells.length) {
+        this._clearHighlightObjs();
         sc._showToast("Bạn không có tinh cầu để hoán đổi!", "#ff8888");
         sc._stopDarkMapEffect?.();
         return;
@@ -800,6 +848,64 @@ export default class TarotModalSystem {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  //  TARGETING: BẢO VỆ — chọn tinh cầu của mình để bọc khiên
+  // ─────────────────────────────────────────────────────────────────────────
+
+  _enterProtectTargeting(card) {
+    const sc    = this.scene;
+    const myUid = sc._myUserId();
+    this.close();
+
+    this._addTargetingDarkBackdrop();
+
+    const myCells = [];
+    Object.entries(sc.cellStates || {}).forEach(([idx, cell]) => {
+      if (Number(cell.owner_user_id) === Number(myUid)) {
+        myCells.push(Number(idx));
+        const cellObj = sc.boardPath?.[Number(idx)];
+        if (cellObj) {
+          const x = cellObj.x * sc.scale.width;
+          const y = cellObj.y * sc.scale.height;
+          const S = sc.minRatio || 1;
+          const ring = sc.add.graphics().setDepth(500);
+          ring.lineStyle(3 * S, 0x33ccff, 1);
+          ring.strokeCircle(x, y, 28 * S);
+          ring.fillStyle(0x33ccff, 0.25);
+          ring.fillCircle(x, y, 28 * S);
+          this._highlightObjs.push(ring);
+          sc.tweens.add({ targets: ring, alpha: { from: 1, to: 0.4 }, duration: 500, yoyo: true, repeat: -1 });
+        }
+      }
+    });
+
+    if (!myCells.length) {
+      this._clearHighlightObjs();
+      sc._showToast("Bạn chưa có tinh cầu nào để bảo vệ!", "#ff8888");
+      return;
+    }
+
+    sc._showToast("🛡 Chọn tinh cầu của bạn để bảo vệ (3 lượt)", "#66ddff", 0);
+
+    this._targetingListener = (pointer) => {
+      const hitCell = this._getCellAtPointer(pointer);
+      if (!hitCell || !myCells.includes(hitCell.index)) return;
+
+      sc.input.off("pointerdown", this._targetingListener);
+      this._targetingListener = null;
+      this._clearHighlightObjs();
+      sc._clearToasts?.();
+
+      sc.socket.emit('game:use_tarot', {
+        room_id:           sc.gameRoomId,
+        tarot_id:          card.id,
+        target_cell_index: hitCell.index
+      });
+    };
+
+    sc.input.on("pointerdown", this._targetingListener);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   //  HIT TEST — tìm cell tại pointer
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -849,8 +955,8 @@ export default class TarotModalSystem {
   _flashEffect(onDone) {
     const sc              = this.scene;
     const { width, height } = sc.scale;
-    const flash = sc.add.rectangle(width/2, height/2, width, height, 0xffdd88, 0).setDepth(900);
-    sc.tweens.add({ targets: flash, alpha: 0.4, duration: 80, yoyo: true,
+    const flash = sc.add.rectangle(width/2, height/2, width, height, 0xffdd88, 0.4).setDepth(900).setAlpha(0);
+    sc.tweens.add({ targets: flash, alpha: 1, duration: 80, yoyo: true,
       onComplete: () => { flash.destroy(); if (onDone) onDone(); }
     });
   }

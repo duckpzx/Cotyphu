@@ -230,6 +230,83 @@ function getTargetEnemyCell(gs, cur, targetUserId = null, targetCellIndex = null
   return enemyCells[0] || null;
 }
 
+// ── HỆ THỐNG CẤP TINH CẦU & LUẬT CHIẾN THUẬT (2 CẤP: LV1 -> LV2) ──────────
+const MAX_CELL_LEVEL = 2;
+
+function getLevelRentMultiplier(level = 1) {
+  return Number(level || 1) >= 2 ? 2.0 : 1.0;
+}
+
+function getPropertyActionCost(gs, player, targetLevel = 1) {
+  const base = Number(gs.build_cost || (gs.bet_ecoin || 5000) * 5);
+  let raw = Number(targetLevel) >= 2 ? Math.floor(base * 0.8) : base;
+
+  if (player?.skill?.passive_type === "build_discount_percent") {
+    raw = Math.floor(raw * (1 - (player.skill.passive_value || 15) / 100));
+  }
+  if ((player?.cursed_turns || 0) > 0) {
+    raw = Math.floor(raw * (1 + (player.cursed_percent || 20) / 100));
+  }
+  return Math.max(0, raw);
+}
+
+function getAdjacentChainInfo(gs, cellIndex, ownerUserId) {
+  const idx = Number(cellIndex);
+  const uid = Number(ownerUserId);
+  if (!gs?.cellStates || !uid || SKILL_CELLS.includes(idx)) {
+    return { chainLen: 1, comboMult: 1.0, comboBonusPercent: 0 };
+  }
+
+  let left = 0;
+  for (let step = 1; step < TOTAL_CELLS; step++) {
+    const ni = (idx - step + TOTAL_CELLS) % TOTAL_CELLS;
+    if (SKILL_CELLS.includes(ni)) break;
+    const c = gs.cellStates[ni];
+    if (!c || Number(c.owner_user_id) !== uid) break;
+    left++;
+  }
+
+  let right = 0;
+  for (let step = 1; step < TOTAL_CELLS; step++) {
+    const ni = (idx + step) % TOTAL_CELLS;
+    if (SKILL_CELLS.includes(ni)) break;
+    const c = gs.cellStates[ni];
+    if (!c || Number(c.owner_user_id) !== uid) break;
+    right++;
+  }
+
+  const chainLen = 1 + left + right;
+  const comboMult = chainLen >= 3 ? 1.35 : chainLen === 2 ? 1.2 : 1.0;
+  const comboBonusPercent = Math.round((comboMult - 1) * 100);
+  return { chainLen, comboMult, comboBonusPercent };
+}
+
+function computeCellRent(gs, cellIndex, cell, overrideLevel = null, overrideOwnerId = null) {
+  const baseRent = Math.floor((gs.bet_ecoin || 5000) * 3);
+  const level = Math.max(1, Math.min(MAX_CELL_LEVEL, Number(overrideLevel ?? cell?.level ?? 1)));
+  const ownerId = overrideOwnerId ?? cell?.owner_user_id;
+  const levelMult = getLevelRentMultiplier(level);
+  const taxMult =
+    (cell?.rent_multiplier || 1) *
+    (cell?.tax_multiplier_active && cell?.tax_multiplier ? Number(cell.tax_multiplier) : 1) *
+    (cell?.value_bonus_mult || 1);
+  const combo = getAdjacentChainInfo(gs, cellIndex, ownerId);
+  const rent = Math.floor(baseRent * levelMult * combo.comboMult * taxMult);
+  return {
+    rent,
+    baseRent,
+    level,
+    levelMult,
+    taxMult,
+    ...combo,
+  };
+}
+
+function getBuyoutCost(gs, cell) {
+  const invested = Number(cell?.total_invested || cell?.build_cost || gs.build_cost || 0);
+  return Math.floor(invested * 1.4);
+}
+
 // server.js – bổ sung vào game state
 // Mỗi player có thêm:
 //   pending_tarot_effect: null | { type, params, used }
@@ -712,6 +789,67 @@ function getRealEnemyIds(gs, curUserId) {
 }
 
 /** Khởi tạo game state */
+async function getCharacterSkillForPlayer(characterId, characterName) {
+  try {
+    if (characterId) {
+      const [rows] = await db.query("SELECT * FROM character_skills WHERE character_id = ? LIMIT 1", [characterId]);
+      if (rows[0]) return rows[0];
+    }
+    if (characterName) {
+      const clean = String(characterName).replace(/ /g, "_");
+      const [rows] = await db.query(
+        "SELECT cs.* FROM character_skills cs JOIN characters c ON c.id = cs.character_id WHERE c.name = ? LIMIT 1",
+        [clean]
+      );
+      if (rows[0]) return rows[0];
+    }
+  } catch (e) { console.warn("getCharacterSkillForPlayer error:", e.message); }
+  return null;
+}
+
+function addCharEnergy(player, amount) {
+  if (!player || !player.skill) return;
+  const maxE = Number(player.skill.energy_cost || 100);
+  player.energy = Math.min(maxE, (Number(player.energy) || 0) + Number(amount || 0));
+}
+
+function emitCharSkillState(room_id) {
+  const gs = gameStates[room_id];
+  if (!gs) return;
+  io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:char_skill_state", {
+    room_id,
+    traps: gs.traps || {},
+    players: gs.players.map(p => ({
+      user_id: p.user_id,
+      energy: p.energy || 0,
+      max_energy: p.skill?.energy_cost || 100,
+      used_skill_this_turn: !!p.used_skill_this_turn,
+      skill: p.skill || null,
+      dice_bias: p.dice_bias || null,
+      rent_shield_turns: p.rent_shield_turns || 0,
+      cursed_turns: p.cursed_turns || 0,
+      soul_mark_turns: p.soul_mark_turns || 0,
+    })),
+  });
+}
+
+function checkZombieRevive(gs, room_id, player) {
+  if (!player || player.revive_used) return;
+  if (player.skill?.passive_type !== "revive_cash_percent") return;
+  const startingCash = (gs.bet_ecoin || 5000) * 20;
+  const threshold = Math.floor(startingCash * (player.skill.passive_value || 15) / 100);
+  if ((player.cash || 0) < threshold && (player.cash || 0) >= 0) {
+    player.revive_used = true;
+    player.cash += threshold;
+    io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:char_passive_triggered", {
+      user_id: player.user_id,
+      name: player.name,
+      passive_name: player.skill.passive_name,
+      message: `${player.name} kích hoạt ${player.skill.passive_name}: hồi +${threshold.toLocaleString()} tiền mặt!`,
+    });
+  }
+}
+
 async function initGameState(room_id, sockets, bet_ecoin = 5000, match_mode = "solo_4") {
   const shuffled  = shuffle([...sockets]);
   const colorPool = shuffle([...PLANET_COLORS]);
@@ -722,6 +860,7 @@ async function initGameState(room_id, sockets, bet_ecoin = 5000, match_mode = "s
 
       const activeTarotIds = normalizeTarotIds(user?.active_tarot_ids);
       const tarotCards = await getTarotCardsByIds(activeTarotIds, s.user_id);
+      const charSkill = await getCharacterSkillForPlayer(user?.active_character_id, s.character_name);
 
       // slot_index được gán khi join phòng; fallback theo thứ tự shuffle
       const slotIndex = typeof s.slot_index === "number" ? s.slot_index : i;
@@ -744,7 +883,19 @@ async function initGameState(room_id, sockets, bet_ecoin = 5000, match_mode = "s
         active_tarot_ids: activeTarotIds,
         tarot_cards: tarotCards,
         tarot_runtime: buildTarotRuntime(activeTarotIds),
-        used_tarot_this_turn: false
+        used_tarot_this_turn: false,
+
+        skill: charSkill,
+        energy: 25,
+        used_skill_this_turn: false,
+        dice_bias: null,
+        rent_shield_turns: 0,
+        cursed_turns: 0,
+        cursed_percent: 0,
+        soul_marked_by: null,
+        soul_mark_turns: 0,
+        soul_mark_percent: 0,
+        revive_used: false
       };
     })
   );
@@ -759,6 +910,7 @@ async function initGameState(room_id, sockets, bet_ecoin = 5000, match_mode = "s
     bet_ecoin,
     build_cost: bet_ecoin * 5,
     cellStates: {},
+    traps: {},
     _buildTimer: null,
   };
 
@@ -772,6 +924,14 @@ function getCurrentTurnPlayer(room_id) {
 
 function resetTurnTarotFlags(player) {
   player.used_tarot_this_turn = false;
+  player.used_skill_this_turn = false;
+  player.touch_tax_used = false;
+  if ((player.rent_shield_turns || 0) > 0) player.rent_shield_turns -= 1;
+  if ((player.cursed_turns || 0) > 0) player.cursed_turns -= 1;
+  if ((player.soul_mark_turns || 0) > 0) {
+    player.soul_mark_turns -= 1;
+    if (player.soul_mark_turns <= 0) player.soul_marked_by = null;
+  }
   Object.values(player.tarot_runtime || {}).forEach(rt => {
     rt.used_this_turn = false;
     // Cooldown KHÔNG giảm theo lượt — chỉ giảm khi tung xúc xắc (xem game:roll)
@@ -784,6 +944,13 @@ function tickProtectedCells(room_id) {
   if (!gs) return;
   const expired = [];
   Object.entries(gs.cellStates).forEach(([idx, cell]) => {
+    if ((cell.weaken_turns || 0) > 0) {
+      cell.weaken_turns -= 1;
+      if (cell.weaken_turns <= 0) {
+        delete cell.weaken_turns;
+        delete cell.weaken_percent;
+      }
+    }
     if ((cell.protected_turns || 0) > 0) {
       cell.protected_turns -= 1;
       if (cell.protected_turns <= 0) {
@@ -793,6 +960,12 @@ function tickProtectedCells(room_id) {
       }
     }
   });
+  if (gs.traps) {
+    Object.keys(gs.traps).forEach(idx => {
+      gs.traps[idx].turns_left -= 1;
+      if (gs.traps[idx].turns_left <= 0) delete gs.traps[idx];
+    });
+  }
   if (expired.length > 0) {
     io.to(`game_${room_id}`).emit('game:skill_event', {
       type: 'protect_expired', cell_indexes: expired
@@ -1019,9 +1192,9 @@ function endTurn(room_id) {
     gs._buildTimer = null;
   }
 
-  // Xúc Xắc Ma Thuật: giữ lại lượt hiện tại
+  // Xúc Xắc Ma Thuật hoặc tung đôi 1 / đôi 6: giữ lại lượt hiện tại
   const curPlayer = getCurrentTurnPlayer(room_id);
-  if (curPlayer?.extra_roll_queued) {
+  if (curPlayer && !curPlayer.eliminated && curPlayer.extra_roll_queued) {
     curPlayer.extra_roll_queued = false;
     gs.phase = "IDLE";
     const now = Date.now();
@@ -1168,6 +1341,7 @@ function endTurn(room_id) {
   }
 
   emitTarotState(room_id);
+  emitCharSkillState(room_id);
 }
 
 // ===== HELPERS =====
@@ -1597,6 +1771,103 @@ io.on("connection", (socket) => {
   });
 
   // ── START GAME ───────────────────────────────────────────────────
+  // ── MỜI BẠN VÀO PHÒNG ─────────────────────────────────────────────
+  socket.on("room:invite", async ({ to_id, room_id }) => {
+    try {
+      const rid = Number(room_id) || Number(socket.current_room_id);
+      const targetUid = Number(to_id);
+      if (!rid || !targetUid) return socket.emit("room:invite_error", { message: "Thiếu thông tin phòng" });
+      if (gameStates[rid]) return socket.emit("room:invite_error", { message: "Phòng đã bắt đầu trận" });
+
+      const room = await roomRepo.getRoomById(rid);
+      if (!room) return socket.emit("room:invite_error", { message: "Phòng không tồn tại" });
+
+      let targetSock = null;
+      for (const [, s] of io.sockets.sockets) {
+        if (Number(s.user_id) === targetUid) { targetSock = s; break; }
+      }
+      if (!targetSock) return socket.emit("room:invite_error", { message: "Người chơi không trực tuyến" });
+      if (targetSock.current_game_id) return socket.emit("room:invite_error", { message: "Người chơi đang trong trận đấu" });
+
+      targetSock.emit("room:invited", {
+        room_id: rid,
+        roomData: { ...room, enteredPassword: room.password || null },
+        from_id: socket.user_id,
+        from_name: socket.player_name || "Bạn bè",
+      });
+      socket.emit("room:invite_sent", { message: "Đã gửi lời mời vào phòng!" });
+    } catch (e) {
+      console.error("room:invite error:", e);
+      socket.emit("room:invite_error", { message: "Lỗi gửi lời mời" });
+    }
+  });
+
+  // ── XIN VÀO PHÒNG BẠN BÈ ĐANG Ở ───────────────────────────────────
+  socket.on("room:request_join", async ({ friend_id }) => {
+    try {
+      const fid = Number(friend_id);
+      if (!fid || !socket.user_id) return;
+
+      let friendSock = null;
+      for (const [, s] of io.sockets.sockets) {
+        if (Number(s.user_id) === fid) { friendSock = s; break; }
+      }
+      const rid = Number(friendSock?.current_room_id);
+      if (!rid) return socket.emit("room:join_rejected", { message: "Bạn bè đã rời khỏi phòng" });
+      if (gameStates[rid]) return socket.emit("room:join_rejected", { message: "Phòng đã bắt đầu trận" });
+
+      const room = await roomRepo.getRoomById(rid);
+      if (!room) return socket.emit("room:join_rejected", { message: "Phòng không tồn tại" });
+
+      const roomSockets = await io.in(`room_${rid}`).fetchSockets();
+      if (roomSockets.length >= (room.max_players || 4)) {
+        return socket.emit("room:join_rejected", { message: "Phòng đã đầy" });
+      }
+
+      // Gửi yêu cầu cho chủ phòng (hoặc friendSock nếu chủ phòng trùng)
+      const hostSock = roomSockets.find(s => Number(s.user_id) === Number(room.host_user_id)) || friendSock;
+      const [uRows] = await db.query("SELECT name, username FROM users WHERE id = ?", [socket.user_id]);
+      const reqName = uRows[0]?.name || uRows[0]?.username || "Người chơi";
+
+      io.to(hostSock.id).emit("room:join_requested", {
+        room_id: rid,
+        requester_id: socket.user_id,
+        requester_name: reqName,
+      });
+    } catch (e) {
+      console.error("room:request_join error:", e);
+      socket.emit("room:join_rejected", { message: "Không thể gửi yêu cầu" });
+    }
+  });
+
+  socket.on("room:respond_join_request", async ({ room_id, requester_id, accept }) => {
+    try {
+      const rid = Number(room_id) || Number(socket.current_room_id);
+      const reqUid = Number(requester_id);
+      let reqSock = null;
+      for (const [, s] of io.sockets.sockets) {
+        if (Number(s.user_id) === reqUid) { reqSock = s; break; }
+      }
+      if (!reqSock) return;
+
+      if (!accept) {
+        reqSock.emit("room:join_rejected", { message: "Yêu cầu xin vào phòng bị từ chối." });
+        return;
+      }
+      const room = await roomRepo.getRoomById(rid);
+      if (!room || gameStates[rid]) {
+        reqSock.emit("room:join_rejected", { message: "Phòng không còn khả dụng." });
+        return;
+      }
+      reqSock.emit("room:join_approved", {
+        room_id: rid,
+        roomData: { ...room, enteredPassword: room.password || null },
+      });
+    } catch (e) {
+      console.error("room:respond_join_request error:", e);
+    }
+  });
+
   socket.on("room:start", async () => {
     const room_id = socket.current_room_id; if (!room_id) return;
     try {
@@ -1678,6 +1949,7 @@ io.on("connection", (socket) => {
     }
 
     emitTarotState(room_id);
+    emitCharSkillState(room_id);
   });
 
 socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, target_cell_index = null, my_cell_index = null }) => {
@@ -1755,6 +2027,132 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
   }
 });
 
+  // ── CHARACTER ACTIVE SKILL (game:use_char_skill) ─────────────────
+  socket.on("game:use_char_skill", ({ room_id, target_user_id = null, target_cell_index = null, bias = null }) => {
+    const rid = Number(room_id) || Number(socket.game_room_id) || Number(socket.current_room_id);
+    const gs = gameStates[rid];
+    if (!gs) return socket.emit("game:char_skill_denied", { message: "Không tìm thấy game" });
+
+    const cur = getCurrentTurnPlayer(rid);
+    if (!cur || Number(cur.user_id) !== Number(socket.user_id)) {
+      return socket.emit("game:char_skill_denied", { message: "Chưa tới lượt của bạn" });
+    }
+    if (gs.phase !== "IDLE") {
+      return socket.emit("game:char_skill_denied", { message: "Chỉ được dùng kỹ năng trước khi tung xúc xắc" });
+    }
+    if (cur.used_skill_this_turn) {
+      return socket.emit("game:char_skill_denied", { message: "Mỗi lượt chỉ dùng kỹ năng 1 lần" });
+    }
+    const skill = cur.skill;
+    if (!skill) {
+      return socket.emit("game:char_skill_denied", { message: "Nhân vật chưa có kỹ năng" });
+    }
+    const cost = Number(skill.energy_cost || 100);
+    if ((cur.energy || 0) < cost) {
+      return socket.emit("game:char_skill_denied", { message: `Chưa đủ năng lượng (${cur.energy || 0}/${cost})` });
+    }
+
+    let msg = "";
+    const enemyIds = getRealEnemyIds(gs, cur.user_id);
+
+    switch (skill.active_type) {
+      case "dice_bias": {
+        const chosen = bias === "high" ? "high" : "low";
+        cur.dice_bias = chosen;
+        msg = `${cur.name} dùng ${skill.active_name}: xúc xắc lượt này sẽ ra ${chosen === "high" ? "Cao (8-12)" : "Thấp (2-6)"}!`;
+        break;
+      }
+      case "weaken_cell_rent": {
+        const idx = Number(target_cell_index);
+        const cell = gs.cellStates?.[idx];
+        if (!cell || Number(cell.owner_user_id) === Number(cur.user_id) || isSameTeam(gs, cur.user_id, cell.owner_user_id)) {
+          return socket.emit("game:char_skill_denied", { message: "Hãy chọn tinh cầu của đối thủ!" });
+        }
+        cell.weaken_turns = 2;
+        cell.weaken_percent = skill.active_value || 40;
+        msg = `${cur.name} bắn ${skill.active_name} vào ô #${idx + 1}: giảm 40% thuế trong 2 lượt!`;
+        break;
+      }
+      case "rent_shield": {
+        cur.rent_shield_turns = 2;
+        msg = `${cur.name} kích hoạt ${skill.active_name}: giảm 50% tiền thuê tiếp theo!`;
+        break;
+      }
+      case "push_back_enemy": {
+        const tUid = Number(target_user_id) || enemyIds[0];
+        const target = gs.players.find(p => Number(p.user_id) === tUid);
+        if (!target || Number(target.user_id) === Number(cur.user_id) || isSameTeam(gs, cur.user_id, target.user_id)) {
+          return socket.emit("game:char_skill_denied", { message: "Không thể chọn mục tiêu này!" });
+        }
+        const steps = 2 + Math.floor(Math.random() * 2); // 2 hoặc 3 ô
+        const newIdx = ((Number(target.index) || 0) - steps + TOTAL_CELLS) % TOTAL_CELLS;
+        target.index = newIdx;
+        io.to(`room_${rid}`).to(`game_${rid}`).emit("playerMoved", {
+          id: target.socket_id,
+          user_id: target.user_id,
+          index: newIdx,
+          characterName: target.characterName,
+          skin: target.skin || 1,
+        });
+        msg = `${cur.name} dùng ${skill.active_name} đẩy lùi ${target.name} ${steps} ô!`;
+        break;
+      }
+      case "curse_enemy": {
+        const tUid = Number(target_user_id) || enemyIds[0];
+        const target = gs.players.find(p => Number(p.user_id) === tUid);
+        if (!target || Number(target.user_id) === Number(cur.user_id) || isSameTeam(gs, cur.user_id, target.user_id)) {
+          return socket.emit("game:char_skill_denied", { message: "Không thể nguyền đồng đội!" });
+        }
+        target.cursed_turns = 2;
+        target.cursed_percent = skill.active_value || 25;
+        msg = `${cur.name} yểm ${skill.active_name} lên ${target.name} (+${target.cursed_percent}% tiền thuê & xây nhà)!`;
+        break;
+      }
+      case "soul_mark": {
+        const tUid = Number(target_user_id) || enemyIds[0];
+        const target = gs.players.find(p => Number(p.user_id) === tUid);
+        if (!target || Number(target.user_id) === Number(cur.user_id) || isSameTeam(gs, cur.user_id, target.user_id)) {
+          return socket.emit("game:char_skill_denied", { message: "Không thể đánh dấu đồng đội!" });
+        }
+        target.soul_marked_by = cur.user_id;
+        target.soul_mark_turns = 2;
+        target.soul_mark_percent = skill.active_value || 25;
+        msg = `${cur.name} gắn ${skill.active_name} lên ${target.name} (thu thêm +${target.soul_mark_percent}% khi họ trả thuế)!`;
+        break;
+      }
+      case "poison_trap": {
+        const idx = Number(target_cell_index);
+        if (isNaN(idx) || idx < 0 || idx >= TOTAL_CELLS || SKILL_CELLS.includes(idx)) {
+          return socket.emit("game:char_skill_denied", { message: "Hãy chọn một ô thường trên bàn cờ!" });
+        }
+        gs.traps = gs.traps || {};
+        gs.traps[idx] = { owner_user_id: cur.user_id, turns_left: 3, percent: skill.active_value || 10 };
+        msg = `${cur.name} đặt ${skill.active_name} lên ô #${idx + 1}!`;
+        break;
+      }
+      default:
+        return socket.emit("game:char_skill_denied", { message: "Kỹ năng không hợp lệ" });
+    }
+
+    cur.energy = Math.max(0, (cur.energy || 0) - cost);
+    cur.used_skill_this_turn = true;
+
+    io.to(`room_${rid}`).to(`game_${rid}`).emit("game:char_skill_used", {
+      room_id: rid,
+      user_id: cur.user_id,
+      name: cur.name,
+      skill_name: skill.active_name,
+      active_type: skill.active_type,
+      fx_type: skill.fx_type || "fire_ball",
+      target_user_id: target_user_id ? Number(target_user_id) : null,
+      target_cell_index: target_cell_index !== null && target_cell_index !== undefined ? Number(target_cell_index) : null,
+      message: msg,
+    });
+
+    emitGameStateSync(rid);
+    emitCharSkillState(rid);
+  });
+
   // ── GAME ROLL ────────────────────────────────────────────────────
   socket.on("game:roll", ({ room_id }) => {
     const gs = gameStates[room_id];
@@ -1770,15 +2168,36 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
       }
     });
 
+    // ── Tích năng lượng kỹ năng nhân vật (+25 mỗi lần tung) ──
+    addCharEnergy(cur, 25);
+
     gs.phase = "ROLLING";
-    const dice = Math.floor(Math.random() * 6) + 1;
-    console.log(`🎲 ${cur.name} rolled ${dice} in room ${room_id}`);
+    let dice1 = Math.floor(Math.random() * 6) + 1;
+    let dice2 = Math.floor(Math.random() * 6) + 1;
+    if (cur.dice_bias === "low") {
+      dice1 = Math.floor(Math.random() * 3) + 1; // 1-3
+      dice2 = Math.floor(Math.random() * 3) + 1; // 1-3
+      cur.dice_bias = null;
+    } else if (cur.dice_bias === "high") {
+      dice1 = Math.floor(Math.random() * 3) + 4; // 4-6
+      dice2 = Math.floor(Math.random() * 3) + 4; // 4-6
+      cur.dice_bias = null;
+    }
+    const dice = dice1 + dice2;
+    const isLuckyDouble = (dice1 === 1 && dice2 === 1) || (dice1 === 6 && dice2 === 6);
+    if (isLuckyDouble) {
+      cur.extra_roll_queued = true;
+    }
+    console.log(`🎲 ${cur.name} rolled ${dice1} + ${dice2} = ${dice}${isLuckyDouble ? " (LUCKY DOUBLE -> EXTRA TURN)" : ""} in room ${room_id}`);
     io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:dice_result", {
-      room_id, socket_id: socket.id, user_id: socket.user_id, name: cur.name, dice,
+      room_id, socket_id: socket.id, user_id: socket.user_id, name: cur.name, dice, dice1, dice2,
+      extra_turn: isLuckyDouble,
     });
 
     // Emit tarot state mới sau khi cooldown đã giảm
     emitTarotState(room_id);
+    emitCharSkillState(room_id);
+    emitCharSkillState(room_id);
   });
 
   // ── GAME MOVE DONE ───────────────────────────────────────────────
@@ -1860,7 +2279,10 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     cur.index = idx;
 
     if (didPassStart) {
-      const bonus = Math.floor(gs.bet_ecoin * 4);
+      let bonus = Math.floor(gs.bet_ecoin * 4);
+      if (cur.skill?.passive_type === "start_bonus_percent") {
+        bonus = Math.floor(bonus * (1 + (cur.skill.passive_value || 15) / 100));
+      }
       cur.cash = (cur.cash || 0) + bonus;
 
       io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:start_bonus", {
@@ -1874,6 +2296,62 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
         setTimeout(() => endTurn(room_id), 900);
         return;
       }
+    }
+
+    // ── Nội tại Reaper_Man: đứng cùng ô với đối thủ ────────────────────
+    if (!cur.touch_tax_used) {
+      const sameCellOthers = gs.players.filter(p => p.user_id !== cur.user_id && Number(p.index) === idx && !isSameTeam(gs, cur.user_id, p.user_id));
+      for (const other of sameCellOthers) {
+        if (cur.skill?.passive_type === "touch_tax_percent" && (other.cash || 0) > 0) {
+          const amt = Math.floor(other.cash * (cur.skill.passive_value || 3) / 100);
+          if (amt > 0) {
+            other.cash -= amt;
+            cur.cash += amt;
+            cur.touch_tax_used = true;
+            io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:char_passive_triggered", {
+              user_id: cur.user_id, name: cur.name, target_user_id: other.user_id,
+              passive_name: cur.skill.passive_name,
+              message: `${cur.name} thu ${amt.toLocaleString()} từ ${other.name} (${cur.skill.passive_name})`,
+            });
+            emitGameStateSync(room_id);
+            break;
+          }
+        } else if (other.skill?.passive_type === "touch_tax_percent" && (cur.cash || 0) > 0) {
+          const amt = Math.floor(cur.cash * (other.skill.passive_value || 3) / 100);
+          if (amt > 0) {
+            cur.cash -= amt;
+            other.cash += amt;
+            cur.touch_tax_used = true;
+            io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:char_passive_triggered", {
+              user_id: other.user_id, name: other.name, target_user_id: cur.user_id,
+              passive_name: other.skill.passive_name,
+              message: `${other.name} thu ${amt.toLocaleString()} từ ${cur.name} (${other.skill.passive_name})`,
+            });
+            emitGameStateSync(room_id);
+            break;
+          }
+        }
+      }
+    }
+
+    // ── Bẫy Độc (Zombie_Villager) trên ô idx ────────────────────────────
+    const trap = gs.traps?.[idx];
+    if (trap && Number(trap.owner_user_id) !== Number(cur.user_id) && !isSameTeam(gs, cur.user_id, trap.owner_user_id)) {
+      const trapLoss = Math.floor((cur.cash || 0) * (trap.percent || 10) / 100);
+      if (trapLoss > 0) {
+        cur.cash = Math.max(0, (cur.cash || 0) - trapLoss);
+        const trapOwner = gs.players.find(p => Number(p.user_id) === Number(trap.owner_user_id));
+        if (trapOwner) trapOwner.cash = (trapOwner.cash || 0) + Math.floor(trapLoss * 0.5);
+      }
+      delete gs.traps[idx];
+      io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:char_skill_fx", {
+        type: "poison_trap_hit", cell_index: idx, target_user_id: cur.user_id,
+        owner_user_id: trap.owner_user_id, loss: trapLoss,
+        message: `${cur.name} dẫm phải Bẫy Độc, mất ${trapLoss.toLocaleString()}!`,
+      });
+      checkZombieRevive(gs, room_id, cur);
+      emitGameStateSync(room_id);
+      emitCharSkillState(room_id);
     }
 
     // START / skill
@@ -1951,19 +2429,38 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
           return;
         }
 
-        // Buff random cell
+        // Buff random cell — Thăng cấp miễn phí (+1 Lv nếu < 3) hoặc tăng giá trị 20%
         if (picked.type === "buff_random_cell") {
           const ownedCells = Object.entries(gs.cellStates)
             .filter(([_, c]) => c.owner_user_id === cur.user_id);
           if (ownedCells.length > 0) {
-            const [buffIdx, buffCell] = ownedCells[Math.floor(Math.random() * ownedCells.length)];
-            buffCell.build_cost = Math.floor((buffCell.build_cost || gs.build_cost) * 1.2);
+            // Ưu tiên chọn ô chưa tối đa cấp (< 3) nếu có
+            const upgradable = ownedCells.filter(([_, c]) => Number(c.level || 1) < MAX_CELL_LEVEL);
+            const pool = upgradable.length > 0 ? upgradable : ownedCells;
+            const [buffIdx, buffCell] = pool[Math.floor(Math.random() * pool.length)];
+            const oldLevel = Number(buffCell.level || 1);
+            let newLevel = oldLevel;
+            if (oldLevel < MAX_CELL_LEVEL) {
+              newLevel = oldLevel + 1;
+              buffCell.level = newLevel;
+              const addedVal = Math.floor((gs.build_cost || 0) * 0.8);
+              buffCell.total_invested = Number(buffCell.total_invested || buffCell.build_cost || gs.build_cost) + addedVal;
+              buffCell.build_cost = buffCell.total_invested;
+            } else {
+              buffCell.value_bonus_mult = +((buffCell.value_bonus_mult || 1) * 1.2).toFixed(2);
+              buffCell.total_invested = Math.floor(Number(buffCell.total_invested || buffCell.build_cost || gs.build_cost) * 1.2);
+              buffCell.build_cost = buffCell.total_invested;
+            }
             io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:skill_event", {
               type: "buff_random_cell",
               user_id: cur.user_id,
               name: cur.name,
               cell_index: Number(buffIdx),
-              new_cost: buffCell.build_cost
+              old_level: oldLevel,
+              new_level: newLevel,
+              total_invested: buffCell.total_invested,
+              new_cost: buffCell.build_cost,
+              value_bonus_mult: buffCell.value_bonus_mult || 1,
             });
           }
           setTimeout(() => endTurn(room_id), 1200);
@@ -2027,7 +2524,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
           return;
         }
 
-        // Downgrade enemy cell
+        // Downgrade enemy cell — Giáng 1 cấp nếu Lv > 1, hoặc giảm 20% giá trị nếu Lv 1
         if (picked.type === "downgrade_enemy_cell") {
           const enemies = gs.players.filter(p =>
             p.user_id !== cur.user_id && !isSameTeam(gs, cur.user_id, p.user_id)
@@ -2036,8 +2533,24 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
             const targetEnemy = enemies[Math.floor(Math.random() * enemies.length)];
             const enemyCells = Object.entries(gs.cellStates).filter(([_, c]) => c.owner_user_id === targetEnemy.user_id);
             if (enemyCells.length > 0) {
-              const [cellIdx, cellData] = enemyCells[Math.floor(Math.random() * enemyCells.length)];
-              cellData.build_cost = Math.floor(cellData.build_cost * 0.8);
+              const sorted = [...enemyCells].sort((a, b) => Number(b[1].level || 1) - Number(a[1].level || 1));
+              const [cellIdx, cellData] = sorted[0];
+              const oldLevel = Number(cellData.level || 1);
+              let newLevel = oldLevel;
+              if (oldLevel > 1) {
+                newLevel = oldLevel - 1;
+                cellData.level = newLevel;
+                const dropVal = Math.floor((gs.build_cost || 0) * 0.8);
+                cellData.total_invested = Math.max(
+                  Math.floor((gs.build_cost || 0) * 0.8),
+                  Number(cellData.total_invested || cellData.build_cost || gs.build_cost) - dropVal
+                );
+                cellData.build_cost = cellData.total_invested;
+              } else {
+                cellData.value_bonus_mult = +((cellData.value_bonus_mult || 1) * 0.8).toFixed(2);
+                cellData.total_invested = Math.floor(Number(cellData.total_invested || cellData.build_cost || gs.build_cost) * 0.8);
+                cellData.build_cost = cellData.total_invested;
+              }
               io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:skill_event", {
                 type: "downgrade_enemy_cell",
                 user_id: cur.user_id,
@@ -2045,7 +2558,11 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
                 target_user_id: targetEnemy.user_id,
                 target_name: targetEnemy.name,
                 cell_index: Number(cellIdx),
-                new_cost: cellData.build_cost
+                old_level: oldLevel,
+                new_level: newLevel,
+                total_invested: cellData.total_invested,
+                new_cost: cellData.build_cost,
+                value_bonus_mult: cellData.value_bonus_mult || 1,
               });
             }
           }
@@ -2210,14 +2727,33 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
       const shuffled = [...candidateIndexes].sort(() => Math.random() - 0.5);
       const targetIndexes = shuffled.slice(0, destroyCount);
 
-      const targetDetails = targetIndexes.map(cellIndex => ({
-        cell_index: cellIndex,
-        had_planet: !!gs.cellStates[cellIndex]
-      }));
-
-      // Phá hủy tinh cầu nếu có
-      targetIndexes.forEach(cellIndex => {
-        if (gs.cellStates[cellIndex]) delete gs.cellStates[cellIndex];
+      const targetDetails = targetIndexes.map(cellIndex => {
+        const existing = gs.cellStates[cellIndex];
+        if (!existing) {
+          return { cell_index: cellIndex, had_planet: false, downgraded: false, new_level: 0 };
+        }
+        const lv = Number(existing.level || 1);
+        if (lv >= 2) {
+          const newLv = lv - 1;
+          existing.level = newLv;
+          const dropVal = Math.floor((gs.build_cost || 0) * 0.8);
+          existing.total_invested = Math.max(
+            Number(gs.build_cost || 0),
+            Number(existing.total_invested || existing.build_cost || gs.build_cost) - dropVal
+          );
+          existing.build_cost = existing.total_invested;
+          return {
+            cell_index: cellIndex,
+            had_planet: true,
+            downgraded: true,
+            new_level: newLv,
+            planet_color: existing.planet_color,
+            owner_user_id: existing.owner_user_id,
+            total_invested: existing.total_invested,
+          };
+        }
+        delete gs.cellStates[cellIndex];
+        return { cell_index: cellIndex, had_planet: true, downgraded: false, new_level: 0 };
       });
 
       io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:monster_target", {
@@ -2230,7 +2766,12 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
         targetDetails.forEach(detail => {
           io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:cell_destroyed", {
             cell_index: detail.cell_index,
-            had_planet: detail.had_planet
+            had_planet: detail.had_planet,
+            downgraded: !!detail.downgraded,
+            new_level: detail.new_level || 0,
+            planet_color: detail.planet_color || null,
+            owner_user_id: detail.owner_user_id || null,
+            total_invested: detail.total_invested || 0,
           });
         });
         setTimeout(() => endTurn(room_id), 700);
@@ -2240,12 +2781,22 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     }
     }
 
-    // Ô trống => hỏi xây
+    // Ô trống => hỏi xây Cấp 1
     if (!cell) {
+      const promptCost = getPropertyActionCost(gs, cur, 1);
+      const previewRent = computeCellRent(gs, idx, { level: 1, owner_user_id: cur.user_id }, 1, cur.user_id);
       socket.emit("game:build_prompt", {
+        mode: "build",
         cell_index: idx,
-        build_cost: gs.build_cost,
+        build_cost: promptCost,
         planet_color: cur.planet_color,
+        current_level: 0,
+        target_level: 1,
+        current_rent: 0,
+        next_rent: previewRent.rent,
+        chain_len: previewRent.chainLen,
+        combo_bonus: previewRent.comboBonusPercent,
+        can_afford: (cur.cash || 0) >= promptCost,
         time_limit: 15,
       });
 
@@ -2261,9 +2812,42 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
       return;
     }
 
-    // Ô của mình => bỏ qua
+    // Ô của mình => nếu đang Lv.1 thì hỏi NÂNG CẤP lên Lv.2 (tối đa)
     if (cell.owner_user_id === socket.user_id) {
-      setTimeout(() => endTurn(room_id), 400);
+      const curLevel = Number(cell.level || 1);
+      if (curLevel < MAX_CELL_LEVEL) {
+        const nextLevel = curLevel + 1;
+        const upgradeCost = getPropertyActionCost(gs, cur, nextLevel);
+        const curRentInfo = computeCellRent(gs, idx, cell, curLevel, cur.user_id);
+        const nextRentInfo = computeCellRent(gs, idx, cell, nextLevel, cur.user_id);
+
+        socket.emit("game:build_prompt", {
+          mode: "upgrade",
+          cell_index: idx,
+          build_cost: upgradeCost,
+          planet_color: cur.planet_color,
+          current_level: curLevel,
+          target_level: nextLevel,
+          current_rent: curRentInfo.rent,
+          next_rent: nextRentInfo.rent,
+          chain_len: nextRentInfo.chainLen,
+          combo_bonus: nextRentInfo.comboBonusPercent,
+          can_afford: (cur.cash || 0) >= upgradeCost,
+          time_limit: 15,
+        });
+
+        if (gs._buildTimer) {
+          clearTimeout(gs._buildTimer);
+          gs._buildTimer = null;
+        }
+        gs._buildTimer = setTimeout(() => {
+          if (gs.phase === "RESOLVING") endTurn(room_id);
+        }, 15500);
+        return;
+      }
+
+      // Đã đạt cấp tối đa (Lv.2 Có Cánh)
+      setTimeout(() => endTurn(room_id), 450);
       return;
     }
 
@@ -2280,17 +2864,37 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
       return;
     }
 
-    // Ô người khác => trả tiền thuê
-    const baseRent = Math.floor(gs.bet_ecoin * 3);
-    const rentMultiplier = cell.rent_multiplier || 1;
-    const rent = Math.floor(baseRent * rentMultiplier);
+    // Ô người khác => trả tiền thuê theo Cấp nhà + Combo chuỗi + Thuế
+    const rentInfo = computeCellRent(gs, idx, cell);
+    let rent = rentInfo.rent;
     const payer = gs.players.find(p => p.user_id === socket.user_id);
     const owner = gs.players.find(p => p.user_id === cell.owner_user_id);
 
+    // Áp dụng nội tại & kỹ năng lên tiền thuê
+    if (owner?.skill?.passive_type === "rent_bonus_percent") {
+      rent = Math.floor(rent * (1 + (owner.skill.passive_value || 10) / 100));
+    }
+    if ((cell.weaken_turns || 0) > 0) {
+      rent = Math.floor(rent * (1 - (cell.weaken_percent || 40) / 100));
+    }
+    if (payer?.skill?.passive_type === "rent_discount_percent") {
+      rent = Math.floor(rent * (1 - (payer.skill.passive_value || 10) / 100));
+    }
+    if ((payer?.rent_shield_turns || 0) > 0) {
+      rent = Math.floor(rent * 0.5);
+      payer.rent_shield_turns = 0;
+    }
+    if ((payer?.cursed_turns || 0) > 0) {
+      rent = Math.floor(rent * (1 + (payer.cursed_percent || 20) / 100));
+      payer.cursed_turns = 0;
+    }
+
     let actualRent = rent;
+    let usedFreeRent = false;
     if (payer && payer.free_rent_turns > 0) {
       actualRent = 0;
       payer.free_rent_turns -= 1;
+      usedFreeRent = true;
     }
 
     // Thần Giữ Của: hoàn lại toàn bộ tiền thuê
@@ -2305,8 +2909,6 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
       setTimeout(() => endTurn(room_id), 1200);
       return;
     }
-
-    // Nhận Trợ Giúp đã được xử lý ngay khi dùng thẻ (không còn pending)
 
     // Check if payer can afford the rent
     if (payer && (payer.cash || 0) < actualRent) {
@@ -2325,8 +2927,33 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     }
 
     // Can afford - proceed with payment
-    if (payer) payer.cash = (payer.cash || 0) - actualRent;
-    if (owner) owner.cash = (owner.cash || 0) + actualRent;
+    if (payer) {
+      payer.cash = (payer.cash || 0) - actualRent;
+      addCharEnergy(payer, 25);
+    }
+    if (owner) {
+      owner.cash = (owner.cash || 0) + actualRent;
+      addCharEnergy(owner, 15);
+    }
+
+    // Necromancer nội tại: hút 5% tiền thuê từ hệ thống
+    gs.players.forEach(p => {
+      if (p.user_id !== payer?.user_id && p.skill?.passive_type === "siphon_rent_percent" && actualRent > 0) {
+        const siphon = Math.floor(actualRent * (p.skill.passive_value || 5) / 100);
+        if (siphon > 0) p.cash = (p.cash || 0) + siphon;
+      }
+    });
+    // Reaper_Man Dấu Ấn Tử Thần
+    if (payer?.soul_marked_by && (payer?.soul_mark_turns || 0) > 0 && actualRent > 0) {
+      const reaper = gs.players.find(p => Number(p.user_id) === Number(payer.soul_marked_by));
+      if (reaper) {
+        const markGain = Math.floor(actualRent * (payer.soul_mark_percent || 20) / 100);
+        if (markGain > 0) reaper.cash = (reaper.cash || 0) + markGain;
+      }
+    }
+
+    checkZombieRevive(gs, room_id, payer);
+    emitCharSkillState(room_id);
 
     io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:rent_paid", {
       payer_user_id: socket.user_id,
@@ -2335,8 +2962,55 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
       owner_name: owner?.name || "?",
       cell_index: idx,
       rent: actualRent,
+      level: rentInfo.level,
+      chain_len: rentInfo.chainLen,
+      combo_bonus: rentInfo.comboBonusPercent,
       planet_color: cell.planet_color,
     });
+
+    // ── LUẬT MỚI: THÂU TÓM (Buyout) nhà Lv1 / Lv2 sau khi trả xong tiền thuê ──
+    const cellLv = Number(cell.level || 1);
+    const buyoutCost = getBuyoutCost(gs, cell);
+    const canBuyout =
+      payer &&
+      !usedFreeRent &&
+      actualRent > 0 &&
+      cellLv < MAX_CELL_LEVEL &&
+      !(cell.protected_turns > 0) &&
+      (payer.cash || 0) >= buyoutCost &&
+      gs.players.some(p => Number(p.user_id) === Number(cell.owner_user_id));
+
+    if (canBuyout) {
+      const myRentPreview = computeCellRent(gs, idx, cell, cellLv, payer.user_id);
+      if (gs._buildTimer) {
+        clearTimeout(gs._buildTimer);
+        gs._buildTimer = null;
+      }
+      setTimeout(() => {
+        if (!gameStates[room_id] || gs.phase !== "RESOLVING") return;
+        socket.emit("game:build_prompt", {
+          mode: "buyout",
+          cell_index: idx,
+          build_cost: buyoutCost,
+          planet_color: payer.planet_color,
+          owner_planet_color: cell.planet_color,
+          owner_name: owner?.name || "?",
+          current_level: cellLv,
+          target_level: cellLv,
+          current_rent: rentInfo.rent,
+          next_rent: myRentPreview.rent,
+          chain_len: myRentPreview.chainLen,
+          combo_bonus: myRentPreview.comboBonusPercent,
+          can_afford: true,
+          time_limit: 15,
+        });
+      }, 900);
+
+      gs._buildTimer = setTimeout(() => {
+        if (gs.phase === "RESOLVING") endTurn(room_id);
+      }, 16500);
+      return;
+    }
 
     setTimeout(() => endTurn(room_id), 1500);
   });
@@ -2357,33 +3031,134 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     const idx = Number(cell_index);
 
     if (accept) {
-      if ((cur.cash || 0) < gs.build_cost) {
-        socket.emit("game:error", { message: "Không đủ tiền để xây tinh cầu!" });
-        setTimeout(() => endTurn(room_id), 400);
-        return;
+      const existing = gs.cellStates[idx];
+
+      // ── TRƯỜNG HỢP 1: MUA MỚI CẤP 1 ──────────────────────────────
+      if (!existing) {
+        const actualBuildCost = getPropertyActionCost(gs, cur, 1);
+        if ((cur.cursed_turns || 0) > 0) cur.cursed_turns = 0;
+
+        if ((cur.cash || 0) < actualBuildCost) {
+          socket.emit("game:error", { message: "Không đủ tiền để xây tinh cầu!" });
+          setTimeout(() => endTurn(room_id), 400);
+          return;
+        }
+
+        cur.cash -= actualBuildCost;
+        addCharEnergy(cur, 15);
+
+        gs.cellStates[idx] = {
+          owner_user_id: socket.user_id,
+          planet_color: cur.planet_color,
+          build_cost: actualBuildCost,
+          total_invested: actualBuildCost,
+          level: 1,
+        };
+
+        io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:cell_built", {
+          mode: "build",
+          is_upgrade: false,
+          is_buyout: false,
+          cell_index: idx,
+          owner_user_id: socket.user_id,
+          owner_name: cur.name,
+          planet_color: cur.planet_color,
+          build_cost: actualBuildCost,
+          total_invested: actualBuildCost,
+          level: 1,
+        });
+        emitCharSkillState(room_id);
       }
+      // ── TRƯỜNG HỢP 2: NÂNG CẤP NHÀ CỦA MÌNH (LV1 -> LV2 -> LV3) ────
+      else if (Number(existing.owner_user_id) === Number(socket.user_id)) {
+        const curLv = Number(existing.level || 1);
+        if (curLv >= MAX_CELL_LEVEL) {
+          socket.emit("game:error", { message: "Tinh cầu đã đạt cấp tối đa (Lv.2)!" });
+          setTimeout(() => endTurn(room_id), 400);
+          return;
+        }
+        const nextLv = curLv + 1;
+        const upgradeCost = getPropertyActionCost(gs, cur, nextLv);
+        if ((cur.cursed_turns || 0) > 0) cur.cursed_turns = 0;
 
-      if (gs.cellStates[idx]) {
-        socket.emit("game:error", { message: "Ô này đã có tinh cầu!" });
-        setTimeout(() => endTurn(room_id), 400);
-        return;
+        if ((cur.cash || 0) < upgradeCost) {
+          socket.emit("game:error", { message: "Không đủ tiền để nâng cấp tinh cầu!" });
+          setTimeout(() => endTurn(room_id), 400);
+          return;
+        }
+
+        cur.cash -= upgradeCost;
+        addCharEnergy(cur, 20);
+
+        const newTotalInvested = Number(existing.total_invested || existing.build_cost || gs.build_cost) + upgradeCost;
+        existing.level = nextLv;
+        existing.total_invested = newTotalInvested;
+        existing.build_cost = newTotalInvested;
+
+        io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:cell_built", {
+          mode: "upgrade",
+          is_upgrade: true,
+          is_buyout: false,
+          cell_index: idx,
+          owner_user_id: socket.user_id,
+          owner_name: cur.name,
+          planet_color: cur.planet_color,
+          build_cost: upgradeCost,
+          total_invested: newTotalInvested,
+          level: nextLv,
+          previous_level: curLv,
+        });
+        emitCharSkillState(room_id);
       }
+      // ── TRƯỜNG HỢP 3: THÂU TÓM NHÀ ĐỐI THỦ (LV1 / LV2) ───────────
+      else {
+        const prevOwnerId = existing.owner_user_id;
+        const cellLv = Number(existing.level || 1);
+        if (isSameTeam(gs, socket.user_id, prevOwnerId) || cellLv >= MAX_CELL_LEVEL || (existing.protected_turns || 0) > 0) {
+          socket.emit("game:error", { message: "Không thể thâu tóm tinh cầu này!" });
+          setTimeout(() => endTurn(room_id), 400);
+          return;
+        }
 
-      cur.cash -= gs.build_cost;
+        const buyoutCost = getBuyoutCost(gs, existing);
+        if ((cur.cash || 0) < buyoutCost) {
+          socket.emit("game:error", { message: "Không đủ tiền để thâu tóm tinh cầu!" });
+          setTimeout(() => endTurn(room_id), 400);
+          return;
+        }
 
-      gs.cellStates[idx] = {
-        owner_user_id: socket.user_id,
-        planet_color: cur.planet_color,   // đúng màu random ban đầu
-        build_cost: gs.build_cost,
-      };
+        const prevOwner = gs.players.find(p => Number(p.user_id) === Number(prevOwnerId));
+        cur.cash -= buyoutCost;
+        if (prevOwner) {
+          prevOwner.cash = (prevOwner.cash || 0) + buyoutCost;
+        }
+        addCharEnergy(cur, 20);
 
-      io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:cell_built", {
-        cell_index: idx,
-        owner_user_id: socket.user_id,
-        owner_name: cur.name,
-        planet_color: cur.planet_color,
-        build_cost: gs.build_cost,
-      });
+        existing.owner_user_id = socket.user_id;
+        existing.planet_color = cur.planet_color;
+        existing.total_invested = buyoutCost;
+        existing.build_cost = buyoutCost;
+        existing.rent_multiplier = 1;
+        delete existing._boost_turns_left;
+        delete existing.tax_multiplier;
+        delete existing.tax_multiplier_active;
+
+        io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:cell_built", {
+          mode: "buyout",
+          is_upgrade: false,
+          is_buyout: true,
+          cell_index: idx,
+          owner_user_id: socket.user_id,
+          owner_name: cur.name,
+          previous_owner_id: prevOwnerId,
+          previous_owner_name: prevOwner?.name || "?",
+          planet_color: cur.planet_color,
+          build_cost: buyoutCost,
+          total_invested: buyoutCost,
+          level: cellLv,
+        });
+        emitCharSkillState(room_id);
+      }
     }
 
     setTimeout(() => endTurn(room_id), 600);
@@ -2882,6 +3657,18 @@ server.listen(3000, "0.0.0.0", () => {
   `).then(() => console.log("✅ game_results table ready"))
     .catch(err => console.error("game_results table error:", err));
 });
+app.get("/characters/skills", async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      "SELECT cs.*, c.name AS character_name FROM character_skills cs JOIN characters c ON c.id = cs.character_id ORDER BY cs.character_id"
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error("GET /characters/skills error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
 app.get("/tarots", async (req, res) => {
   try {
     const result = await tarotService.getAllTarots();

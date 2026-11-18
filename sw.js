@@ -1,5 +1,5 @@
 // Service Worker - Cache game assets
-const CACHE_NAME = 'cotyphu-v1';
+const CACHE_NAME = 'cotyphu-v2';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -48,11 +48,29 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   
-  // Skip socket.io and external requests
-  if (url.pathname.startsWith('/socket.io/') || 
+  // Skip socket.io, API, and external requests
+  if (url.pathname.startsWith('/socket.io/') ||
+      url.pathname.startsWith('/api/') ||
       url.origin !== location.origin ||
       url.hostname.includes('cloudflare')) {
     return; // Let browser handle it normally
+  }
+
+  // Network-first for code/HTML so updates apply immediately
+  if (event.request.method === 'GET' &&
+      (url.pathname.endsWith('.js') || url.pathname.endsWith('.html') || url.pathname === '/')) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200 && response.type !== 'error') {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request).then((cached) => cached || caches.match('/index.html')))
+    );
+    return;
   }
 
   event.respondWith(

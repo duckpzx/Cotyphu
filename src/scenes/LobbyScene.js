@@ -1058,6 +1058,27 @@ createTopBar() {
     });
     this._worldSocket.on("connect", () => cb());
 
+    // ── Mời vào phòng / Duyệt xin vào phòng ───────────────────────
+    this._worldSocket.on("room:invited", (data) => {
+      if (!data?.roomData) return;
+      this._showConfirm(
+        `${data.from_name || "Bạn bè"} mời bạn vào phòng #${data.room_id}. Vào ngay?`,
+        () => {
+          this._destroyFriendPanel?.();
+          this.scene.start("RoomScene", { roomData: data.roomData });
+        }
+      );
+    });
+    this._worldSocket.on("room:join_approved", (data) => {
+      if (!data?.roomData) return;
+      this._showToast?.("Đã được duyệt vào phòng!");
+      this._destroyFriendPanel?.();
+      this.scene.start("RoomScene", { roomData: data.roomData });
+    });
+    this._worldSocket.on("room:join_rejected", (data) => {
+      this._showToast?.(data?.message || "Yêu cầu vào phòng bị từ chối.");
+    });
+
     // ── Lắng nghe PM đến để track unread ────────────────────────
     this._worldSocket.on("chat:pm:message", (data) => {
       const myId = this.player?.user?.id;

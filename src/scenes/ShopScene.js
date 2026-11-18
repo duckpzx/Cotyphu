@@ -3,6 +3,7 @@ import { getPlayerData, setPlayerData } from "../server/utils/playerData.js";
 import { SERVER_URL } from "../config.js";
 import { setupClickSound, playTabSound, playOutSound, playBuySound } from "../utils/clickSound.js";
 import { createLoadingOverlay } from "../utils/loadingOverlay.js";
+import { loadCharSkills, findCharSkill, renderCharSkillBox } from "../utils/charSkillCard.js";
 
 // src/scenes/ShopScene.js
 export default class ShopScene extends Phaser.Scene {
@@ -82,7 +83,8 @@ export default class ShopScene extends Phaser.Scene {
         const loading = createLoadingOverlay(this);
 
         // ── Tải dữ liệu ──
-        await this._loadShopData();
+        const [, skills] = await Promise.all([this._loadShopData(), loadCharSkills()]);
+        this._charSkills = skills;
 
         loading.destroy();
 
@@ -749,33 +751,30 @@ export default class ShopScene extends Phaser.Scene {
         const isOwned  = this._isItemOwned(item);
         const isActive = this._isItemActive(item);
         const price    = item.price || 0;
-        const hasDesc  = false; // đã xóa description
-        const hasBtn   = true;
+        const skill    = (this.activeTab === "character" || this.activeTab === "skin")
+            ? findCharSkill(this._charSkills, item.charId || item.id, item.charName || item.name)
+            : null;
 
-        // tên(28) + divider(21) + trạng thái/giá(24) + gap(20) + btn(48)
-        let blockH = 28 + 21 + 24 + 20 + 48;
-        const blockTop = infoCY - blockH / 2;
-        let cy = blockTop;
+        let cy = skill ? (infoY + 2) : (infoCY - (28 + 21 + 24 + 20 + 48) / 2);
 
         // Tên
         push(this.add.text(leftCX, cy, displayName, {
-            fontFamily: "Signika", fontSize: "20px", color: "#5c3300", fontStyle: "bold",
+            fontFamily: "Signika", fontSize: "19px", color: "#5c3300", fontStyle: "bold",
             stroke: "#f5dfa0", strokeThickness: 2,
         }).setOrigin(0.5, 0).setDepth(5));
-        cy += 28;
+        cy += 25;
 
         // Divider
         const dg = push(this.add.graphics().setDepth(5));
         dg.lineStyle(1.5, 0xc8a060, 0.6);
-        dg.lineBetween(leftCX - LEFT_W / 2 + 20, cy + 10, leftCX + LEFT_W / 2 - 20, cy + 10);
-        cy += 21;
+        dg.lineBetween(leftCX - LEFT_W / 2 + 20, cy + 4, leftCX + LEFT_W / 2 - 20, cy + 4);
+        cy += 11;
 
         // Trạng thái / giá
         if (!isOwned && price > 0) {
             const priceStr = this._formatMoney(price);
-            const iconSize = 32, gap = 8, fontSize = 21;
-            // ước tính width chữ (~12px/char ở 21px)
-            const textW = priceStr.length * 12.5;
+            const iconSize = 26, gap = 6, fontSize = 19;
+            const textW = priceStr.length * 11.5;
             const totalW = iconSize + gap + textW;
             const startX = leftCX - totalW / 2;
             push(this.add.image(startX + iconSize / 2, cy + 12, "coin").setDisplaySize(iconSize, iconSize).setDepth(5));
@@ -785,21 +784,27 @@ export default class ShopScene extends Phaser.Scene {
             }).setOrigin(0, 0.5).setDepth(5));
         } else if (!isOwned && price === 0) {
             push(this.add.text(leftCX, cy + 12, "Miễn phí", {
-                fontFamily: "Signika", fontSize: "17px", color: "#44bb44", fontStyle: "bold",
+                fontFamily: "Signika", fontSize: "16px", color: "#44bb44", fontStyle: "bold",
             }).setOrigin(0.5, 0.5).setDepth(5));
         } else {
             push(this.add.text(leftCX, cy + 12,
                 `✦  ${isActive ? "Đang sử dụng" : "Đã sở hữu"}`, {
-                fontFamily: "Signika", fontSize: "14px",
+                fontFamily: "Signika", fontSize: "13px",
                 color: isActive ? "#2a8b2a" : "#8b5e1a",
             }).setOrigin(0.5, 0.5).setDepth(5));
         }
-        cy += 24;
+        cy += 26;
+
+        if (skill) {
+            const boxH = renderCharSkillBox(this, push, leftCX, cy, LEFT_W - 44, skill);
+            cy += boxH + 10;
+        } else {
+            cy += 12;
+        }
 
         // Nút pill
-        cy += 20;
-        const btnW = 220, btnH = 48;
-        const btnBY = cy + btnH / 2;
+        const btnW = 220, btnH = 44;
+        const btnBY = skill ? Math.min(infoBot - btnH / 2, cy + btnH / 2) : (cy + btnH / 2);
         this._buildShopPillBtn(push, leftCX, btnBY, btnW, btnH, item, isOwned, isActive, price);
     }
 
@@ -1434,7 +1439,8 @@ export default class ShopScene extends Phaser.Scene {
                     body: JSON.stringify({ skin_id: item.id, character_id: item.charId }),
                 });
                 this.showToast("✅ Đã trang bị trang phục!");
-                await this._loadShopData();
+                const [, skills] = await Promise.all([this._loadShopData(), loadCharSkills()]);
+        this._charSkills = skills;
                 this.buildLeftPanel();
                 this.renderRightPanel();
             } catch(e) {

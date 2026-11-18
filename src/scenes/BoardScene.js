@@ -1,9 +1,11 @@
 import PowerDiceSystem   from "./components/PowerDiceSystem.js";
 import TarotModalSystem  from "./components/TarotModalSystem.js";
+import CharSkillWidget   from "./components/CharSkillWidget.js";
 import TarotButtonWidget from "./components/TarotButtonWidget.js";
 import CardSystem        from "./components/CardSystem.js";
 import { SERVER_URL }    from "../config.js";
 import { getActiveProfile, getPlayerData } from "../server/utils/playerData.js";
+import { createLoadingOverlay } from "../utils/loadingOverlay.js";
 import { getTarotLevel, tarotImagePath, prepareLevelTexture, markLevelTexture, tarotLevelKey, ensureTarotLevelTexture } from "../utils/tarotLevel.js";
 import ChatWidget        from "./components/ChatWidget.js";
 import {
@@ -224,9 +226,11 @@ _closeTarotModal() { this.tarotModal?.close(); }
     });
 
     this.socket.on('game:steal_effect', (data) => {
-      const isMe = data.user_id === this._myUserId();
-      this._showToast(`${isMe ? 'Bạn' : data.name} đã cướp ${this._formatMoney(data.amount)} từ đối thủ!`,
-        isMe ? '#ffaa44' : '#ff8844');
+      const isMe = Number(data.user_id) === Number(this._myUserId());
+      const amt = Number(data.total ?? data.amount ?? 0);
+      this._showToast(`${isMe ? 'Bạn' : data.name} đã thu ${this._formatMoney(amt)} từ đối thủ!`,
+        isMe ? '#ffdd55' : '#ff8844');
+      this._playTarotStealFX(data);
       this._updatePlayerStatsInUI();
     });
 
@@ -428,6 +432,8 @@ _closeTarotModal() { this.tarotModal?.close(); }
         this.powerDice?.hide();
         if (this.diceSprite) this.diceSprite.setVisible(false);
         if (this.diceShadow) this.diceShadow.setVisible(false);
+        if (this.diceSprite2) this.diceSprite2.setVisible(false);
+        if (this.diceShadow2) this.diceShadow2.setVisible(false);
       }
 
       this._applyTurnState();
@@ -466,24 +472,39 @@ _closeTarotModal() { this.tarotModal?.close(); }
       // Phát âm thanh cho người khác (người tung đã phát sớm hơn)
       if (!isMe) playBoardDiceSound(this);
 
+      const diceText = (data.dice1 && data.dice2)
+        ? `${data.dice1} + ${data.dice2} = ${data.dice}`
+        : `${data.dice}`;
+
       if (isMe) {
         this.canRoll = false;
-        this.infoText.setText(`🎲 Bạn tung được ${data.dice}!`);
-        this.infoText.setColor("#ffdd00");
+        if (data.extra_turn) {
+          this.infoText.setText(`🎲 ĐÔI ${data.dice1}! ${diceText} — Được đi tiếp!`);
+          this.infoText.setColor("#00ffcc");
+          this._showToast?.(`✨ ĐÔI ${data.dice1}! Bạn được đi tiếp thêm lượt!`, "#00ffcc", 2600);
+        } else {
+          this.infoText.setText(`🎲 Bạn tung được ${diceText}!`);
+          this.infoText.setColor("#ffdd00");
+        }
 
         // Nếu PowerDice đang chờ kết quả → dùng PD animation
         if (this.powerDice?.rolling) {
-          this.powerDice.playResultAnimation(data.dice, () => {
-            this._onDiceHandoff(data.dice);
+          this.powerDice.playResultAnimation(data, () => {
+            this._onDiceHandoff(data);
           });
         } else {
           // Fallback: PD không active, dùng animation scene cũ
-          this._onDiceHandoff(data.dice);
+          this._onDiceHandoff(data);
         }
       } else {
         // Người khác tung — chỉ hiện info text, không động vào PD
-        this.infoText.setText(`${data.name} tung được ${data.dice}!`);
-        this.infoText.setColor("#aaffaa");
+        if (data.extra_turn) {
+          this.infoText.setText(`🎲 ${data.name} tung ĐÔI ${data.dice1} (${diceText}) — Đi tiếp!`);
+          this.infoText.setColor("#00ffcc");
+        } else {
+          this.infoText.setText(`${data.name} tung được ${diceText}!`);
+          this.infoText.setColor("#aaffaa");
+        }
       }
     });
 
@@ -499,7 +520,14 @@ _closeTarotModal() { this.tarotModal?.close(); }
 
     // ── newPlayer ─────────────────────────────────────────────────
     this.socket.on("newPlayer", (player) => {
-      if (player.id !== this.socket.id) this.addOtherPlayer(player);
+      if (!player || player.id === this.socket.id) return;
+      const myUid = this._myUserId();
+      if (player.user_id && myUid && Number(player.user_id) === Number(myUid)) return;
+      if (this.gameRoomId && this.gamePlayers?.length) {
+        const inRoom = this.gamePlayers.some(p => Number(p.user_id) === Number(player.user_id));
+        if (!inRoom) return;
+      }
+      this.addOtherPlayer(player);
     });
 
     // ── game:player_reconnected — người chơi kết nối lại ─────────
@@ -508,10 +536,20 @@ _closeTarotModal() { this.tarotModal?.close(); }
       const myUid = this._myUserId();
       if (Number(data.user_id) === Number(myUid)) return; // không xử lý cho chính mình
 
-      // Tìm sprite hiện có theo user_id
-      let op = Object.values(this.otherPlayers).find(
-        o => Number(o.user_id) === Number(data.user_id)
+      // Tìm tất cả sprite hiện có theo user_id (tránh bị trùng lặp)
+      const matchingKeys = Object.keys(this.otherPlayers).filter(
+        k => Number(this.otherPlayers[k]?.user_id) === Number(data.user_id)
       );
+      let op = matchingKeys.length ? this.otherPlayers[matchingKeys[0]] : null;
+      // Dọn các bản sao thừa nếu có
+      for (let i = 1; i < matchingKeys.length; i++) {
+        const dupKey = matchingKeys[i];
+        const dup = this.otherPlayers[dupKey];
+        dup?.shadow?.destroy();
+        dup?.nameText?.destroy();
+        dup?.destroy();
+        delete this.otherPlayers[dupKey];
+      }
 
       const cellIdx = Number(data.index || 0);
       const cell    = this.boardPath[cellIdx];
@@ -673,38 +711,71 @@ _closeTarotModal() { this.tarotModal?.close(); }
     });
     
     this.socket.on("game:cell_built", (data) => {
+      const lv = Math.max(1, Math.min(2, Number(data.level || 1)));
+      const totalInv = Number(data.total_invested ?? data.build_cost ?? 0);
+
       // Cập nhật cellStates
       if (!this.cellStates) this.cellStates = {};
       this.cellStates[data.cell_index] = {
         owner_user_id: data.owner_user_id,
         planet_color: data.planet_color,
-        build_cost: data.build_cost
+        build_cost: totalInv,
+        total_invested: totalInv,
+        level: lv,
       };
       
-      // Cập nhật cash của player (trừ đi build_cost)
+      // Cập nhật cash của player (trừ đi chi phí hành động này, và cộng cho chủ cũ nếu Thâu Tóm)
       if (this.gamePlayers) {
         const player = this.gamePlayers.find(p => p.user_id === data.owner_user_id);
         if (player) {
-          player.cash = (player.cash || 0) - data.build_cost;
+          player.cash = (player.cash || 0) - (data.build_cost || 0);
+        }
+        if (data.is_buyout && data.previous_owner_id) {
+          const prevOwner = this.gamePlayers.find(p => Number(p.user_id) === Number(data.previous_owner_id));
+          if (prevOwner) {
+            prevOwner.cash = (prevOwner.cash || 0) + (data.build_cost || 0);
+          }
         }
       }
       
-      // Ẩn panel hỏi mua
+      // Ẩn panel hỏi mua/nâng cấp/thâu tóm
       this._closeBuildPanel();
       
       const cell = this.boardPath[data.cell_index];
       if (cell && cell.type !== 'skill') {
         const hex = this._planetColorToHex(data.planet_color);
-        this.paintCellGlowAnimated(cell, hex);
+        this.paintCellGlowAnimated(cell, hex, lv);
+        if (data.is_upgrade || data.is_buyout) {
+          this._playCellLevelUpFX(cell, hex, lv);
+        }
       }
+      this._refreshAllCellComboBadges();
+
       const myUid = this._myUserId();
-      const msg = data.owner_user_id === myUid
-        ? `✅ Bạn đã đặt tinh cầu ô ${data.cell_index}! (-${this._formatMoney(data.build_cost)})`
-        : `🏗 ${data.owner_name} đặt tinh cầu ô ${data.cell_index}`;
-      this._showToast(msg, data.owner_user_id === myUid ? "#00ff88" : "#ffffff");
-      if (data.owner_user_id === myUid) playBoardBuySound(this);
+      const isMe = data.owner_user_id === myUid;
+      let msg;
+      let toastCol = isMe ? "#00ff88" : "#ffffff";
+      if (data.is_buyout) {
+        msg = isMe
+          ? `🏴 Bạn đã thâu tóm ô ${data.cell_index} (Lv.${lv}) từ ${data.previous_owner_name || "đối thủ"}! (-${this._formatMoney(data.build_cost)})`
+          : `🏴 ${data.owner_name} thâu tóm ô ${data.cell_index} (Lv.${lv})!`;
+        toastCol = isMe ? "#d8b4fe" : "#facc15";
+      } else if (data.is_upgrade) {
+        msg = isMe
+          ? `⬆️ Bạn đã nâng cấp ô ${data.cell_index} lên Cấp ${lv}! (-${this._formatMoney(data.build_cost)})`
+          : `✨ ${data.owner_name} nâng cấp ô ${data.cell_index} lên Cấp ${lv}!`;
+        toastCol = "#ffe066";
+      } else {
+        msg = isMe
+          ? `✅ Bạn đã đặt tinh cầu ô ${data.cell_index}! (-${this._formatMoney(data.build_cost)})`
+          : `🏗 ${data.owner_name} đặt tinh cầu ô ${data.cell_index}`;
+      }
+      this._showToast(msg, toastCol);
+      if (isMe) {
+        if (data.is_upgrade || data.is_buyout) playBoardIncreaseSound(this);
+        else playBoardBuySound(this);
+      }
       this._refreshPlayerPanelsFromGameState();
-      // Cập nhật T.mặt & T.sản ngay
       this._updatePlayerStatsInUI();
     });
     
@@ -777,13 +848,15 @@ _closeTarotModal() { this.tarotModal?.close(); }
         this.time.delayedCall(500, () => this.paintCellGlow(cell, hex, 0.5));
       }
 
+      const lvTag = Number(data.level || 1) >= 2 ? ` (Lv.${data.level})` : "";
+      const comboTag = Number(data.combo_bonus || 0) > 0 ? ` 🔗+${data.combo_bonus}%` : "";
       if (data.payer_user_id === myUid) {
         playBoardCoinSound(this);
-        this._showToast(`💸 Trả ${this._formatMoney(data.rent)} cho ${data.owner_name}`, "#ff8800");
+        this._showToast(`💸 Trả ${this._formatMoney(data.rent)} cho ${data.owner_name}${lvTag}${comboTag}`, "#ff8800");
       } else if (data.owner_user_id === myUid)
-        this._showToast(`💰 Nhận ${this._formatMoney(data.rent)} từ ${data.payer_name}`, "#ffdd00");
+        this._showToast(`💰 Nhận ${this._formatMoney(data.rent)} từ ${data.payer_name}${lvTag}${comboTag}`, "#ffdd00");
       else
-        this._showToast(`${data.payer_name} trả thuê ô ${data.cell_index}`, "#aaaaaa");
+        this._showToast(`${data.payer_name} trả thuê ô ${data.cell_index}${lvTag}`, "#aaaaaa");
 
       this._refreshPlayerPanelsFromGameState();
       this._updatePlayerStatsInUI();
@@ -900,21 +973,32 @@ _closeTarotModal() { this.tarotModal?.close(); }
 
       // ================== BUFF RANDOM CELL ==================
       if (data.type === "buff_random_cell") {
+        const upLv = Number(data.new_level || 1);
+        const buffedToNewLv = data.old_level && upLv > Number(data.old_level);
         this._showSkillPanel({
-          title: "CƯỜNG HÓA",
-          text: `${data.name} tăng giá trị ô ${data.cell_index}!`,
-          icon: "orb_blue"
+          title: buffedToNewLv ? `THĂNG CẤP LV.${upLv}` : "CƯỜNG HÓA",
+          text: buffedToNewLv
+            ? `${data.name} thăng cấp miễn phí ô ${data.cell_index} lên Lv.${upLv}!`
+            : `${data.name} tăng giá trị ô ${data.cell_index}!`,
+          icon: upLv >= 2 ? "orb_blue2" : "orb_blue"
         });
-        if (this.cellStates && data.cell_index !== undefined && data.new_cost) {
+        if (this.cellStates && data.cell_index !== undefined && (data.new_cost || data.total_invested)) {
           const cellState = this.cellStates[data.cell_index];
           if (cellState) {
-            cellState.build_cost = data.new_cost;
+            cellState.build_cost = data.total_invested || data.new_cost;
+            cellState.total_invested = data.total_invested || data.new_cost;
+            if (data.new_level) cellState.level = Number(data.new_level);
             const cell = this.boardPath[data.cell_index];
             if (cell && cell.type !== 'skill') {
               const hex = this._planetColorToHex(cellState.planet_color);
-              this.paintCellGlowAnimated(cell, hex);
-              this._showToast(`✨ Ô ${data.cell_index} đã được cường hóa!`, "#ffdd44", 2000);
+              this.paintCellGlowAnimated(cell, hex, cellState.level || 1);
+              if (buffedToNewLv) this._playCellLevelUpFX(cell, hex, cellState.level || 1);
+              this._showToast(
+                buffedToNewLv ? `✨ Ô ${data.cell_index} được thăng lên Cấp ${cellState.level}!` : `✨ Ô ${data.cell_index} đã được cường hóa!`,
+                "#ffdd44", 2200
+              );
             }
+            this._updatePlayerStatsInUI();
           }
         }
         return;
@@ -983,21 +1067,32 @@ _closeTarotModal() { this.tarotModal?.close(); }
 
       // ================== DOWNGRADE ENEMY CELL ==================
       if (data.type === "downgrade_enemy_cell") {
+        const droppedLv = data.old_level && data.new_level && Number(data.new_level) < Number(data.old_level);
         this._showSkillPanel({
-          title: "GIẢM CẤP",
-          text: `${data.name} giảm giá trị ô ${data.cell_index} của ${data.target_name}!`,
+          title: "GIÁNG CẤP",
+          text: droppedLv
+            ? `${data.name} giáng cấp ô ${data.cell_index} của ${data.target_name} xuống Lv.${data.new_level}!`
+            : `${data.name} giảm giá trị ô ${data.cell_index} của ${data.target_name}!`,
           icon: "orb_red"
         });
-        if (this.cellStates && data.cell_index !== undefined && data.new_cost) {
+        if (this.cellStates && data.cell_index !== undefined && (data.new_cost || data.total_invested)) {
           const cellState = this.cellStates[data.cell_index];
           if (cellState) {
-            cellState.build_cost = data.new_cost;
+            cellState.build_cost = data.total_invested || data.new_cost;
+            cellState.total_invested = data.total_invested || data.new_cost;
+            if (data.new_level) cellState.level = Number(data.new_level);
             const cell = this.boardPath[data.cell_index];
             if (cell && cell.type !== 'skill') {
               const hex = this._planetColorToHex(cellState.planet_color);
-              this.paintCellGlowAnimated(cell, hex);
-              this._showToast(`⚠️ Ô ${data.cell_index} của ${data.target_name} đã bị giảm cấp!`, "#ff8866", 2000);
+              this.paintCellGlowAnimated(cell, hex, cellState.level || 1);
+              this._showToast(
+                droppedLv
+                  ? `⚠️ Ô ${data.cell_index} của ${data.target_name} bị giáng xuống Cấp ${cellState.level}!`
+                  : `⚠️ Ô ${data.cell_index} của ${data.target_name} bị giảm giá trị!`,
+                "#ff8866", 2200
+              );
             }
+            this._updatePlayerStatsInUI();
           }
         }
         return;
@@ -1055,23 +1150,10 @@ _closeTarotModal() { this.tarotModal?.close(); }
       if (data.type === "swap_planet") {
         this._showSkillPanel({
           title: "HOÁN ĐỔI",
-          text: `${data.name} hoán đổi tinh cầu!`,
+          text: `${data.name} hoán đổi quyền sở hữu 2 tinh cầu!`,
           icon: "orb_purple"
         });
-        // Chỉ animation — màu sẽ được render đúng bởi game:state_sync
-        const cellA = this.boardPath?.[data.my_cell_index];
-        const cellB = this.boardPath?.[data.enemy_cell_index];
-        if (cellA && cellB) {
-          const ax = cellA.x * this.scale.width, ay = cellA.y * this.scale.height;
-          const bx = cellB.x * this.scale.width, by = cellB.y * this.scale.height;
-          const S  = this.minRatio || 1;
-          const iA = this.add.text(ax, ay, "⭐", { fontSize: Math.floor(28*S)+"px" }).setOrigin(0.5).setDepth(900);
-          const iB = this.add.text(bx, by, "⭐", { fontSize: Math.floor(28*S)+"px" }).setOrigin(0.5).setDepth(900);
-          this.tweens.add({ targets: iA, x: bx, y: by, duration: 500, ease: 'Quad.easeInOut' });
-          this.tweens.add({ targets: iB, x: ax, y: ay, duration: 500, ease: 'Quad.easeInOut',
-            onComplete: () => { iA.destroy(); iB.destroy(); }
-          });
-        }
+        this._playTarotSwapFX(data.my_cell_index, data.enemy_cell_index);
         return;
       }
 
@@ -1079,17 +1161,20 @@ _closeTarotModal() { this.tarotModal?.close(); }
       if (data.type === "tax_multiplier") {
         this._showSkillPanel({
           title: "TÀI PHIỆT",
-          text: `${data.name} tăng thuế các tinh cầu!`,
+          text: `${data.name} tăng hệ số thu thuế các tinh cầu!`,
           icon: "orb_orange"
         });
-        (data.cells || []).forEach(c => {
+        (data.cells || []).forEach((c, idx) => {
           if (this.cellStates?.[c.index]) {
             this.cellStates[c.index].tax_multiplier        = c.multiplier;
             this.cellStates[c.index].tax_multiplier_active = true;
           }
           const cell = this.boardPath[c.index];
           if (cell && cell.type !== 'skill') {
-            this.time.delayedCall(300, () => this._waterBallDrop(cell, c.multiplier));
+            this.time.delayedCall(220 + idx * 180, () => {
+              this._waterBallDrop(cell, c.multiplier);
+              this._playCoinShowerAt(cell.x * this.scale.width, cell.y * this.scale.height, 8);
+            });
           }
         });
         return;
@@ -1099,7 +1184,7 @@ _closeTarotModal() { this.tarotModal?.close(); }
       if (data.type === "steal_cash_percent_pending" || data.type === "steal_cash_percent_done") {
         this._showSkillPanel({
           title: "NHẬN TRỢ GIÚP",
-          text: `${data.name} lấy ${data.percent}% tiền đối thủ! (+${this._formatMoney(data.total)})`,
+          text: `${data.name} lấy ${data.percent}% tiền mặt đối thủ! (+${this._formatMoney(data.total)})`,
           icon: "orb_orange"
         });
         return;
@@ -1109,11 +1194,12 @@ _closeTarotModal() { this.tarotModal?.close(); }
       if (data.type === "skip_turn_enemy") {
         this._showSkillPanel({
           title: "CÔNG AN",
-          text: `${data.name} khiến ${data.target_name} mất lượt!`,
+          text: `${data.name} khiến ${data.target_name} mất lượt kế tiếp!`,
           icon: "orb_red"
         });
-        if (data.target_user_id === this._myUserId()) {
-          this._showToast(`🚔 Bạn bị ${data.name} cho mất lượt!`, "#ff6666", 3000);
+        this._playTarotPoliceFX(data.target_user_id);
+        if (Number(data.target_user_id) === Number(this._myUserId())) {
+          this._showToast(`🚔 Bạn bị ${data.name} khóa lượt kế tiếp!`, "#ff6666", 3000);
         }
         return;
       }
@@ -1122,10 +1208,11 @@ _closeTarotModal() { this.tarotModal?.close(); }
       if (data.type === "recover_house_money") {
         this._showSkillPanel({
           title: "THẦN GIỮ CỦA",
-          text: `${data.name} được bảo vệ khỏi tiền thuê lượt này!`,
+          text: `${data.name} kích hoạt khiên hoàn tiền thuê lượt này!`,
           icon: "orb_blue"
         });
-        if (isMe) this._showToast("🛡 Bạn được hoàn tiền thuê nếu dẫm vào nhà đối thủ!", "#88ffcc", 3000);
+        this._playTarotShieldAuraFX(data.user_id, 0x44ffcc, "🛡 HOÀN THUẾ");
+        if (isMe) this._showToast("🛡 Bạn được hoàn 100% tiền thuê nếu dẫm vào nhà đối thủ!", "#88ffcc", 3000);
         return;
       }
 
@@ -1136,6 +1223,11 @@ _closeTarotModal() { this.tarotModal?.close(); }
           text: `${data.name} được hoàn lại ${this._formatMoney(data.amount)} tiền thuê!`,
           icon: "orb_blue"
         });
+        const pos = this._getPlayerPosByUid(data.user_id);
+        if (pos) {
+          this._playCoinShowerAt(pos.x, pos.y, 14);
+          this._playFloatingBadge(pos.x, pos.y - 60 * this.minRatio, `+${this._formatMoney(data.amount)}`, "#88ffcc");
+        }
         if (isMe) this._showToast(`🛡 Hoàn lại ${this._formatMoney(data.amount)} tiền thuê!`, "#88ffcc", 2500);
         return;
       }
@@ -1144,9 +1236,10 @@ _closeTarotModal() { this.tarotModal?.close(); }
       if (data.type === "move_forward_range_pending") {
         this._showSkillPanel({
           title: "NHANH CHÂN",
-          text: `${data.name} sẽ di chuyển thêm ${data.min}–${data.max} ô sau lượt này!`,
+          text: `${data.name} tăng tốc — sẽ tiến thêm ${data.min}–${data.max} ô sau khi đi!`,
           icon: "orb_blue"
         });
+        this._playTarotSpeedAuraFX(data.user_id);
         return;
       }
 
@@ -1154,9 +1247,10 @@ _closeTarotModal() { this.tarotModal?.close(); }
       if (data.type === "move_forward_range") {
         this._showSkillPanel({
           title: "NHANH CHÂN",
-          text: `${data.name} tiến thêm ${data.steps} ô!`,
+          text: `${data.name} lướt tiến thêm ${data.steps} ô!`,
           icon: "orb_blue"
         });
+        this._playTarotSpeedAuraFX(data.user_id);
         if (isMe && data.steps > 0) {
           this.time.delayedCall(600, () => {
             this._movePlayerSteps(data.steps, () => {
@@ -1167,9 +1261,8 @@ _closeTarotModal() { this.tarotModal?.close(); }
             });
           });
         } else if (!isMe && data.steps > 0) {
-          // Animate nhân vật người khác
           const otherEntry = Object.entries(this.otherPlayers || {})
-            .find(([, op]) => op?._userId === data.user_id || op?.userId === data.user_id);
+            .find(([, op]) => Number(op?.user_id) === Number(data.user_id));
           if (otherEntry) {
             const [, otherSprite] = otherEntry;
             this._moveOtherPlayerSteps(otherSprite, data.steps, data.dest_index, data.name);
@@ -1182,9 +1275,47 @@ _closeTarotModal() { this.tarotModal?.close(); }
       if (data.type === "extra_roll" && data.source === "tarot") {
         this._showSkillPanel({
           title: "XÚC XẮC MA THUẬT",
-          text: `${data.name} được thêm 1 lượt tung xúc xắc!`,
+          text: `${data.name} nhận thêm 1 lượt tung xúc xắc!`,
           icon: "orb_orange"
         });
+        this._playTarotExtraRollFX(data.user_id);
+        return;
+      }
+
+      // ================== DESTROY ENEMY HOUSE (Giải Tỏa) ==================
+      if (data.type === "destroy_enemy_house") {
+        this._showSkillPanel({
+          title: "GIẢI TỎA",
+          text: `${data.name} phá hủy tinh cầu ở ô #${Number(data.target_cell) + 1}!`,
+          icon: "orb_red"
+        });
+        this._playTarotDestroyCellFX(data.target_cell);
+        return;
+      }
+
+      // ================== BONUS STARTING CASH (Tài Phú) ==================
+      if (data.type === "bonus_starting_cash_percent") {
+        this._showSkillPanel({
+          title: "TÀI PHÚ",
+          text: `${data.name} nhận trợ cấp +${this._formatMoney(data.bonus)} (${data.percent}% vốn)!`,
+          icon: "orb_orange"
+        });
+        const pos = this._getPlayerPosByUid(data.user_id);
+        if (pos) {
+          this._playCoinShowerAt(pos.x, pos.y, 18);
+          this._playFloatingBadge(pos.x, pos.y - 65 * this.minRatio, `+${this._formatMoney(data.bonus)}`, "#ffe066");
+        }
+        return;
+      }
+
+      // ================== PROTECT PLANET TURNS (Bảo Vệ) ==================
+      if (data.type === "protect_planet_turns") {
+        this._showSkillPanel({
+          title: "BẢO VỆ",
+          text: `${data.name} bọc khiên bảo vệ ô #${Number(data.cell_index) + 1} trong ${data.turns} lượt!`,
+          icon: "orb_blue"
+        });
+        this._playTarotProtectCellFX(data.cell_index, data.turns);
         return;
       }
     });
@@ -1255,7 +1386,19 @@ _closeTarotModal() { this.tarotModal?.close(); }
     const cell = this.boardPath[data.cell_index];
     if (!cell) return;
 
-    if (data.had_planet) {
+    if (data.had_planet && data.downgraded && Number(data.new_level || 0) >= 1) {
+      if (this.cellStates?.[data.cell_index]) {
+        this.cellStates[data.cell_index].level = Number(data.new_level);
+        if (data.total_invested) {
+          this.cellStates[data.cell_index].total_invested = data.total_invested;
+          this.cellStates[data.cell_index].build_cost = data.total_invested;
+        }
+      }
+      const color = data.planet_color || this.cellStates?.[data.cell_index]?.planet_color;
+      const hex = this._planetColorToHex(color);
+      this.paintCellGlowAnimated(cell, hex, Number(data.new_level));
+      this._showToast(`🛡️ Ô ${data.cell_index} đỡ đòn Quái Vật, giáng xuống Cấp ${data.new_level}!`, "#ffaa44");
+    } else if (data.had_planet) {
       this.clearCell(cell);
       if (this.cellStates) delete this.cellStates[data.cell_index];
       this._showToast(`☄ Ô ${data.cell_index} bị phá hủy!`, "#ff4444");
@@ -1267,9 +1410,11 @@ _closeTarotModal() { this.tarotModal?.close(); }
       this._showToast(`💨 Ô ${data.cell_index} trúng đạn nhưng trống`, "#aaaaaa");
     }
 
+    this._refreshAllCellComboBadges();
     this._stopDarkMapEffect();
     this._setHunter28Mode(false);
     this._refreshPlayerPanelsFromGameState();
+    this._updatePlayerStatsInUI();
   });
 
   this.socket.on("game:cell_sold", (data) => {
@@ -1280,6 +1425,7 @@ _closeTarotModal() { this.tarotModal?.close(); }
       if (cell) this.clearCell(cell);
       if (this.cellStates) delete this.cellStates[ci];
     });
+    this._refreshAllCellComboBadges();
 
     // Cập nhật cash trong gamePlayers
     if (this.gamePlayers) {
@@ -1410,6 +1556,8 @@ _closeTarotModal() { this.tarotModal?.close(); }
         this.powerDice?.hide();
         if (this.diceSprite) this.diceSprite.setVisible(false);
         if (this.diceShadow) this.diceShadow.setVisible(false);
+        if (this.diceSprite2) this.diceSprite2.setVisible(false);
+        if (this.diceShadow2) this.diceShadow2.setVisible(false);
       }
       this._showQuizPanel(data.question);
       this._applyTurnState();
@@ -1528,6 +1676,7 @@ this.socket.on("game:tarot_state", (data) => {
     // Cập nhật trạng thái nút THẺ BÀI
     if (isMe) {
       this.tarotBtn?.updateCooldownState();
+      this.charSkillWidget?.refresh();
     }
  
     // Hiệu ứng kích hoạt thẻ toàn màn hình (chỉ với người dùng)
@@ -1539,6 +1688,23 @@ this.socket.on("game:tarot_state", (data) => {
 this.socket.on("game:tarot_denied", (data) => {
     this._showToast(`⚠️ ${data.message || "Không thể dùng thẻ"}`, "#ff6666", 2000);
     this.tarotModal?.close();
+  });
+
+  // ── Character Skill Events ──
+  this.socket.on("game:char_skill_state", (data) => {
+    this.charSkillWidget?.syncState(data);
+  });
+  this.socket.on("game:char_skill_used", (data) => {
+    this.charSkillWidget?.playSkillFX(data);
+  });
+  this.socket.on("game:char_skill_denied", (data) => {
+    this._showToast(`⚠️ ${data.message || "Không thể dùng kỹ năng"}`, "#ff6666", 2000);
+  });
+  this.socket.on("game:char_passive_triggered", (data) => {
+    if (data?.message) this._showToast(data.message, "#88ffcc", 2400);
+  });
+  this.socket.on("game:char_skill_fx", (data) => {
+    if (data?.message) this._showToast(data.message, "#ffaa55", 2400);
   });
 
   // ── game:state_sync — đồng bộ toàn bộ state (cellStates, players) ──
@@ -1595,58 +1761,321 @@ this.socket.on("game:tarot_denied", (data) => {
   }
 
   _playTarotActivationEffect(cardName) {
-  const { width, height } = this.scale;
-  const S = this.minRatio || 1;
-  const D = 700;
-  const objs = [];
-  const push = o => { objs.push(o); return o; };
- 
-  // Flash vàng full màn hình
-  const flash = push(this.add.rectangle(width / 2, height / 2, width, height, 0xffcc44, 0).setDepth(D));
-  this.tweens.add({ targets: flash, alpha: { from: 0, to: 0.35 }, duration: 120, yoyo: true,
-    onComplete: () => flash.destroy() });
- 
-  // Banner tên thẻ
-  const banner = push(this.add.text(width / 2, height / 2, `✨ ${cardName || "Thẻ"} ✨`, {
-    fontFamily: "Signika",
-    fontSize: Math.floor(42 * S) + "px",
-    color: "#ffe566",
-    fontStyle: "bold",
-    stroke: "#3a1a00",
-    strokeThickness: 6,
-    shadow: { offsetX: 0, offsetY: 4, color: "#000000", blur: 16, fill: true }
-  }).setOrigin(0.5).setDepth(D + 1).setAlpha(0).setScale(0.5));
- 
-  this.tweens.add({
-    targets: banner, alpha: 1, scaleX: 1, scaleY: 1,
-    duration: 280, ease: 'Back.easeOut',
-    onComplete: () => {
-      this.time.delayedCall(900, () => {
-        this.tweens.add({ targets: banner, alpha: 0, y: height / 2 - 40 * S, duration: 350,
-          onComplete: () => { try { banner.destroy(); } catch {} } });
+    const { width, height } = this.scale;
+    const S = this.minRatio || 1;
+    const D = 700;
+
+    // Flash vàng full màn hình (setAlpha(0) thay vì fillAlpha=0 để visible thật)
+    const flash = this.add.rectangle(width / 2, height / 2, width, height, 0xffcc44, 0.35)
+      .setDepth(D).setAlpha(0);
+    this.tweens.add({
+      targets: flash, alpha: 1, duration: 110, yoyo: true,
+      onComplete: () => { try { flash.destroy(); } catch {} }
+    });
+
+    // Banner tên thẻ
+    const banner = this.add.text(width / 2, height * 0.24, `✨ ${cardName || "Thẻ"} ✨`, {
+      fontFamily: "Signika",
+      fontSize: Math.floor(38 * S) + "px",
+      color: "#ffe566",
+      fontStyle: "bold",
+      stroke: "#3a1a00",
+      strokeThickness: 6,
+      shadow: { offsetX: 0, offsetY: 4, color: "#000000", blur: 16, fill: true }
+    }).setOrigin(0.5).setDepth(D + 1).setAlpha(0).setScale(0.5);
+
+    this.tweens.add({
+      targets: banner, alpha: 1, scaleX: 1, scaleY: 1,
+      duration: 260, ease: 'Back.easeOut',
+      onComplete: () => {
+        this.time.delayedCall(900, () => {
+          this.tweens.add({
+            targets: banner, alpha: 0, y: height * 0.20, duration: 320,
+            onComplete: () => { try { banner.destroy(); } catch {} }
+          });
+        });
+      }
+    });
+
+    // Particles
+    for (let i = 0; i < 14; i++) {
+      const angle = (i / 14) * Math.PI * 2;
+      const p = this.add.circle(
+        width / 2 + Math.cos(angle) * 30 * S,
+        height * 0.24 + Math.sin(angle) * 20 * S,
+        Phaser.Math.Between(4, 8) * S,
+        [0xffdd44, 0xff9900, 0xffffff, 0xffcc66][i % 4], 1
+      ).setDepth(D + 2).setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: p,
+        x: width / 2 + Math.cos(angle) * (80 + Math.random() * 120) * S,
+        y: height * 0.24 + Math.sin(angle) * (50 + Math.random() * 80) * S,
+        alpha: 0, scaleX: 0.1, scaleY: 0.1,
+        duration: 650 + Math.random() * 350, ease: 'Quad.easeOut',
+        onComplete: () => { try { p.destroy(); } catch {} }
       });
     }
-  });
- 
-  // Particles
-  for (let i = 0; i < 14; i++) {
-    const angle = (i / 14) * Math.PI * 2;
-    const p = this.add.circle(
-      width / 2 + Math.cos(angle) * 30 * S,
-      height / 2 + Math.sin(angle) * 30 * S,
-      Phaser.Math.Between(4, 9) * S,
-      [0xffdd44, 0xff9900, 0xffffff, 0xffcc66][i % 4], 1
-    ).setDepth(D + 2).setBlendMode(Phaser.BlendModes.ADD);
+  }
+
+  _getPlayerPosByUid(uid) {
+    const myUid = Number(this._myUserId?.());
+    if (Number(uid) === myUid && this.player) {
+      return { x: this.player.x, y: this.player.y };
+    }
+    const op = Object.values(this.otherPlayers || {}).find(o => Number(o?.user_id) === Number(uid));
+    if (op) return { x: op.x, y: op.y };
+    const gp = (this.gamePlayers || []).find(p => Number(p.user_id) === Number(uid));
+    const cell = gp ? this.boardPath?.[Number(gp.index || 0)] : null;
+    if (cell) return { x: cell.x * this.scale.width, y: cell.y * this.scale.height };
+    return null;
+  }
+
+  _playFloatingBadge(x, y, text, color = "#ffee44") {
+    const S = this.minRatio || 1;
+    const t = this.add.text(x, y, text, {
+      fontFamily: "Signika", fontSize: Math.floor(24 * S) + "px",
+      color, fontStyle: "bold", stroke: "#000000", strokeThickness: 5,
+      shadow: { offsetX: 0, offsetY: 3, color: "#000000", blur: 8, fill: true }
+    }).setOrigin(0.5).setDepth(920).setAlpha(0).setScale(0.6);
     this.tweens.add({
-      targets: p,
-      x: width / 2 + Math.cos(angle) * (80 + Math.random() * 120) * S,
-      y: height / 2 + Math.sin(angle) * (80 + Math.random() * 120) * S,
-      alpha: 0, scaleX: 0.1, scaleY: 0.1,
-      duration: 700 + Math.random() * 400, ease: 'Quad.easeOut',
-      onComplete: () => { try { p.destroy(); } catch {} }
+      targets: t, alpha: 1, scaleX: 1, scaleY: 1, y: y - 16 * S,
+      duration: 240, ease: 'Back.easeOut',
+      onComplete: () => {
+        this.time.delayedCall(900, () => {
+          this.tweens.add({
+            targets: t, alpha: 0, y: y - 55 * S, duration: 400,
+            onComplete: () => { try { t.destroy(); } catch {} }
+          });
+        });
+      }
     });
   }
-}
+
+  _playCoinShowerAt(x, y, count = 14) {
+    const S = this.minRatio || 1;
+    const tex = this.textures.exists("coin") ? "coin" : null;
+    for (let i = 0; i < count; i++) {
+      const startX = x + (Math.random() - 0.5) * 90 * S;
+      const startY = y - (140 + Math.random() * 90) * S;
+      const obj = tex
+        ? this.add.image(startX, startY, tex).setScale(0.26 * S).setDepth(910).setAlpha(0)
+        : this.add.circle(startX, startY, 7 * S, 0xffdd00, 1).setDepth(910).setAlpha(0);
+      this.tweens.add({
+        targets: obj,
+        alpha: 1,
+        x: x + (Math.random() - 0.5) * 45 * S,
+        y: y - (10 + Math.random() * 20) * S,
+        angle: (Math.random() - 0.5) * 180,
+        duration: 480 + Math.random() * 250,
+        delay: i * 35,
+        ease: 'Bounce.easeOut',
+        onComplete: () => {
+          this.tweens.add({
+            targets: obj, alpha: 0, duration: 250, delay: 120,
+            onComplete: () => { try { obj.destroy(); } catch {} }
+          });
+        }
+      });
+    }
+  }
+
+  // 1. Công An — Đèn tuần tra đỏ/xanh + biểu tượng khóa lượt giáng xuống đối thủ
+  _playTarotPoliceFX(targetUid) {
+    const pos = this._getPlayerPosByUid(targetUid);
+    if (!pos) return;
+    const S = this.minRatio || 1;
+    const { x, y } = pos;
+
+    // Nháy đèn xanh-đỏ trên đầu mục tiêu
+    const sirenRed  = this.add.circle(x - 16 * S, y - 95 * S, 18 * S, 0xff2222, 0.75).setDepth(910).setBlendMode(Phaser.BlendModes.ADD);
+    const sirenBlue = this.add.circle(x + 16 * S, y - 95 * S, 18 * S, 0x2288ff, 0.75).setDepth(910).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets: sirenRed,  alpha: 0.15, scaleX: 1.5, scaleY: 1.5, duration: 150, yoyo: true, repeat: 6, onComplete: () => sirenRed.destroy() });
+    this.tweens.add({ targets: sirenBlue, alpha: 0.15, scaleX: 1.5, scaleY: 1.5, duration: 150, delay: 150, yoyo: true, repeat: 6, onComplete: () => sirenBlue.destroy() });
+
+    // Còng/Khóa rơi từ trên cao
+    const lock = this.add.text(x, y - 220 * S, "🔒", { fontSize: Math.floor(42 * S) + "px" })
+      .setOrigin(0.5).setDepth(915);
+    this.tweens.add({
+      targets: lock, y: y - 48 * S, duration: 360, ease: 'Cubic.easeIn',
+      onComplete: () => {
+        this.cameras.main.shake(180, 0.004);
+        const ring = this.add.circle(x, y, 22 * S, 0xff3333, 0).setStrokeStyle(4 * S, 0xff3333, 0.9).setDepth(905);
+        this.tweens.add({ targets: ring, scaleX: 3, scaleY: 3, alpha: 0, duration: 420, onComplete: () => ring.destroy() });
+        this._playFloatingBadge(x, y - 90 * S, "BỊ KHÓA LƯỢT!", "#ff6666");
+        this.tweens.add({ targets: lock, alpha: 0, duration: 400, delay: 900, onComplete: () => lock.destroy() });
+      }
+    });
+  }
+
+  // 2. Xúc Xắc Ma Thuật — 2 xúc xắc ma thuật xoay xoắn quanh nhân vật + cột sáng
+  _playTarotExtraRollFX(uid) {
+    const pos = this._getPlayerPosByUid(uid);
+    if (!pos) return;
+    const S = this.minRatio || 1;
+    const { x, y } = pos;
+
+    const beam = this.add.rectangle(x, y - 80 * S, 64 * S, 240 * S, 0xffcc44, 0.35)
+      .setDepth(905).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets: beam, scaleX: 1.5, alpha: 0, duration: 950, onComplete: () => beam.destroy() });
+
+    const d1 = this.add.image(x - 42 * S, y - 35 * S, "dice_6").setScale(0.32 * S).setDepth(915);
+    const d2 = this.add.image(x + 42 * S, y - 35 * S, "dice_6").setScale(0.32 * S).setDepth(915);
+    this.tweens.add({
+      targets: [d1, d2], y: y - 105 * S, angle: 720, duration: 950, ease: 'Cubic.easeOut',
+      onComplete: () => {
+        this.tweens.add({ targets: [d1, d2], alpha: 0, scaleX: 0.1, scaleY: 0.1, duration: 250, onComplete: () => { d1.destroy(); d2.destroy(); } });
+      }
+    });
+    this._playFloatingBadge(x, y - 110 * S, "+1 LƯỢT TUNG!", "#ffdd44");
+  }
+
+  // 3. Nhận Trợ Giúp — Luồng tiền bay từ đối thủ về mình
+  _playTarotStealFX(data) {
+    const thiefPos = this._getPlayerPosByUid(data.user_id);
+    if (!thiefPos) return;
+    const S = this.minRatio || 1;
+    const tex = this.textures.exists("coin") ? "coin" : null;
+    const breakdown = data.breakdown || [];
+
+    breakdown.forEach((b) => {
+      const victimPos = this._getPlayerPosByUid(b.from_user_id);
+      if (!victimPos) return;
+      this._playFloatingBadge(victimPos.x, victimPos.y - 60 * S, `-${this._formatMoney(b.amount)}`, "#ff6666");
+      for (let i = 0; i < 10; i++) {
+        const c = tex
+          ? this.add.image(victimPos.x, victimPos.y - 25 * S, tex).setScale(0.28 * S).setDepth(915)
+          : this.add.circle(victimPos.x, victimPos.y - 25 * S, 8 * S, 0xffdd00, 1).setDepth(915);
+        const midX = (victimPos.x + thiefPos.x) / 2 + (Math.random() - 0.5) * 60 * S;
+        const midY = Math.min(victimPos.y, thiefPos.y) - (80 + Math.random() * 50) * S;
+        this.tweens.add({
+          targets: c, x: midX, y: midY, angle: 180, duration: 280, delay: i * 45, ease: 'Sine.easeOut',
+          onComplete: () => {
+            this.tweens.add({
+              targets: c, x: thiefPos.x, y: thiefPos.y - 25 * S, angle: 360, duration: 320, ease: 'Sine.easeIn',
+              onComplete: () => { try { c.destroy(); } catch {} }
+            });
+          }
+        });
+      }
+    });
+    if (data.total > 0) {
+      this.time.delayedCall(550, () => {
+        this._playFloatingBadge(thiefPos.x, thiefPos.y - 75 * S, `+${this._formatMoney(data.total)}`, "#ffdd44");
+      });
+    }
+  }
+
+  // 4. Nhanh Chân — Vòng gió & tia tăng tốc xanh ngọc dưới chân nhân vật
+  _playTarotSpeedAuraFX(uid) {
+    const pos = this._getPlayerPosByUid(uid);
+    if (!pos) return;
+    const S = this.minRatio || 1;
+    for (let i = 0; i < 3; i++) {
+      const ring = this.add.ellipse(pos.x, pos.y + 4 * S, 44 * S, 18 * S, 0x00ffcc, 0)
+        .setStrokeStyle(3.5 * S, 0x00ffcc, 0.9).setDepth(905);
+      this.tweens.add({
+        targets: ring, scaleX: 2.8, scaleY: 2.4, y: pos.y - 26 * S, alpha: 0,
+        duration: 500, delay: i * 120, ease: 'Quad.easeOut',
+        onComplete: () => ring.destroy()
+      });
+    }
+    this._playFloatingBadge(pos.x, pos.y - 70 * S, "⚡ TĂNG TỐC!", "#00ffcc");
+  }
+
+  // 6. Thần Giữ Của — Vòng khiên ánh sáng bảo vệ quanh nhân vật
+  _playTarotShieldAuraFX(uid, color = 0x44ffcc, label = "🛡 KHIÊN THUẾ") {
+    const pos = this._getPlayerPosByUid(uid);
+    if (!pos) return;
+    const S = this.minRatio || 1;
+    const shield = this.add.circle(pos.x, pos.y - 24 * S, 42 * S, color, 0.22)
+      .setStrokeStyle(4 * S, color, 0.95).setDepth(910);
+    this.tweens.add({
+      targets: shield, scaleX: 1.45, scaleY: 1.45, alpha: 0, duration: 1050, ease: 'Cubic.easeOut',
+      onComplete: () => shield.destroy()
+    });
+    this._playFloatingBadge(pos.x, pos.y - 80 * S, label, "#88ffcc");
+  }
+
+  // 7. Giải Tỏa — Tên lửa / cầu lửa giáng từ trên trời xuống phá tinh cầu (mọi người đều thấy)
+  _playTarotDestroyCellFX(cellIdx) {
+    const cell = this.boardPath?.[Number(cellIdx)];
+    if (!cell) return;
+    const S = this.minRatio || 1;
+    const x = cell.x * this.scale.width;
+    const y = cell.y * this.scale.height;
+
+    if (this.textures.exists("fire_ball_01") && this.anims.exists("fx_fire_ball")) {
+      const fb = this.add.sprite(x, y - 360 * S, "fire_ball_01")
+        .setDepth(920).setScale(0.55 * S).setAngle(90).play("fx_fire_ball");
+      this.tweens.add({
+        targets: fb, y, duration: 480, ease: 'Cubic.easeIn',
+        onComplete: () => {
+          fb.destroy();
+          this._createFireImpact(x, y);
+          this.cameras.main.shake(240, 0.006);
+          this._playFloatingBadge(x, y - 50 * S, "💥 GIẢI TỎA!", "#ff5533");
+        }
+      });
+    } else {
+      this._createFireImpact(x, y);
+    }
+  }
+
+  // 8. Hoán Đổi — 2 cổng xoáy ma thuật mở ra & tia sáng chéo hoán đổi
+  _playTarotSwapFX(idxA, idxB) {
+    const cellA = this.boardPath?.[Number(idxA)];
+    const cellB = this.boardPath?.[Number(idxB)];
+    if (!cellA || !cellB) return;
+    const S = this.minRatio || 1;
+    const ax = cellA.x * this.scale.width, ay = cellA.y * this.scale.height;
+    const bx = cellB.x * this.scale.width, by = cellB.y * this.scale.height;
+
+    [ { x: ax, y: ay, c: 0xaa66ff }, { x: bx, y: by, c: 0xffaa00 } ].forEach(p => {
+      const portal = this.add.circle(p.x, p.y, 34 * S, p.c, 0.3)
+        .setStrokeStyle(4 * S, p.c, 0.95).setDepth(905);
+      this.tweens.add({ targets: portal, scaleX: 1.9, scaleY: 1.9, alpha: 0, duration: 850, onComplete: () => portal.destroy() });
+    });
+
+    const orbA = this.add.image(ax, ay, "orb_purple").setScale(0.32 * S).setDepth(915);
+    const orbB = this.add.image(bx, by, "orb_orange").setScale(0.32 * S).setDepth(915);
+    const midX = (ax + bx) / 2, midY = Math.min(ay, by) - 90 * S;
+
+    this.tweens.add({
+      targets: orbA, x: midX, y: midY, duration: 320, ease: 'Sine.easeOut',
+      onComplete: () => this.tweens.add({
+        targets: orbA, x: bx, y: by, duration: 340, ease: 'Sine.easeIn',
+        onComplete: () => { orbA.destroy(); }
+      })
+    });
+    this.tweens.add({
+      targets: orbB, x: midX, y: midY - 30 * S, duration: 320, ease: 'Sine.easeOut',
+      onComplete: () => this.tweens.add({
+        targets: orbB, x: ax, y: ay, duration: 340, ease: 'Sine.easeIn',
+        onComplete: () => {
+          orbB.destroy();
+          this._playFloatingBadge(ax, ay - 45 * S, "🔄 HOÁN ĐỔI!", "#dd99ff");
+          this._playFloatingBadge(bx, by - 45 * S, "🔄 HOÁN ĐỔI!", "#ffdd77");
+        }
+      })
+    });
+  }
+
+  // 10. Bảo Vệ — Vòm khiên năng lượng xanh dương giáng xuống tinh cầu
+  _playTarotProtectCellFX(cellIdx, turns = 3) {
+    const cell = this.boardPath?.[Number(cellIdx)];
+    if (!cell) return;
+    const S = this.minRatio || 1;
+    const x = cell.x * this.scale.width;
+    const y = cell.y * this.scale.height;
+
+    const dome = this.add.circle(x, y, 42 * S, 0x33bbff, 0.35)
+      .setStrokeStyle(4 * S, 0x88eeff, 1).setDepth(910);
+    this.tweens.add({
+      targets: dome, scaleX: 1.6, scaleY: 1.6, alpha: 0, duration: 950, ease: 'Cubic.easeOut',
+      onComplete: () => dome.destroy()
+    });
+    this._playFloatingBadge(x, y - 55 * S, `🛡 BẢO VỆ ${turns} LƯỢT`, "#66ddff");
+  }
 
   _startDarkMapEffect() {
     const { width, height } = this.scale;
@@ -2090,8 +2519,10 @@ this.socket.on("game:tarot_denied", (data) => {
       this.socket.emit("game:roll", { room_id: this.gameRoomId });
       this.infoText.setText("🎲 Đang tung...").setColor("#ffffff");
     } else {
-      // Offline fallback: tự tính kết quả rồi phát event giả
-      const dice = Phaser.Math.Between(1, 6);
+      // Offline fallback: tự tính kết quả 2 xúc xắc rồi phát event giả
+      const dice1 = Phaser.Math.Between(1, 6);
+      const dice2 = Phaser.Math.Between(1, 6);
+      const dice  = dice1 + dice2;
       // Gọi thẳng handler với dữ liệu giả
       this.socket.emit("game:roll_offline_fake"); // no-op nếu không có server
       // Chờ một tick rồi xử lý như thể nhận từ server
@@ -2100,6 +2531,8 @@ this.socket.on("game:tarot_denied", (data) => {
           socket_id: this.socket.id,
           user_id:   this._myUserId(),
           dice,
+          dice1,
+          dice2,
           name:      this.playerName
         };
         // Trigger handler thủ công
@@ -2119,15 +2552,18 @@ this.socket.on("game:tarot_denied", (data) => {
 
     if (isMe) {
       this.canRoll = false;
-      this.infoText.setText(`🎲 Bạn tung được ${data.dice}!`);
+      const diceText = (data.dice1 && data.dice2)
+        ? `${data.dice1} + ${data.dice2} = ${data.dice}`
+        : `${data.dice}`;
+      this.infoText.setText(`🎲 Bạn tung được ${diceText}!`);
       this.infoText.setColor("#ffdd00");
 
       if (this.powerDice?.rolling) {
-        this.powerDice.playResultAnimation(data.dice, () => {
-          this._onDiceHandoff(data.dice);
+        this.powerDice.playResultAnimation(data, () => {
+          this._onDiceHandoff(data);
         });
       } else {
-        this._onDiceHandoff(data.dice);
+        this._onDiceHandoff(data);
       }
     }
   }
@@ -2137,15 +2573,21 @@ this.socket.on("game:tarot_denied", (data) => {
   //  Đây là điểm DUY NHẤT trigger di chuyển player
   // ─────────────────────────────────────────────
   _onDiceHandoff(diceResult) {
-    // Hiện diceSprite của scene với đúng mặt
+    const total = (typeof diceResult === "object" && diceResult !== null)
+      ? Number(diceResult.dice || ((diceResult.dice1 || 1) + (diceResult.dice2 || 1)))
+      : Number(diceResult || 2);
+
+    // Hiện 2 diceSprite của scene với đúng mặt
     this._showDiceSpriteResult(diceResult, () => {
       // Sau khi diceSprite đã hiện → di chuyển
-      const target = (this.currentIndex + diceResult) % this.boardPath.length;
+      const target = (this.currentIndex + total) % this.boardPath.length;
       this.showTargetArrow(target);
-      this._movePlayerSteps(diceResult, () => {
+      this._movePlayerSteps(total, () => {
         // Di chuyển xong
         this.diceSprite.setVisible(false);
         this.diceShadow.setVisible(false);
+        if (this.diceSprite2) this.diceSprite2.setVisible(false);
+        if (this.diceShadow2) this.diceShadow2.setVisible(false);
 
         if (this.gameRoomId && this.gamePlayers.length > 0) {
           this.socket.emit("game:move_done", {
@@ -2161,28 +2603,61 @@ this.socket.on("game:tarot_denied", (data) => {
   }
 
   // ─────────────────────────────────────────────
-  //  DiceSprite scene — hiện đúng mặt, nhỏ và rõ
-  //  (thay thế startDiceRollAnimation cũ khi dùng PowerDice)
+  //  DiceSprite scene — hiện đúng mặt 2 xúc xắc, nhỏ và rõ
   // ─────────────────────────────────────────────
   _showDiceSpriteResult(result, onDone) {
     const { width, height } = this.scale;
     const cx = width * 0.508, cy = height * 0.414;
+    const gapX = 48 * this.minRatio;
+    const gapY = 16 * this.minRatio;
 
-    this.diceSprite.setPosition(cx, cy);
-    this.diceShadow.setPosition(cx - 16 * this.minRatio, cy + 34 * this.minRatio);
-    this.diceSprite.setTexture(`dice_${result}`).setAlpha(0).setAngle(0);
+    let d1, d2;
+    if (typeof result === "object" && result !== null) {
+      d1 = Number(result.dice1) || 1;
+      d2 = Number(result.dice2) || 1;
+    } else {
+      const total = Math.max(2, Math.min(12, Number(result) || 2));
+      d1 = Math.min(6, Math.max(1, Math.floor(total / 2)));
+      d2 = Math.min(6, Math.max(1, total - d1));
+    }
+
+    this.diceSprite.setPosition(cx - gapX, cy - gapY);
+    this.diceShadow.setPosition(cx - gapX - 8 * this.minRatio, cy - gapY + 30 * this.minRatio);
+    this.diceSprite.setTexture(`dice_${d1}`).setAlpha(0).setAngle(-18).setScale(0.32 * this.minRatio);
     this.diceSprite.setVisible(true);
     this.diceShadow.setVisible(true);
 
+    if (this.diceSprite2 && this.diceShadow2) {
+      this.diceSprite2.setPosition(cx + gapX, cy + gapY);
+      this.diceShadow2.setPosition(cx + gapX - 8 * this.minRatio, cy + gapY + 30 * this.minRatio);
+      this.diceSprite2.setTexture(`dice_${d2}`).setAlpha(0).setAngle(20).setScale(0.32 * this.minRatio);
+      this.diceSprite2.setVisible(true);
+      this.diceShadow2.setVisible(true);
+    }
+
     this.tweens.add({
-      targets: this.diceSprite, alpha: 1, scaleX: 0.65 * this.minRatio, scaleY: 0.65 * this.minRatio,
-      duration: 250, ease: 'Back.easeOut',
+      targets: this.diceSprite,
+      alpha: 1, angle: -8, scaleX: 0.54 * this.minRatio, scaleY: 0.54 * this.minRatio,
+      duration: 260, ease: 'Back.easeOut',
       onComplete: () => {
-        this.time.delayedCall(600, () => {
-          if (onDone) onDone();
-        });
+        if (!this.diceSprite2) {
+          this.time.delayedCall(600, () => { if (onDone) onDone(); });
+        }
       }
     });
+
+    if (this.diceSprite2) {
+      this.tweens.add({
+        targets: this.diceSprite2,
+        alpha: 1, angle: 9, scaleX: 0.54 * this.minRatio, scaleY: 0.54 * this.minRatio,
+        duration: 260, delay: 75, ease: 'Back.easeOut',
+        onComplete: () => {
+          this.time.delayedCall(560, () => {
+            if (onDone) onDone();
+          });
+        }
+      });
+    }
   }
 
   // ─────────────────────────────────────────────
@@ -2202,6 +2677,12 @@ this.socket.on("game:tarot_denied", (data) => {
   // PRELOAD
   // =====================
   preload() {
+    this._preloadOverlay = createLoadingOverlay(this, "Đang tải trận đấu...");
+    this._onPreloadProgress = (p) => {
+      this._preloadOverlay?.updateProgress(p);
+    };
+    this.load.on("progress", this._onPreloadProgress);
+
     this.load.image("bg", "./assets/nen_trochoi.jpg");
 
     this.characters.forEach(character => {
@@ -2251,6 +2732,10 @@ this.socket.on("game:tarot_denied", (data) => {
     this.load.image("orb_red",      "./assets/resources/Orb/iloveimg-resized/orb_red.png");
     this.load.image("orb_blue",     "./assets/resources/Orb/iloveimg-resized/orb_blue.png");
     this.load.image("orb_purple",   "./assets/resources/Orb/iloveimg-resized/orb_purple.png");
+    this.load.image("orb_orange2",  "./assets/resources/Orb/orb_orange2.png");
+    this.load.image("orb_red2",     "./assets/resources/Orb/orb_red2.png");
+    this.load.image("orb_blue2",    "./assets/resources/Orb/orb_blue2.png");
+    this.load.image("orb_purple2",  "./assets/resources/Orb/orb_purple2.png");
     this.load.image("coin",         "./assets/ui/shared/coin.png");
     this.load.image("coinm",        "./assets/ui/shared/coinm.png");
     this.load.image("close_btn",    "./assets/ui/shared/close.png");
@@ -2269,6 +2754,11 @@ this.socket.on("game:tarot_denied", (data) => {
       this.load.image(`water_ball_${frame}`,
         `./assets/characters/craftpix-net-381552-free-water-and-fire-magic-sprite-vector-pack/Water Ball/PNG/Water Ball_Frame_${frame}.png`);
     }
+    for (let i = 1; i <= 8; i++) {
+      const frame = String(i).padStart(2, "0");
+      this.load.image(`fire_ball_${frame}`,
+        `./assets/characters/craftpix-net-381552-free-water-and-fire-magic-sprite-vector-pack/Fire Ball/PNG/Fire Ball_Frame_${frame}.png`);
+    }
 
     this.load.image("card_slot_small", "./assets/ui/tarot/card.png");
     this.load.image("chat_btn",        "./assets/ui/lobby/chat.png");
@@ -2277,10 +2767,24 @@ this.socket.on("game:tarot_denied", (data) => {
       if (prepareLevelTexture(this, `tarot_${i}`, lv)) {
         this.load.image(`tarot_${i}`, `./${tarotImagePath(i, lv, true)}`);
       }
-      this.load.image(`tarot_large_${i}`, `./assets/resources/Tarot/thebai_${i}.png`);
+      if (prepareLevelTexture(this, `tarot_large_${i}`, lv)) {
+        this.load.image(`tarot_large_${i}`, `./${tarotImagePath(i, lv, false)}`);
+      }
     }
     this.load.once("complete", () => {
-      for (let i = 1; i <= 10; i++) markLevelTexture(this, `tarot_${i}`, getTarotLevel(this, i));
+      for (let i = 1; i <= 10; i++) {
+        const lv = getTarotLevel(this, i);
+        markLevelTexture(this, `tarot_${i}`, lv);
+        markLevelTexture(this, `tarot_large_${i}`, lv);
+      }
+      if (this._onPreloadProgress) {
+        this.load.off("progress", this._onPreloadProgress);
+        this._onPreloadProgress = null;
+      }
+      if (this._preloadOverlay) {
+        this._preloadOverlay.destroy();
+        this._preloadOverlay = null;
+      }
     });
   }
 
@@ -2530,49 +3034,68 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
     cell.overlay.strokeEllipse(cx, cy, rx*2, ry*2);
   }
 
-  paintCellGlowAnimated(cell, hexColor) {
+  paintCellGlowAnimated(cell, hexColor, level = null) {
     if (cell.type==='skill') return;
+    const lv = Math.max(1, Math.min(2, Number(level ?? this.cellStates?.[cell.index]?.level ?? 1)));
     if (cell.glowTimer) { cell.glowTimer.destroy(); cell.glowTimer=null; }
     if (cell.orb) { cell.orb.destroy(); cell.orb=null; }
+    if (cell.orbShadow) { cell.orbShadow.destroy(); cell.orbShadow=null; }
+    if (cell.orbHalo) { cell.orbHalo.destroy(); cell.orbHalo=null; }
+    if (cell.levelBadge) { cell.levelBadge.destroy(); cell.levelBadge=null; }
     if (cell.orbTween) { cell.orbTween.stop(); cell.orbTween=null; }
-    this.paintCellGlow(cell, hexColor, 0.5);
-    let tick=0; cell.glowColor=hexColor;
+    if (cell.orbHaloTween) { cell.orbHaloTween.stop(); cell.orbHaloTween=null; }
+
+    const baseAlpha = lv >= 2 ? 0.60 : 0.5;
+    this.paintCellGlow(cell, hexColor, baseAlpha);
+    let tick=0; cell.glowColor=hexColor; cell.level=lv;
     cell.glowTimer = this.time.addEvent({ delay:16, loop:true, callback: () => {
       tick+=0.03;
-      this.paintCellGlow(cell, hexColor, 0.5+Math.sin(tick)*0.08);
+      this.paintCellGlow(cell, hexColor, baseAlpha+Math.sin(tick)*0.08);
     }});
-    this.spawnCellOrb(cell, hexColor);
+    this.spawnCellOrb(cell, hexColor, lv);
   }
 
-  spawnCellOrb(cell, hexColor) {
+  spawnCellOrb(cell, hexColor, level = 1) {
+    const lv = Math.max(1, Math.min(2, Number(level || 1)));
     const { width, height } = this.scale;
     const minRatio = Math.min(width/this.originalWidth, height/this.originalHeight);
     const cx=cell.x*width, cy=cell.y*height;
-    const orbKey=this.getOrbKeyForColor(hexColor), TARGET_SCALE=0.65*minRatio;
+    const orbKey=this.getOrbKeyForColor(hexColor, lv);
+    const texImg = this.textures.exists(orbKey) ? this.textures.get(orbKey).getSourceImage() : null;
+    const srcW = texImg?.width || 80;
+    const targetDisplayW = (lv >= 2 ? 102 : 52) * minRatio;
+    const TARGET_SCALE = targetDisplayW / srcW;
+    const orbY = cy - (lv >= 2 ? 25 : 18) * minRatio;
 
-    const orbShadow = this.add.ellipse(cx, cy+4*minRatio, 35*minRatio, 7*minRatio, hexColor, 0.01)
+    const orbShadow = this.add.ellipse(cx, cy+4*minRatio, (lv>=2?50:35)*minRatio, (lv>=2?10:8)*minRatio, hexColor, 0.01)
       .setDepth(2).setAlpha(0);
     cell.orbShadow=orbShadow;
 
-    const orb = this.add.image(cx, cy-18*minRatio, orbKey).setScale(0).setDepth(3).setAlpha(0);
+    const orb = this.add.image(cx, orbY, orbKey).setScale(0).setDepth(3).setAlpha(0);
     cell.orb=orb;
 
-    this.tweens.add({ targets:[orb,orbShadow], alpha:{value:0.95,ease:'Power2'}, duration:500, ease:'Back.easeOut' });
+    this.tweens.add({ targets:[orb, orbShadow], alpha:{value:0.96,ease:'Power2'}, duration:450, ease:'Back.easeOut' });
     this.tweens.add({ targets:orb, scaleX:TARGET_SCALE, scaleY:TARGET_SCALE, duration:500, ease:'Back.easeOut',
       onComplete: () => {
-        cell.orbTween = this.tweens.add({ targets:orb, y:cy-24*minRatio, duration:1400, yoyo:true, repeat:-1, ease:'Sine.easeInOut' });
-        this.tweens.add({ targets:orbShadow, scaleX:0.7, scaleY:0.7, alpha:0.08, duration:1100, yoyo:true, repeat:-1, ease:'Sine.easeInOut' });
+        if (!orb.active) return;
+        cell.orbTween = this.tweens.add({ targets:orb, y:orbY - 6*minRatio, duration:1400, yoyo:true, repeat:-1, ease:'Sine.easeInOut' });
+        this.tweens.add({ targets:orbShadow, scaleX:0.7, scaleY:0.7, alpha:0.12, duration:1100, yoyo:true, repeat:-1, ease:'Sine.easeInOut' });
       }
     });
   }
 
   clearCell(cell) {
     if (cell.glowTimer) { cell.glowTimer.destroy(); cell.glowTimer=null; }
-    if (cell.orb||cell.orbShadow) {
-      this.tweens.add({ targets:[cell.orb,cell.orbShadow].filter(Boolean), alpha:0, scaleX:0, scaleY:0, duration:250, ease:'Power2',
+    if (cell.orbHaloTween) { cell.orbHaloTween.stop(); cell.orbHaloTween=null; }
+    if (cell.comboBadge) { cell.comboBadge.destroy(); cell.comboBadge=null; }
+    const toFade = [cell.orb, cell.orbShadow, cell.orbHalo, cell.levelBadge].filter(Boolean);
+    if (toFade.length) {
+      this.tweens.add({ targets: toFade, alpha:0, scaleX:0, scaleY:0, duration:250, ease:'Power2',
         onComplete: () => {
           cell.orb?.destroy(); cell.orb=null;
           cell.orbShadow?.destroy(); cell.orbShadow=null;
+          cell.orbHalo?.destroy(); cell.orbHalo=null;
+          cell.levelBadge?.destroy(); cell.levelBadge=null;
         }
       });
     }
@@ -2587,8 +3110,97 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
     cell.overlay.strokeEllipse(cx, cy, rx*2, ry*2);
   }
 
-  getOrbKeyForColor(hexColor) {
-    return { 0xff7700:"orb_orange", 0xff2233:"orb_red", 0x2266ff:"orb_blue", 0x9933ff:"orb_purple" }[hexColor]||"orb_blue";
+  getOrbKeyForColor(hexColor, level = 1) {
+    const suffix = Number(level) >= 2 ? "2" : "";
+    const base = { 0xff7700:"orb_orange", 0xff2233:"orb_red", 0x2266ff:"orb_blue", 0x9933ff:"orb_purple" }[hexColor]||"orb_blue";
+    const key = base + suffix;
+    return this.textures.exists(key) ? key : base;
+  }
+
+  _playCellLevelUpFX(cell, hexColor, newLevel = 2) {
+    if (!cell) return;
+    const { width, height } = this.scale;
+    const S = Math.min(width / this.originalWidth, height / this.originalHeight);
+    const cx = cell.x * width, cy = cell.y * height;
+    const ringColor = newLevel >= 2 ? 0xffd700 : hexColor;
+
+    const ring = this.add.circle(cx, cy - 12 * S, 24 * S, ringColor, 0.35)
+      .setStrokeStyle(3.5 * S, 0xffffff, 0.95).setDepth(35);
+    this.tweens.add({
+      targets: ring, scaleX: 2.3, scaleY: 2.3, alpha: 0, duration: 700, ease: 'Cubic.easeOut',
+      onComplete: () => ring.destroy()
+    });
+
+    for (let i = 0; i < 10; i++) {
+      const ang = (Math.PI * 2 * i) / 10;
+      const dot = this.add.circle(cx, cy - 16 * S, 3.5 * S, newLevel >= 2 ? 0xffe44d : hexColor, 1)
+        .setDepth(36).setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: dot,
+        x: cx + Math.cos(ang) * 42 * S,
+        y: (cy - 22 * S) + Math.sin(ang) * 28 * S - 18 * S,
+        alpha: 0, scaleX: 0.2, scaleY: 0.2,
+        duration: 600, ease: 'Sine.easeOut',
+        onComplete: () => dot.destroy()
+      });
+    }
+
+    const label = newLevel >= 2 ? "🪽 LÊN CẤP 2!" : "✨ CHIẾM LĨNH!";
+    this._playFloatingBadge?.(cx, cy - 52 * S, label, newLevel >= 2 ? "#ffe066" : "#7dd3fc");
+  }
+
+  _refreshAllCellComboBadges() {
+    if (!this.boardPath || !this.cellStates) return;
+    const { width, height } = this.scale;
+    const S = Math.min(width / this.originalWidth, height / this.originalHeight);
+    const total = this.boardPath.length;
+
+    // Xóa comboBadge cũ trước
+    this.boardPath.forEach(cell => {
+      if (cell?.comboBadge) { cell.comboBadge.destroy(); cell.comboBadge = null; }
+    });
+
+    Object.entries(this.cellStates).forEach(([idxStr, cs]) => {
+      const idx = Number(idxStr);
+      const cell = this.boardPath[idx];
+      if (!cell || cell.type === 'skill' || !cs?.owner_user_id) return;
+      const uid = Number(cs.owner_user_id);
+
+      let left = 0;
+      for (let step = 1; step < total; step++) {
+        const ni = (idx - step + total) % total;
+        const nc = this.boardPath[ni];
+        if (!nc || nc.type === 'skill') break;
+        const ncs = this.cellStates[ni];
+        if (!ncs || Number(ncs.owner_user_id) !== uid) break;
+        left++;
+      }
+      let right = 0;
+      for (let step = 1; step < total; step++) {
+        const ni = (idx + step) % total;
+        const nc = this.boardPath[ni];
+        if (!nc || nc.type === 'skill') break;
+        const ncs = this.cellStates[ni];
+        if (!ncs || Number(ncs.owner_user_id) !== uid) break;
+        right++;
+      }
+
+      const chainLen = 1 + left + right;
+      if (chainLen >= 2) {
+        const cx = cell.x * width, cy = cell.y * height;
+        const txt = chainLen >= 3 ? "🔗+35%" : "🔗+20%";
+        cell.comboBadge = this.add.text(cx, cy - 42 * S, txt, {
+          fontFamily: "Signika",
+          fontSize: Math.max(8, Math.floor(9.5 * S)) + "px",
+          color: chainLen >= 3 ? "#fde047" : "#86efac",
+          fontStyle: "bold",
+          backgroundColor: "#00000099",
+          padding: { left: 3, right: 3, top: 1, bottom: 1 },
+          stroke: "#000000",
+          strokeThickness: 2,
+        }).setOrigin(0.5).setDepth(4.8);
+      }
+    });
   }
 
   debugAllCells(minRatio) {
@@ -2612,16 +3224,24 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
   createDiceSprite(minRatio) {
     const { width, height } = this.scale;
     const cx=0.508*width, cy=0.414*height;
+    const gapX = 48 * minRatio;
+    const gapY = 16 * minRatio;
 
-    this.diceShadow = this.add.ellipse(cx-12*minRatio, cy+34*minRatio, 70*minRatio, 34*minRatio, 0x000000, 0.45)
+    this.diceShadow = this.add.ellipse(cx-gapX-8*minRatio, cy-gapY+30*minRatio, 56*minRatio, 26*minRatio, 0x000000, 0.42)
       .setOrigin(0.5).setDepth(29).setVisible(false);
 
-    this.diceSprite = this.add.sprite(cx, cy, "dice_1")
-      .setDepth(30).setScale(0.6*minRatio).setVisible(false);
+    this.diceSprite = this.add.sprite(cx-gapX, cy-gapY, "dice_1")
+      .setDepth(30).setScale(0.54*minRatio).setVisible(false);
+
+    this.diceShadow2 = this.add.ellipse(cx+gapX-8*minRatio, cy+gapY+30*minRatio, 56*minRatio, 26*minRatio, 0x000000, 0.42)
+      .setOrigin(0.5).setDepth(29).setVisible(false);
+
+    this.diceSprite2 = this.add.sprite(cx+gapX, cy+gapY, "dice_1")
+      .setDepth(30).setScale(0.54*minRatio).setVisible(false);
 
     this.diceTween = null;
     // Gentle idle float — hữu ích khi diceSprite hiện trong scene
-    this.tweens.add({ targets:this.diceSprite, y:"-=10", duration:1000, yoyo:true, repeat:-1, ease:"Sine.easeInOut" });
+    this.tweens.add({ targets:[this.diceSprite, this.diceSprite2], y:"-=10", duration:1000, yoyo:true, repeat:-1, ease:"Sine.easeInOut" });
   }
 
   // startDiceRollAnimation cũ — vẫn giữ lại cho khả năng tương thích
@@ -2648,6 +3268,23 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
   // OTHER PLAYERS
   // =====================
   addOtherPlayer(playerData) {
+    if (!playerData || playerData.id === this.socket.id) return;
+    const myUid = this._myUserId();
+    if (playerData.user_id && myUid && Number(playerData.user_id) === Number(myUid)) return;
+
+    // Xóa sprite cũ nếu trùng socket_id hoặc user_id để không bao giờ bị nhân đôi
+    Object.keys(this.otherPlayers).forEach((k) => {
+      const existing = this.otherPlayers[k];
+      const sameSid = k === playerData.id;
+      const sameUid = playerData.user_id && existing?.user_id && Number(existing.user_id) === Number(playerData.user_id);
+      if (sameSid || sameUid) {
+        existing?.shadow?.destroy();
+        existing?.nameText?.destroy();
+        existing?.destroy();
+        delete this.otherPlayers[k];
+      }
+    });
+
     const { width, height } = this.scale;
     const minRatio = Math.min(width/this.originalWidth, height/this.originalHeight);
     const cell = this.boardPath[playerData.index||0];
@@ -2936,6 +3573,10 @@ this.input.keyboard.on("keydown-Y", () => {
     // ── Tarot Button Widget ──
     this.tarotBtn = new TarotButtonWidget(this, this.tarotModal);
     this.tarotBtn.create(minRatio);
+
+    // ── Character Skill Widget ──
+    this.charSkillWidget = new CharSkillWidget(this);
+    this._showSkillToast = (msg) => this._showToast(msg, "#ffe066", 2400);
 
     // Target arrow
     this.targetArrow = this.add.image(0,0,"target_arrow")
@@ -3960,13 +4601,13 @@ this.input.keyboard.on("keydown-Y", () => {
     this._showDebtPanel();
   }
 
-  // Tính tổng tài sản có thể bán (60% build_cost mỗi ô)
+  // Tính tổng tài sản có thể bán (60% tổng vốn đầu tư mỗi ô)
   _calcTotalSellable() {
     if (!this.cellStates) return 0;
     const myUid = this._myUserId();
     return Object.values(this.cellStates)
       .filter(c => c.owner_user_id === myUid)
-      .reduce((sum, c) => sum + Math.floor((c.build_cost || 0) * 0.6), 0);
+      .reduce((sum, c) => sum + Math.floor((c.total_invested ?? c.build_cost ?? 0) * 0.6), 0);
   }
 
   _showDebtPanel() {
@@ -4055,9 +4696,11 @@ this.input.keyboard.on("keydown-Y", () => {
       const col = idx % COLS, row = Math.floor(idx / COLS);
       const cx = startX + col * (ITEM_W + GAP);
       const cy = startY + row * (ITEM_H + GAP);
-      const sellPrice = Math.floor(cellData.build_cost * 0.6);
+      const lv = Math.max(1, Math.min(2, Number(cellData.level || 1)));
+      const investedVal = Number(cellData.total_invested ?? cellData.build_cost ?? 0);
+      const sellPrice = Math.floor(investedVal * 0.6);
       const hex = this._planetColorToHex(cellData.planet_color);
-      const orbKey = this._hexToOrbKey(hex);
+      const orbKey = this._hexToOrbKey(hex, lv);
       const isSelected = !!this._selectedSellCells[cellIndex];
 
       // Card nền
@@ -4071,15 +4714,18 @@ this.input.keyboard.on("keydown-Y", () => {
       };
       drawCard(isSelected);
 
-      // Orb icon
-      const orbImg = push(this.add.image(cx - ITEM_W/2 + 22*S, cy, orbKey)
-        .setDisplaySize(32*S, 32*S).setDepth(D+3));
+      // Orb icon (giữ đúng tỷ lệ cho orb có cánh Lv2)
+      const orbSrc = this.textures.exists(orbKey) ? this.textures.get(orbKey).getSourceImage() : null;
+      const maxBox = lv >= 2 ? 38 * S : 32 * S;
+      const orbScale = orbSrc ? Math.min(maxBox / orbSrc.width, maxBox / orbSrc.height) : 0.4 * S;
+      push(this.add.image(cx - ITEM_W/2 + 22*S, cy, orbKey)
+        .setScale(orbScale).setDepth(D+3));
 
-      // Ô số + giá
-      push(this.add.text(cx + 4*S, cy - 14*S, `Ô ${cellIndex}`,
-        { fontFamily:"Signika", fontSize:Math.floor(13*S)+"px", color:"#ffffff" }
+      // Ô số + Cấp + Giá bán
+      push(this.add.text(cx + 8*S, cy - 15*S, `Ô ${cellIndex} • Lv.${lv}`,
+        { fontFamily:"Signika", fontSize:Math.floor(12*S)+"px", color: lv >= 2 ? "#ffe066" : "#ffffff" }
       ).setOrigin(0.5).setDepth(D+3));
-      push(this.add.text(cx + 4*S, cy + 8*S, `+${this._formatMoney(sellPrice)}`,
+      push(this.add.text(cx + 8*S, cy + 9*S, `+${this._formatMoney(sellPrice)}`,
         { fontFamily:"Signika", fontSize:Math.floor(13*S)+"px", color:"#ffdd44", fontStyle:"bold" }
       ).setOrigin(0.5).setDepth(D+3));
 
@@ -4669,7 +5315,7 @@ this.input.keyboard.on("keydown-Y", () => {
     let invested = 0;
     Object.values(this.cellStates).forEach(cell => {
       if (cell.owner_user_id === userId) {
-        invested += (cell.build_cost || 0);
+        invested += (cell.total_invested ?? cell.build_cost ?? 0);
       }
     });
     return invested;
@@ -4779,21 +5425,25 @@ this.input.keyboard.on("keydown-Y", () => {
     const shell = { D, addObj: (o) => { this._buildPanelObjs.push(o); return o; } };
     const push  = (o) => shell.addObj(o);
 
+    const mode      = data.mode || "build"; // "build" | "upgrade" | "buyout"
+    const targetLv  = Math.max(1, Math.min(2, Number(data.target_level || 1)));
+    const curLv     = Number(data.current_level || 0);
+    const canAfford = data.can_afford !== false;
+
     // ── Màu đồng bộ theo planet_color của người chơi ────────────────
     const orbHex   = this._planetColorToHex(data.planet_color);
-    const orbKey   = this._hexToOrbKey(orbHex);
-    // Tạo màu nền tối từ orbHex (trộn với đen)
+    const orbKey   = this._hexToOrbKey(orbHex, targetLv);
     const r0 = ((orbHex >> 16) & 0xff), g0 = ((orbHex >> 8) & 0xff), b0 = (orbHex & 0xff);
     const bgDark  = ((Math.floor(r0 * 0.18) << 16) | (Math.floor(g0 * 0.18) << 8) | Math.floor(b0 * 0.18));
     const bgMid   = ((Math.floor(r0 * 0.12) << 16) | (Math.floor(g0 * 0.12) << 8) | Math.floor(b0 * 0.12));
-    const borderC = orbHex;
+    const borderC = mode === "upgrade" ? 0xffd700 : mode === "buyout" ? 0xc084fc : orbHex;
     const borderI = ((Math.floor(r0 * 0.6 + 255 * 0.4) << 16) | (Math.floor(g0 * 0.6 + 255 * 0.4) << 8) | Math.floor(b0 * 0.6 + 255 * 0.4));
 
-    // ── Kích thước panel nằm dưới màn hình ──────────────────────────
-    const PW  = Math.min(width * 0.88, 560 * S);
-    const PH  = 340 * S;
+    // ── Kích thước panel ────────────────────────────────────────────
+    const PW  = Math.min(width * 0.90, 580 * S);
+    const PH  = 375 * S;
     const PCX = width / 2;
-    const PCY = height - PH / 2 - 180 * S;
+    const PCY = height - PH / 2 - 165 * S;
     const RAD = 24 * S;
 
     // ── Overlay tối map ──────────────────────────────────────────────
@@ -4801,32 +5451,28 @@ this.input.keyboard.on("keydown-Y", () => {
 
     // ── Nền panel màu đồng bộ planet_color ──────────────────────────
     const panelG = push(this.add.graphics().setDepth(D + 1));
-    // Bóng đổ
     panelG.fillStyle(0x000000, 0.45);
     panelG.fillRoundedRect(PCX - PW/2 + 5*S, PCY - PH/2 + 7*S, PW, PH, RAD);
-    // Nền màu đồng bộ planet_color — transparent 0.80
-    panelG.fillStyle(bgDark, 0.80);
+    panelG.fillStyle(bgDark, 0.84);
     panelG.fillRoundedRect(PCX - PW/2, PCY - PH/2, PW, PH, RAD);
-    // Lớp sáng nhẹ phía trên
-    panelG.fillStyle(bgMid, 0.28);
+    panelG.fillStyle(bgMid, 0.30);
     panelG.fillRoundedRect(PCX - PW/2, PCY - PH/2, PW, PH * 0.42, RAD);
-    // Viền ngoài màu planet
     panelG.lineStyle(3*S, borderC, 1);
     panelG.strokeRoundedRect(PCX - PW/2, PCY - PH/2, PW, PH, RAD);
-    // Viền trong mờ
     panelG.lineStyle(1.5*S, borderI, 0.22);
     panelG.strokeRoundedRect(PCX - PW/2 + 5*S, PCY - PH/2 + 5*S, PW - 10*S, PH - 10*S, RAD - 3*S);
 
     // ── Layout grid từ trên xuống ────────────────────────────────────
     const TOP        = PCY - PH/2;
-    const PAD        = 20 * S;
+    const PAD        = 18 * S;
     const ROW_TIMER  = TOP + 7*S;
     const ROW_TITLE  = TOP + PAD + 20*S;
-    const ROW_ORB    = TOP + PH * 0.44;
-    const ROW_PRICE  = TOP + PH * 0.73;
-    const ROW_BTN    = TOP + PH - PAD - 20*S;
+    const ROW_ORB    = TOP + PH * 0.38;
+    const ROW_PRICE  = TOP + PH * 0.63;
+    const ROW_RENT   = TOP + PH * 0.74;
+    const ROW_BTN    = TOP + PH - PAD - 22*S;
 
-    // ── Timer bar — sát mép trên, chừa chỗ nút X ────────────────────
+    // ── Timer bar ────────────────────────────────────────────────────
     const TIMER_SECS = 12;
     const TBAR_W = PW - 56*S;
     const TBAR_H = 7 * S;
@@ -4864,18 +5510,27 @@ this.input.keyboard.on("keydown-Y", () => {
       }
     });
 
-    // ── Tiêu đề pill ─────────────────────────────────────────────────
+    // ── Tiêu đề pill theo mode & cấp ────────────────────────────────
+    let titleStr = "ĐẶT TINH CẦU • LV.1";
+    if (mode === "upgrade") {
+      titleStr = "NÂNG CẤP TINH CẦU • LV.2";
+    } else if (mode === "buyout") {
+      titleStr = `THÂU TÓM NHÀ • LV.${curLv}`;
+    }
+
     const titleY = ROW_TITLE;
     const tc1 = ((Math.floor(r0 * 0.45 + 20) << 16) | (Math.floor(g0 * 0.45 + 10) << 8) | Math.floor(b0 * 0.45 + 30));
     const titleBg = push(this.add.graphics().setDepth(D + 2));
+    const pillW = Math.min(PW - 80*S, 310*S);
     titleBg.fillStyle(tc1, 1);
-    titleBg.fillRoundedRect(PCX - 115*S, titleY - 16*S, 230*S, 32*S, 16*S);
-    titleBg.lineStyle(2*S, borderI, 0.8);
-    titleBg.strokeRoundedRect(PCX - 115*S, titleY - 16*S, 230*S, 32*S, 16*S);
+    titleBg.fillRoundedRect(PCX - pillW/2, titleY - 16*S, pillW, 32*S, 16*S);
+    titleBg.lineStyle(2*S, borderC, 0.9);
+    titleBg.strokeRoundedRect(PCX - pillW/2, titleY - 16*S, pillW, 32*S, 16*S);
 
-    push(this.add.text(PCX, titleY, "ĐẶT TINH CẦU", {
-      fontFamily: "Signika", fontSize: Math.floor(18*S) + "px",
-      color: "#ffffff", fontStyle: "bold",
+    push(this.add.text(PCX, titleY, titleStr, {
+      fontFamily: "Signika", fontSize: Math.floor(17*S) + "px",
+      color: mode === "upgrade" ? "#ffe066" : "#ffffff",
+      fontStyle: "bold",
       stroke: "#00000055", strokeThickness: 2,
       shadow: { offsetX: 0, offsetY: 1, color: "#00000077", blur: 4, fill: true }
     }).setOrigin(0.5).setDepth(D + 3));
@@ -4913,31 +5568,40 @@ this.input.keyboard.on("keydown-Y", () => {
       });
     }
 
-    // ── Orb trung tâm phát sáng ──────────────────────────────────────
+    // ── Orb trung tâm phát sáng (dùng orb có cánh khi Lv >= 2) ────────
     const ORB_CX = PCX;
     const ORB_CY = ROW_ORB;
     const ORB_SIZE = 90*S;
 
-    // Vòng hào quang — vẽ tĩnh, chỉ pulse alpha (không scale để tránh tạo hình tròn tối)
     const aura2 = push(this.add.graphics().setDepth(D + 2));
-    aura2.fillStyle(orbHex, 0.18);
-    aura2.fillCircle(ORB_CX, ORB_CY, ORB_SIZE * 0.62);
+    aura2.fillStyle(targetLv >= 2 ? 0xffd700 : orbHex, targetLv >= 2 ? 0.22 : 0.18);
+    aura2.fillCircle(ORB_CX, ORB_CY, ORB_SIZE * 0.65);
     this.tweens.add({ targets: aura2, alpha: { from: 0.9, to: 0.3 }, duration: 1100, repeat: -1, yoyo: true, ease: "Sine.easeInOut" });
 
     const aura1 = push(this.add.graphics().setDepth(D + 3));
-    aura1.fillStyle(0xffffff, 0.10);
+    aura1.fillStyle(0xffffff, 0.12);
     aura1.fillCircle(ORB_CX, ORB_CY, ORB_SIZE * 0.50);
     this.tweens.add({ targets: aura1, alpha: { from: 0.4, to: 0.9 }, duration: 900, repeat: -1, yoyo: true, ease: "Sine.easeInOut" });
 
-    // Bóng đổ orb — float cùng orb
-    const orbShadow = push(this.add.ellipse(ORB_CX, ORB_CY + ORB_SIZE * 0.46, ORB_SIZE * 0.65, ORB_SIZE * 0.16, orbHex, 0.28).setDepth(D + 2));
+    const orbShadow = push(this.add.ellipse(ORB_CX, ORB_CY + ORB_SIZE * 0.46, ORB_SIZE * 0.72, ORB_SIZE * 0.16, targetLv >= 2 ? 0xffd700 : orbHex, 0.30).setDepth(D + 2));
 
-    // Orb image — float nhẹ lên xuống 4px
+    const texSrc = this.textures.exists(orbKey) ? this.textures.get(orbKey).getSourceImage() : null;
+    const orbDispW = targetLv >= 2 ? 148 * S : ORB_SIZE;
+    const orbAspect = texSrc ? (texSrc.height / texSrc.width) : 1;
     const orbImg = push(this.add.image(ORB_CX, ORB_CY, orbKey)
-      .setDisplaySize(ORB_SIZE, ORB_SIZE).setDepth(D + 4));
+      .setDisplaySize(orbDispW, orbDispW * orbAspect).setDepth(D + 4));
 
-    // Float tất cả cùng nhau — dùng offset tương đối đúng cách
     const floatObjs = [aura1, aura2, orbShadow, orbImg];
+    if (targetLv >= 2) {
+      const crownBadge = push(this.add.text(ORB_CX, ORB_CY - 46*S, "🪽 TỐI ĐA • MIỄN THÂU TÓM", {
+        fontFamily: "Signika", fontSize: Math.floor(11*S) + "px",
+        color: "#ffe066", fontStyle: "bold",
+        backgroundColor: "#0c4a6ecc", padding: { left: 6, right: 6, top: 2, bottom: 2 },
+        stroke: "#000000", strokeThickness: 2
+      }).setOrigin(0.5).setDepth(D + 5));
+      floatObjs.push(crownBadge);
+    }
+
     const floatBase = floatObjs.map(o => o.y);
     let floatDir = -1, floatY = 0;
     this.time.addEvent({
@@ -4952,13 +5616,12 @@ this.input.keyboard.on("keydown-Y", () => {
     });
 
     // ── Giá + vị trí căn giữa, cùng font, thẳng hàng ───────────────
-    const INFO_Y    = ROW_PRICE - 10*S;
-    const COIN_SIZE = 36*S;
-    const INFO_FONT = Math.floor(22*S) + "px";
+    const INFO_Y    = ROW_PRICE;
+    const COIN_SIZE = 32*S;
+    const INFO_FONT = Math.floor(20*S) + "px";
     const priceStr  = this._formatMoney(data.build_cost);
     const locStr    = `Vị Trí: Ô ${data.cell_index}`;
 
-    // Đo width thực để căn giữa chính xác
     const _tp = this.add.text(0, -9999, priceStr, { fontFamily: "Signika", fontSize: INFO_FONT, fontStyle: "bold" });
     const _tl = this.add.text(0, -9999, locStr,   { fontFamily: "Signika", fontSize: INFO_FONT, fontStyle: "bold" });
     const priceW = _tp.width, locW = _tl.width;
@@ -4968,17 +5631,14 @@ this.input.keyboard.on("keydown-Y", () => {
     const totalInfoW = COIN_SIZE + 6*S + priceW + SEP + locW;
     const iX         = PCX - totalInfoW / 2;
 
-    // Coin icon — căn giữa dọc với text
     push(this.add.image(iX + COIN_SIZE/2, INFO_Y, "coin")
       .setDisplaySize(COIN_SIZE, COIN_SIZE).setDepth(D + 3));
-    // 25K
     push(this.add.text(iX + COIN_SIZE + 6*S, INFO_Y, priceStr, {
       fontFamily: "Signika", fontSize: INFO_FONT,
-      color: "#ffffff", fontStyle: "bold",
+      color: canAfford ? "#ffffff" : "#ff6666", fontStyle: "bold",
       stroke: "#3a1a0088", strokeThickness: 2,
       shadow: { offsetX: 0, offsetY: 1, color: "#00000088", blur: 3, fill: true }
     }).setOrigin(0, 0.5).setDepth(D + 3));
-    // Vị trí — cùng font, cùng màu vàng, thẳng hàng
     push(this.add.text(iX + COIN_SIZE + 6*S + priceW + SEP, INFO_Y, locStr, {
       fontFamily: "Signika", fontSize: INFO_FONT,
       color: "#ffffff", fontStyle: "bold",
@@ -4986,14 +5646,48 @@ this.input.keyboard.on("keydown-Y", () => {
       shadow: { offsetX: 0, offsetY: 1, color: "#00000088", blur: 3, fill: true }
     }).setOrigin(0, 0.5).setDepth(D + 3));
 
-    // ── Nút MUA / BỎ QUA — nhỏ hơn ─────────────────────────────────
-    const BTN_W = 120*S, BTN_H = 40*S;
+    // ── Dòng preview tiền thuê & combo chuỗi ─────────────────────────
+    let rentSubStr = "";
+    const nextRentStr = this._formatMoney(data.next_rent || 0);
+    const curRentStr  = this._formatMoney(data.current_rent || 0);
+    const comboStr    = Number(data.combo_bonus || 0) > 0 ? ` • 🔗 Chuỗi +${data.combo_bonus}%` : "";
+    if (mode === "upgrade") {
+      rentSubStr = `Tiền thuê: ${curRentStr} → ${nextRentStr}${comboStr}`;
+    } else if (mode === "buyout") {
+      rentSubStr = `Mua lại từ ${data.owner_name || "đối thủ"} • Thuê mới: ${nextRentStr}${comboStr}`;
+    } else {
+      rentSubStr = `Tiền thuê Cấp 1: ${nextRentStr}/lượt${comboStr}`;
+    }
+    push(this.add.text(PCX, ROW_RENT, rentSubStr, {
+      fontFamily: "Signika", fontSize: Math.floor(14*S) + "px",
+      color: Number(data.combo_bonus || 0) > 0 ? "#fde047" : "#bae6fd",
+      fontStyle: "bold",
+      stroke: "#000000cc", strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(D + 3));
+
+    // ── Nút hành động / BỎ QUA ──────────────────────────────────────
+    const BTN_W = 140*S, BTN_H = 40*S;
     const BTN_Y = ROW_BTN;
     const BTN_GAP = 16*S;
     const BTN_BUY_X  = PCX - BTN_W/2 - BTN_GAP/2;
     const BTN_SKIP_X = PCX + BTN_W/2 + BTN_GAP/2;
 
-    this._buildModalBtn(shell, BTN_BUY_X,  BTN_Y, BTN_W, BTN_H, 0x22cc55, 0x118833, "MUA", () => {
+    const actionLabel = !canAfford
+      ? "KHÔNG ĐỦ TIỀN"
+      : mode === "upgrade"
+      ? "NÂNG CẤP"
+      : mode === "buyout"
+      ? "THÂU TÓM"
+      : "MUA";
+
+    const btnC1 = !canAfford ? 0x555555 : mode === "buyout" ? 0x9333ea : mode === "upgrade" ? 0xf59e0b : 0x22cc55;
+    const btnC2 = !canAfford ? 0x333333 : mode === "buyout" ? 0x6b21a8 : mode === "upgrade" ? 0xb45309 : 0x118833;
+
+    this._buildModalBtn(shell, BTN_BUY_X, BTN_Y, BTN_W, BTN_H, btnC1, btnC2, actionLabel, () => {
+      if (!canAfford) {
+        this._showToast("❌ Không đủ tiền mặt!", "#ff5555", 1600);
+        return;
+      }
       if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
       this.socket.emit("game:build_response", { room_id: this.gameRoomId, cell_index: data.cell_index, accept: true });
       this._closeBuildPanel();
@@ -5089,17 +5783,18 @@ this.input.keyboard.on("keydown-Y", () => {
     shell.addObj(zone);
   }
     
-  // Render lại tất cả orb từ cellStates (dùng khi reconnect)
+  // Render lại tất cả orb từ cellStates (dùng khi reconnect / state_sync)
   _renderAllCells(cellStates) {
     if (!cellStates) return;
     Object.entries(cellStates).forEach(([idx, data]) => {
       const cell = this.boardPath[Number(idx)];
       if (cell && cell.type !== 'skill') {
         const hex = this._planetColorToHex(data.planet_color);
-        console.log(`[renderAllCells] ô ${idx}: planet_color=${data.planet_color} → hex=0x${hex.toString(16)}`);
-        this.paintCellGlowAnimated(cell, hex);
+        const lv  = Math.max(1, Math.min(2, Number(data.level || 1)));
+        this.paintCellGlowAnimated(cell, hex, lv);
       }
     });
+    this._refreshAllCellComboBadges();
   }
   
   _showToast(message, color = "#ffffff", duration = 2500) {
@@ -5147,8 +5842,11 @@ this.input.keyboard.on("keydown-Y", () => {
     return { red: 0xff2233, blue: 0x2266ff, purple: 0x9933ff, orange: 0xff7700 }[color] || 0x2266ff;
   }
   
-  _hexToOrbKey(hex) {
-    return { 0xff7700: "orb_orange", 0xff2233: "orb_red", 0x2266ff: "orb_blue", 0x9933ff: "orb_purple" }[hex] || "orb_blue";
+  _hexToOrbKey(hex, level = 1) {
+    const suffix = Number(level) >= 2 ? "2" : "";
+    const base = { 0xff7700: "orb_orange", 0xff2233: "orb_red", 0x2266ff: "orb_blue", 0x9933ff: "orb_purple" }[hex] || "orb_blue";
+    const key = base + suffix;
+    return this.textures.exists(key) ? key : base;
   }
   
   _formatMoney(amount) {

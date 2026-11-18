@@ -331,6 +331,27 @@ export default class RoomScene extends Phaser.Scene {
     });
 
     // ── Yêu cầu đổi chỗ (người nhận thấy popup) ────────────────────
+    this.registry.set("currentRoomId", this.roomData?.id || null);
+
+    this.socket.on("room:join_requested", (data) => {
+      this._showConfirm(
+        "Xin Vào Phòng",
+        `${data.requester_name || "Người chơi"} muốn xin vào phòng của bạn`,
+        () => {
+          this.socket.emit("room:respond_join_request", {
+            room_id: data.room_id, requester_id: data.requester_id, accept: true
+          });
+        },
+        () => {
+          this.socket.emit("room:respond_join_request", {
+            room_id: data.room_id, requester_id: data.requester_id, accept: false
+          });
+        }
+      );
+    });
+    this.socket.on("room:invite_sent",  (d) => this._showNotice?.(d?.message || "Đã gửi lời mời!"));
+    this.socket.on("room:invite_error", (d) => this._showNotice?.(d?.message || "Không gửi được lời mời!"));
+
     this.socket.on("room:swap_request", (data) => {
       const { from_socket_id, from_name } = data;
 
@@ -800,7 +821,7 @@ export default class RoomScene extends Phaser.Scene {
     z1.on("pointerout",   () => drawBtn(g1, btn1Y, 0x22aa44, 0x44cc66, false));
     z1.on("pointerdown",  () => {
       this.tweens.add({ targets: g1, alpha: 0.65, duration: 60, yoyo: true });
-      // TODO: mở modal mời bạn
+      this._openInviteFriendModal();
     });
 
     // Zone nút 2: Đổi chỗ
@@ -1775,7 +1796,90 @@ export default class RoomScene extends Phaser.Scene {
     allObjs.push(noZone);
   }
 
+  _showNotice(msg) {
+    const { width } = this.scale;
+    const t = this.add.text(width / 2, 100, msg, {
+      fontFamily: "Signika", fontSize: "16px", color: "#ffe066", fontStyle: "bold",
+      stroke: "#000000", strokeThickness: 4, backgroundColor: "#000000aa", padding: { x: 14, y: 8 },
+    }).setOrigin(0.5).setDepth(700);
+    this.time.delayedCall(2200, () => { try { t.destroy(); } catch (e) {} });
+  }
+
+  _openInviteFriendModal() {
+    if (this._inviteModalObjs?.length) return;
+    const { width, height } = this.scale;
+    const D = 500;
+    const objs = [];
+    this._inviteModalObjs = objs;
+    const push = (o) => { objs.push(o); return o; };
+    const close = () => {
+      objs.forEach(o => { try { o.destroy(); } catch (e) {} });
+      this._inviteModalObjs = [];
+      this.socket?.off("friend:list", onList);
+    };
+
+    push(this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.55).setDepth(D).setInteractive());
+    const PW = 460, PH = 420;
+    const px = width / 2 - PW / 2, py = height / 2 - PH / 2;
+
+    const g = push(this.add.graphics().setDepth(D + 1));
+    g.fillStyle(0xf6eac6, 1); g.fillRoundedRect(px, py, PW, PH, 18);
+    g.lineStyle(3, 0x8b5e1a, 1); g.strokeRoundedRect(px, py, PW, PH, 18);
+
+    push(this.add.text(width / 2, py + 28, "MỜI BẠN BÈ VÀO PHÒNG", {
+      fontFamily: "Signika", fontSize: "20px", color: "#4a2000", fontStyle: "bold",
+    }).setOrigin(0.5).setDepth(D + 2));
+
+    const closeTxt = push(this.add.text(px + PW - 24, py + 24, "✕", {
+      fontFamily: "Signika", fontSize: "22px", color: "#b02020", fontStyle: "bold",
+    }).setOrigin(0.5).setDepth(D + 3).setInteractive({ cursor: "pointer" }));
+    closeTxt.on("pointerup", close);
+
+    const statusTxt = push(this.add.text(width / 2, height / 2, "Đang tải danh sách bạn bè...", {
+      fontFamily: "Signika", fontSize: "15px", color: "#6b4a1a",
+    }).setOrigin(0.5).setDepth(D + 2));
+
+    const onList = (res) => {
+      if (!this._inviteModalObjs?.length) return;
+      const arr = Array.isArray(res) ? res : (res?.friends || []);
+      const list = arr.filter(f => f.online && !f.in_game && !f.in_room);
+      if (!list.length) {
+        statusTxt.setText("Không có bạn bè nào đang rảnh trực tuyến.");
+        return;
+      }
+      statusTxt.setVisible(false);
+      list.slice(0, 5).forEach((f, i) => {
+        const ry = py + 82 + i * 62;
+        const rowG = push(this.add.graphics().setDepth(D + 2));
+        rowG.fillStyle(0xffffff, 0.7); rowG.fillRoundedRect(px + 20, ry - 24, PW - 40, 52, 10);
+        rowG.lineStyle(1, 0xc8a060, 0.5); rowG.strokeRoundedRect(px + 20, ry - 24, PW - 40, 52, 10);
+
+        push(this.add.text(px + 34, ry, f.name || f.username || "Bạn", {
+          fontFamily: "Signika", fontSize: "16px", color: "#3a1a00", fontStyle: "bold",
+        }).setOrigin(0, 0.5).setDepth(D + 3));
+
+        const bx = px + PW - 76;
+        const bg = push(this.add.graphics().setDepth(D + 3));
+        bg.fillGradientStyle(0x22aa44, 0x22aa44, 0x117722, 0x117722, 1);
+        bg.fillRoundedRect(bx - 42, ry - 17, 84, 34, 17);
+        const bt = push(this.add.text(bx, ry, "Mời", {
+          fontFamily: "Signika", fontSize: "14px", color: "#ffffff", fontStyle: "bold",
+        }).setOrigin(0.5).setDepth(D + 4));
+        const bz = push(this.add.zone(bx, ry, 84, 34).setDepth(D + 5).setInteractive({ cursor: "pointer" }));
+        bz.on("pointerup", () => {
+          this.socket.emit("room:invite", { to_id: f.friend_uid ?? f.id, room_id: this.roomData.id });
+          bt.setText("Đã mời");
+          bz.disableInteractive();
+        });
+      });
+    };
+
+    this.socket?.once("friend:list", onList);
+    this.socket?.emit("friend:list");
+  }
+
   shutdown() {
+    this.registry.set("currentRoomId", null);
     this._chatWidget?.destroy();
     this._chatWidget = null;
     this._profilePanel?.destroy();

@@ -2,6 +2,7 @@
 import { SERVER_URL } from "../config.js";
 import { setupClickSound, playTabSound, playOutSound, playUseSound } from "../utils/clickSound.js";
 import { createLoadingOverlay } from "../utils/loadingOverlay.js";
+import { loadCharSkills, findCharSkill, renderCharSkillBox } from "../utils/charSkillCard.js";
 
 export default class BagScene extends Phaser.Scene {
     constructor() {
@@ -64,7 +65,8 @@ export default class BagScene extends Phaser.Scene {
         // ── Loading overlay: hiện ngay để che khoảng trống khi fetch data ──
         const loading = createLoadingOverlay(this);
 
-        await this.loadAllAssets();
+        const [, skills] = await Promise.all([this.loadAllAssets(), loadCharSkills()]);
+        this._charSkills = skills;
 
         loading.destroy();
 
@@ -548,60 +550,45 @@ export default class BagScene extends Phaser.Scene {
         } else {
             const displayName = currentChar?.name || "Chưa chọn";
             const desc = currentChar?.description || currentChar?.desc || null;
+            const skill = findCharSkill(this._charSkills, currentChar?.character_id || currentChar?.id, currentChar?.name);
             const isCurrentActive = currentChar && Number(currentChar.is_active_character) === 1;
 
-            // Tính tổng chiều cao khối nội dung để căn giữa dọc
-            // tên(~28) + divider(10+1+10) + label(~18) + skinName(~22) + [desc: divider+text] + [btn: 44]
-            const hasDesc = !!desc;
-            const hasBtn  = !isCurrentActive;
-            let blockH = 28 + 21 + 18 + 22; // tên + divider + label + skinName
-            if (hasDesc) blockH += 10 + 1 + 10 + 40; // divider + desc (~2 dòng)
-            if (hasBtn)  blockH += 16 + 44; // gap + btn
-            const blockTop = infoCY - blockH / 2;
-
-            let cy = blockTop;
+            const hasBtn = !isCurrentActive;
+            let cy = infoY + 4;
 
             push(this.add.text(leftCX, cy, displayName, {
-                fontFamily: "Signika", fontSize: "20px", color: "#5c3300", fontStyle: "bold",
+                fontFamily: "Signika", fontSize: "19px", color: "#5c3300", fontStyle: "bold",
                 stroke: "#f5dfa0", strokeThickness: 2,
             }).setOrigin(0.5, 0).setDepth(5));
-            cy += 28;
+            cy += 26;
 
             const dg = push(this.add.graphics().setDepth(5));
             dg.lineStyle(1.5, 0xc8a060, 0.6);
-            dg.lineBetween(leftCX - LEFT_W / 2 + 20, cy + 10, leftCX + LEFT_W / 2 - 20, cy + 10);
-            cy += 21;
+            dg.lineBetween(leftCX - LEFT_W / 2 + 20, cy + 4, leftCX + LEFT_W / 2 - 20, cy + 4);
+            cy += 11;
 
             const activeSkinNum = this.selectedSkinNum || currentChar?.active_skin_number || 1;
             const skinLabelMap  = { 1: "Sơ cấp", 2: "Trung cấp", 3: "Cao cấp" };
 
-            push(this.add.text(leftCX, cy, "✦  Trang phục đang mặc:", {
-                fontFamily: "Signika", fontSize: "13px", color: "#8b5e1a",
-            }).setOrigin(0.5, 0).setDepth(5));
-            cy += 18;
-
-            push(this.add.text(leftCX, cy, skinLabelMap[activeSkinNum] || `Skin ${activeSkinNum}`, {
-                fontFamily: "Signika", fontSize: "17px", color: "#4a2000", fontStyle: "bold",
+            push(this.add.text(leftCX, cy, `✦  Trang phục: ${skinLabelMap[activeSkinNum] || `Skin ${activeSkinNum}`}`, {
+                fontFamily: "Signika", fontSize: "13px", color: "#6b3e00", fontStyle: "bold",
             }).setOrigin(0.5, 0).setDepth(5));
             cy += 22;
 
-            if (hasDesc) {
-                const dg2 = push(this.add.graphics().setDepth(5));
-                dg2.lineStyle(1, 0xc8a060, 0.35);
-                dg2.lineBetween(leftCX - LEFT_W / 2 + 28, cy + 10, leftCX + LEFT_W / 2 - 28, cy + 10);
-                cy += 21;
-
+            if (skill) {
+                const boxH = renderCharSkillBox(this, push, leftCX, cy, LEFT_W - 44, skill);
+                cy += boxH + 10;
+            } else if (desc) {
                 push(this.add.text(leftCX, cy, desc, {
                     fontFamily: "Signika", fontSize: "12px", color: "#6b4a1a",
-                    align: "center",
-                    wordWrap: { width: LEFT_W - 52 },
+                    align: "center", wordWrap: { width: LEFT_W - 52 },
                 }).setOrigin(0.5, 0).setDepth(5));
-                cy += 40;
+                cy += 44;
             }
 
             if (hasBtn) {
-                cy += 16;
-                this._buildActionBtn(leftCX, cy + 22, 200, 44,
+                const btnY = Math.min(infoBot - 22, cy + 22);
+                this._buildActionBtn(leftCX, btnY, 200, 42,
                     "⚔️ Trang Bị", 0xd4a030, 0x8a5e10,
                     async () => {
                         if (this.playerUserId && this.selectedCharId) {

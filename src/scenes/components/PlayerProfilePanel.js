@@ -318,21 +318,45 @@ export default class PlayerProfilePanel {
 
     const hasChar = player.character_name && player.character_name !== "Unknown" && player.skin_id;
     if (hasChar) {
-      const fk = `${player.character_name}_${player.skin_id}_idle_000`;
-      if (this.scene.textures.exists(fk)) {
-        const ak = `${player.character_name}_${player.skin_id}_idle`;
+      const charN = String(player.character_name).replace(/ /g, "_");
+      const skinN = player.skin_id || 1;
+      const fk = `${charN}_${skinN}_idle_000`;
+      if (this.scene.textures.exists(fk) && this.scene.textures.get(fk).key !== '__MISSING') {
+        const ak = `${charN}_${skinN}_idle`;
         const sz = Math.min(width, height) * 0.85;
         const sp = push(this.scene.add.sprite(cx, cy + 2, fk).setDisplaySize(sz, sz).setDepth(depth + 1));
         if (this.scene.anims.exists(ak)) sp.play(ak);
         this._avatarSprite = sp;
         return;
       }
+      // Lazy-load sprite nhân vật nếu scene hiện tại (như LobbyScene) chưa load sẵn
+      this._loadAndShowAvatar(charN, skinN, cx, cy, width, height, depth);
+      return;
     }
-    const sz  = Math.min(width, height) * 0.7;
-    const img = push(this.scene.add.image(cx, cy, "avatar_default")
-      .setDisplaySize(sz, sz).setAlpha(0.7).setDepth(depth));
-    this._avatarSprite = img;
-    this.scene.tweens?.add({ targets: img, y: cy - 8, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    if (this.scene.textures.exists("avatar_default")) {
+      const sz  = Math.min(width, height) * 0.7;
+      const img = push(this.scene.add.image(cx, cy, "avatar_default")
+        .setDisplaySize(sz, sz).setAlpha(0.7).setDepth(depth));
+      this._avatarSprite = img;
+      this.scene.tweens?.add({ targets: img, y: cy - 8, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    }
+  }
+
+  _loadAndShowAvatar(charName, skinId, cx, cy, width, height, depth) {
+    const fk = `${charName}_${skinId}_idle_000`;
+    const path = `./assets/characters/${charName}/${charName}_${skinId}/PNG/PNG Sequences/Idle/0_${charName}_Idle_000.png`;
+    const show = () => {
+      if (!this._open || !this.scene.textures.exists(fk)) return;
+      if (this._avatarSprite) { try { this._avatarSprite.destroy(); } catch(e){} }
+      const sz = Math.min(width, height) * 0.85;
+      const sp = this.scene.add.sprite(cx, cy + 2, fk).setDisplaySize(sz, sz).setDepth(depth + 1);
+      this._objs.push(sp);
+      this._avatarSprite = sp;
+    };
+    if (this.scene.textures.exists(fk)) { show(); return; }
+    this.scene.load.once(`filecomplete-image-${fk}`, show);
+    this.scene.load.image(fk, path);
+    if (!this.scene.load.isLoading()) this.scene.load.start();
   }
 
   _updateStats(data) {
@@ -447,6 +471,11 @@ export default class PlayerProfilePanel {
       console.log("[Profile] bg_id:", data.active_bg_id, "| bg_path:", data.active_bg_path);
       if (data.friend_status === "pending_sent" || data.friend_status === "accepted") {
         this._setFriendIconGrayscale?.();
+      }
+      // Lazy-load nhân vật từ server result nếu ban đầu player chưa có skin/char
+      if (data.character_name && data.character_name !== "Unknown" && this._avatarParams && !this._avatarSprite) {
+        const { cx, cy, width, height, depth } = this._avatarParams;
+        this._loadAndShowAvatar(String(data.character_name).replace(/ /g, "_"), data.skin_id || 1, cx, cy, width, height, depth);
       }
       // Load bg nếu có và chưa được render
       if (data.active_bg_id && data.active_bg_path && this._avatarParams) {

@@ -819,13 +819,18 @@ export default class FriendPanel {
       this._buildImgIconBtn(btn1X, midY, iconSize, "fr_chat", D, null, true);
     }
 
-    // Nút Mời phòng — chỉ active khi bạn online và không trong trận/phòng
+    // Nút Mời phòng (khi bạn rảnh) hoặc Xin vào phòng (khi bạn đang ở trong phòng chờ)
     if (friend.online && !friend.in_game && !friend.in_room) {
       this._buildImgIconBtn(btn2X, midY, iconSize, "fr_join", D, () => {
         const roomId = this.scene.registry.get("currentRoomId");
         if (!roomId) { this.scene._showToast?.("Bạn chưa ở trong phòng nào!"); return; }
         this.socket?.emit("room:invite", { to_id: friend.friend_uid ?? friend.id, room_id: roomId });
         this.scene._showToast?.(`Đã mời ${friend.name} vào phòng!`);
+      });
+    } else if (friend.online && friend.in_room && !friend.in_game) {
+      this._buildImgIconBtn(btn2X, midY, iconSize, "fr_join", D, () => {
+        this.socket?.emit("room:request_join", { friend_id: friend.friend_uid ?? friend.id });
+        this.scene._showToast?.(`Đã gửi yêu cầu xin vào phòng của ${friend.name}!`);
       });
     } else {
       this._buildImgIconBtn(btn2X, midY, iconSize, "fr_join", D, null, true);
