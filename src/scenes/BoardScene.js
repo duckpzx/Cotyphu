@@ -13,7 +13,8 @@ import {
   playBoardIncreaseSound, playBoardTeacherSound, playBoardSkillSound,
   playBoardBGM, playBoardAnswerSound, playBoardCoinSound, playBoardDiceSound,
   playBoardStartSound, startFootstepSound, stopFootstepSound,
-  setupClickSound
+  setupClickSound,
+  isMusicEnabled, isSoundEnabled, setMusicEnabled, setSoundEnabled
 } from "../utils/clickSound.js";
 
 export default class BoardScene extends Phaser.Scene {
@@ -900,6 +901,16 @@ _closeTarotModal() { this.tarotModal?.close(); }
 
     this.socket.on("game:skill_event", (data) => {
       const isMe = data.user_id === this._myUserId();
+
+      // Hiệu ứng vòng tròn ánh sáng & hạt sao khi bốc trúng ô Cơ Hội (Ô 9) / Thầy Giáo (Ô 18)
+      const chanceTypes = new Set([
+        "move_plus_1", "move_plus_2", "move_plus_3", "extra_roll", "free_rent",
+        "bonus_money", "steal_money", "buff_random_cell", "walk_to_cell",
+        "teleport_safe_cell", "downgrade_enemy_cell", "send_enemy_back", "swap_positions"
+      ]);
+      if (chanceTypes.has(data?.type)) {
+        this._playChanceCellFX(data.user_id, data.type);
+      }
 
       // ================== MOVE STEPS ==================
       if (data.type === "move_plus_1" || data.type === "move_plus_2" || data.type === "move_plus_3") {
@@ -2081,14 +2092,15 @@ this.socket.on("game:tarot_denied", (data) => {
     const { width, height } = this.scale;
     if (this._darkOverlay) this._darkOverlay.destroy();
 
-    // Depth = 3000 để che hầu hết mọi thứ
-    this._darkOverlay = this.add.rectangle(width / 2, height / 2, width, height, 0x010101, 0)
-      .setDepth(3000);
+    // Dùng fillAlpha = 1 kết hợp setAlpha(0) rồi tween alpha để Phaser render đúng độ tối
+    this._darkOverlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 1)
+      .setDepth(3000)
+      .setAlpha(0);
 
     this.tweens.add({
       targets: this._darkOverlay,
-      alpha: 0.96,
-      duration: 500,
+      alpha: 0.62,
+      duration: 450,
       ease: 'Power2'
     });
   }
@@ -2422,6 +2434,79 @@ this.socket.on("game:tarot_denied", (data) => {
     this._quizObjs = [];
   }
 
+  _playChanceCellFX(userId, eventType) {
+    const S = this.minRatio || 1;
+    const isTeacherEvent = ["downgrade_enemy_cell", "send_enemy_back", "swap_positions"].includes(eventType);
+    const fallbackCell = this.boardPath?.[isTeacherEvent ? 18 : 9];
+    const pos = this._getPlayerPosByUid?.(userId) || (fallbackCell ? {
+      x: fallbackCell.x * this.scale.width,
+      y: fallbackCell.y * this.scale.height
+    } : null);
+    if (!pos) return;
+
+    const mainCol = isTeacherEvent ? 0x38bdf8 : 0xfacc15;
+    const subCol  = isTeacherEvent ? 0x818cf8 : 0xfb923c;
+
+    // 2 vòng tròn ma thuật đồng tâm nở bung dưới chân
+    [0, 140].forEach((delay, idx) => {
+      const ring = this.add.ellipse(pos.x, pos.y + 4 * S, 46 * S, 22 * S, mainCol, idx === 0 ? 0.22 : 0.12)
+        .setStrokeStyle(3.5 * S, idx === 0 ? 0xfff3b0 : subCol, 0.95)
+        .setDepth(35)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: ring,
+        scaleX: idx === 0 ? 2.6 : 3.2,
+        scaleY: idx === 0 ? 2.6 : 3.2,
+        alpha: 0,
+        duration: 680,
+        delay,
+        ease: "Cubic.easeOut",
+        onComplete: () => { try { ring.destroy(); } catch (e) {} }
+      });
+    });
+
+    // Chùm hạt sao ánh sáng vàng/xanh bay lên từ vòng tròn
+    for (let i = 0; i < 14; i++) {
+      const ang = (Math.PI * 2 * i) / 14;
+      const dist = (26 + Math.random() * 24) * S;
+      const px = pos.x + Math.cos(ang) * 14 * S;
+      const py = pos.y + Math.sin(ang) * 7 * S;
+      const dot = this.add.circle(px, py, (2.5 + Math.random() * 2.5) * S, i % 2 === 0 ? 0xfff3b0 : mainCol, 0.95)
+        .setDepth(36)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: dot,
+        x: pos.x + Math.cos(ang) * dist,
+        y: py - (45 + Math.random() * 45) * S,
+        alpha: 0,
+        scaleX: 0.2,
+        scaleY: 0.2,
+        duration: 650 + Math.random() * 250,
+        ease: "Sine.easeOut",
+        onComplete: () => { try { dot.destroy(); } catch (e) {} }
+      });
+    }
+
+    // Nhún nhẹ rương kho báu (Ô 9) nếu đứng ở ô cơ hội
+    if (!isTeacherEvent && this.treasure?.active) {
+      this.tweens.add({
+        targets: this.treasure,
+        scaleX: this.treasure.scaleX * 1.18,
+        scaleY: this.treasure.scaleY * 1.18,
+        duration: 180,
+        yoyo: true,
+        ease: "Back.easeOut"
+      });
+    }
+
+    this._playFloatingBadge?.(
+      pos.x,
+      pos.y - 72 * S,
+      isTeacherEvent ? "🎓 KỸ NĂNG THẦY GIÁO!" : "🎁 BỐC THĂM CƠ HỘI!",
+      isTeacherEvent ? "#7dd3fc" : "#fde047"
+    );
+  }
+
   _showSkillPanel({ title, text, icon }) {
     const { width, height } = this.scale;
     const S = this.minRatio;
@@ -2713,17 +2798,20 @@ this.socket.on("game:tarot_denied", (data) => {
 
     for (let i = 0; i < 18; i++) {
       const num = String(i).padStart(3, "0");
-      this.load.image(`Fantasy_Monster_1_idle_${num}`,
-        `./assets/characters/Fantasy_Hunter/Hunter/PNG/PNG Sequences/Idle Blinking/0_Hunter_Idle Blinking_${num}.png`);
       this.load.image(`Fantasy_Teacher_idle_${num}`,
         `./assets/characters/Fantasy_Teacher/Sage/PNG/PNG Sequences/Idle Blinking/0_Sage_Idle Blinking_${num}.png`);
     }
 
-    // Hunter greeting animation for cell 28 event
+    // Quái vật ô 28: Devil Leader (Idle Blinking 16 frames + Attacking 10 frames)
+    for (let i = 0; i < 16; i++) {
+      const num = String(i).padStart(3, "0");
+      this.load.image(`Fantasy_Monster_1_idle_${num}`,
+        `./assets/characters/Fantasy_Monster/Devil Leader/PNG/PNG Sequences/Front - Idle Blinking/Front - Idle Blinking_${num}.png`);
+    }
     for (let i = 0; i < 10; i++) {
       const num = String(i).padStart(3, "0");
       this.load.image(`Hunter_Greeting_${num}`,
-        `./assets/characters/Fantasy_Hunter/Hunter/PNG/PNG Sequences/Greeting/0_Hunter_Greeting_${num}.png`);
+        `./assets/characters/Fantasy_Monster/Devil Leader/PNG/PNG Sequences/Front - Attacking/Front - Attacking_${num}.png`);
     }
 
     this.load.image("treasure",     "./assets/characters/Fantasy_Treasure/PNG/without background/47.png");
@@ -2762,6 +2850,13 @@ this.socket.on("game:tarot_denied", (data) => {
 
     this.load.image("card_slot_small", "./assets/ui/tarot/card.png");
     this.load.image("chat_btn",        "./assets/ui/lobby/chat.png");
+<<<<<<< HEAD
+    this.load.image("add_friend",      "./assets/ui/shared/friend.png");
+    this.load.image("icon_setting",    "./assets/ui/shared/setting.png");
+    this.load.image("icon_sound",      "./assets/ui/shared/sound.png");
+    this.load.image("icon_music",      "./assets/ui/shared/music.png");
+=======
+>>>>>>> parent of d9bda5a (Commit - mới)
     for (let i = 1; i <= 10; i++) {
       const lv = getTarotLevel(this, i);
       if (prepareLevelTexture(this, `tarot_${i}`, lv)) {
@@ -2794,7 +2889,7 @@ this.socket.on("game:tarot_denied", (data) => {
   createBloodyAnimation() {
     if (!this.anims.exists("Bloody_Alchemist_1_idle")) {
       const idleFrames = [];
-      for (let i = 0; i < 18; i++)
+      for (let i = 0; i < 16; i++)
         idleFrames.push({ key: `Fantasy_Monster_1_idle_${String(i).padStart(3,"0")}` });
       this.anims.create({ key:"Bloody_Alchemist_1_idle", frames:idleFrames, frameRate:12, repeat:-1 });
     }
@@ -3518,17 +3613,19 @@ this.input.keyboard.on("keydown-Y", () => {
 });
 
 
-    // NPC: Hunter tại ô 28
+    // NPC: Devil Leader tại ô 28
     const c28 = this.boardPath[28];
-    const hx=c28.x*(width+7), hy=c28.y*(height-32);
+    const hx = c28.x * width;
+    const tileY = c28.y * height + 2 * minRatio;
+    const hy = tileY + 25 * minRatio;
     this.bloody = this.add.sprite(hx, hy, "Fantasy_Monster_1_idle_000")
-      .setScale(0.13).setOrigin(0.5,0.8).setDepth(6).setFlipX(true);
-    this.bloodyBaseScale = 0.13;
+      .setScale(0.315 * minRatio).setOrigin(0.5, 0.85).setDepth(6);
+    this.bloodyBaseScale = 0.315 * minRatio;
     this.bloodyBaseDepth = 6;
     this.bloody.play("Bloody_Alchemist_1_idle");
-    this.createCharacterAura(hx,hy,minRatio,[0x4a6cff,0x4a6cff,0x2f4fd1,0x4a6cff,0x6688ff,0x1b2f75],0x050816);
-    this.createLightningAura(hx, hy+18*minRatio, minRatio);
-    this.add.ellipse(hx, hy+19*minRatio, 35*minRatio, 16*minRatio, 0x000000, 0.35).setDepth(5);
+    this.createCharacterAura(hx, tileY - 10 * minRatio, minRatio,[0x4a6cff,0x4a6cff,0x2f4fd1,0x4a6cff,0x6688ff,0x1b2f75],0x050816);
+    this.createLightningAura(hx, tileY, minRatio);
+    this.add.ellipse(hx, tileY, 44*minRatio, 18*minRatio, 0x000000, 0.35).setDepth(5);
 
     // NPC: Teacher tại ô 18
     const c18 = this.boardPath[18];
@@ -4351,7 +4448,7 @@ this.input.keyboard.on("keydown-Y", () => {
       }
 
       const highlight = this.add.circle(cx, cy, 50 * this.minRatio, 0xff0000, 0.6)
-          .setDepth(155)
+          .setDepth(3050)
           .setBlendMode(Phaser.BlendModes.ADD);
 
       this.tweens.add({
@@ -4509,7 +4606,7 @@ this.input.keyboard.on("keydown-Y", () => {
     for (let i = 0; i < 8; i++) {
       const angle = (i / 8) * Math.PI * 2;
       const spark = this.add.circle(x, y, 3 * S, 0xffdd44, 0.9)
-        .setDepth(166)
+        .setDepth(3155)
         .setBlendMode(Phaser.BlendModes.ADD);
 
       this.tweens.add({
@@ -5411,7 +5508,7 @@ this.input.keyboard.on("keydown-Y", () => {
   _showBuildPanel(data) {
     const { width, height } = this.scale;
     const S = this.minRatio;
-    const D = 220;
+    const D = 3050; // Cao hơn _darkOverlay (3000) để panel luôn sáng nổi bật trên nền tối
 
     if (this._buildPanelObjs) {
       this._buildPanelObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
@@ -5909,7 +6006,92 @@ this.input.keyboard.on("keydown-Y", () => {
     icon.on("pointerdown",  () => this._toggleGameChatPanel(width, height));
 
     this._gameChatBtnObjs = [bgG, icon, label];
+
+    // ── Nút Cài Đặt Âm Thanh / Nhạc Nền ngay phía trên nút Chat ──────────
+    if (this.textures.exists("icon_setting")) {
+      const gearX = 36;
+      const gearY = centerY - bgH / 2 - 36;
+      const gearBtn = this.add.image(gearX, gearY, "icon_setting")
+        .setDisplaySize(50, 50)
+        .setDepth(D + 2)
+        .setInteractive({ useHandCursor: true });
+      gearBtn.on("pointerover", () => gearBtn.setTint(0xddddff));
+      gearBtn.on("pointerout",  () => gearBtn.clearTint());
+      gearBtn.on("pointerdown", () => this._toggleBoardSettingsBar(gearX, gearY));
+      this._gameChatBtnObjs.push(gearBtn);
+    }
     this._gameChatPanelOpen = false;
+  }
+
+  _toggleBoardSettingsBar(gearX, gearY) {
+    if (this._boardSettingsBar) {
+      this._boardSettingsBar.forEach(o => { try { o?.destroy(); } catch (e) {} });
+      this._boardSettingsBar = null;
+      return;
+    }
+
+    const ICON_SIZE = 44;
+    const GAP = 10;
+    const PAD = 8;
+    const D = 250;
+    const barW = PAD * 2 + ICON_SIZE * 2 + GAP;
+    const barH = ICON_SIZE + PAD * 2;
+    const barX = gearX + 32;
+    const barY = gearY - barH / 2;
+
+    const objs = [];
+    const push = (o) => { objs.push(o); return o; };
+
+    const bg = push(this.add.graphics().setDepth(D));
+    bg.fillStyle(0x0b172e, 0.92);
+    bg.fillRoundedRect(barX, barY, barW, barH, barH / 2);
+    bg.lineStyle(1.5, 0x38bdf8, 0.75);
+    bg.strokeRoundedRect(barX, barY, barW, barH, barH / 2);
+
+    ["icon_sound", "icon_music"].forEach((key, i) => {
+      const ix = barX + PAD + ICON_SIZE / 2 + i * (ICON_SIZE + GAP);
+      const iy = gearY;
+      const isMusicBtn = key === "icon_music";
+      const img = push(this.add.image(ix, iy, key)
+        .setDisplaySize(ICON_SIZE, ICON_SIZE)
+        .setDepth(D + 1)
+        .setInteractive({ useHandCursor: true }));
+
+      const badgeG = push(this.add.graphics().setDepth(D + 2));
+      const badgeTxt = push(this.add.text(ix + 13, iy + 13, "×", {
+        fontFamily: "Signika", fontSize: "13px", color: "#ffffff", fontStyle: "bold"
+      }).setOrigin(0.5).setDepth(D + 3).setVisible(false));
+
+      const drawState = () => {
+        const active = isMusicBtn ? isMusicEnabled() : isSoundEnabled();
+        badgeG.clear();
+        if (active) {
+          img.clearTint();
+          img.setAlpha(1);
+          badgeTxt.setVisible(false);
+        } else {
+          img.setTint(0x7c8aa0);
+          img.setAlpha(0.55);
+          const bx = ix + 13, by = iy + 13, br = 8;
+          badgeG.fillStyle(0x000000, 0.35);
+          badgeG.fillCircle(bx + 1, by + 1.5, br);
+          badgeG.fillStyle(0xef4444, 1);
+          badgeG.fillCircle(bx, by, br);
+          badgeG.lineStyle(1.6, 0xffffff, 0.95);
+          badgeG.strokeCircle(bx, by, br);
+          badgeTxt.setPosition(bx, by - 0.5).setVisible(true);
+        }
+      };
+      drawState();
+
+      img.on("pointerdown", () => {
+        if (isMusicBtn) setMusicEnabled(this, !isMusicEnabled());
+        else setSoundEnabled(this, !isSoundEnabled());
+        drawState();
+      });
+    });
+
+    this._boardSettingsBar = objs;
   }
 
   _toggleGameChatPanel(width, height) {

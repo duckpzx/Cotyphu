@@ -28,6 +28,27 @@ export default class CharSkillWidget {
 
     this._pos = { bx, by, bw, bh, S, D };
 
+<<<<<<< HEAD
+    // ── Khung & Icon Nội tại (phía trên) ──
+    this._passiveFrameG = sc.add.graphics().setDepth(D);
+    this._passiveIconImg = sc.add.image(bx, py, "skill_icon_28")
+      .setDisplaySize(pSize - 6 * S, pSize - 6 * S)
+      .setDepth(D + 1)
+      .setVisible(false);
+    this._passiveDimOverlay = sc.add.graphics().setDepth(D + 2);
+    this._passiveCdTxt = sc.add.text(bx, py, "", {
+      fontFamily: "Signika", fontSize: Math.max(14, Math.floor(18 * S)) + "px",
+      color: "#38e8ff", fontStyle: "bold", stroke: "#000000", strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(D + 3).setVisible(false);
+    this._passiveZone = sc.add.zone(bx, py, pSize + 8 * S, pSize + 8 * S)
+      .setDepth(D + 4).setInteractive({ cursor: "pointer" });
+    this._passiveZone.on("pointerover", () => this._showTooltip("passive"));
+    this._passiveZone.on("pointerout",  () => this._hideTooltip());
+    this._passiveZone.on("pointerup",   () => this._onPassivePress());
+
+    // ── Khung & Icon Kỹ năng Nộ (ở giữa, bấm để dùng) ──
+=======
+>>>>>>> parent of d9bda5a (Commit - mới)
     this._btnG = sc.add.graphics().setDepth(D);
     this._barG = sc.add.graphics().setDepth(D + 1);
 
@@ -97,6 +118,58 @@ export default class CharSkillWidget {
     const maxE = Number(this.myState.max_energy || 100);
     const ready = energy >= maxE && !this.myState.used_skill_this_turn && sc.isMyTurn && sc.canRoll;
 
+<<<<<<< HEAD
+    // ── Icon Nội tại / Kỹ năng phụ (nhỏ phía trên, bấm để kích hoạt) ──
+    const pIconId = PASSIVE_ICON_MAP[skill?.passive_type] || 28;
+    const pKey = `skill_icon_${pIconId}`;
+    const pCd = Number(this.myState.passive_cooldown_left || 0);
+    const pActive = Number(this.myState.passive_active_turns || 0);
+    const pReady = pCd <= 0 && pActive <= 0 && sc.isMyTurn && sc.canRoll;
+
+    if (sc.textures.exists(pKey)) {
+      this._passiveIconImg.setTexture(pKey)
+        .setDisplaySize(pSize - 6 * S, pSize - 6 * S)
+        .setVisible(true);
+    }
+    const pg = this._passiveFrameG;
+    pg.clear();
+    pg.fillStyle(0x000000, 0.45);
+    pg.fillRoundedRect(bx - pSize / 2 + 2, py - pSize / 2 + 3, pSize, pSize, 10 * S);
+    pg.fillStyle(0x0f172a, 0.9);
+    pg.fillRoundedRect(bx - pSize / 2, py - pSize / 2, pSize, pSize, 10 * S);
+    const pBorderCol = pActive > 0 ? 0xfacc15 : pReady ? 0x38bdf8 : 0x64748b;
+    pg.lineStyle((pActive > 0 || pReady ? 2.5 : 2) * S, pBorderCol, 0.95);
+    pg.strokeRoundedRect(bx - pSize / 2, py - pSize / 2, pSize, pSize, 10 * S);
+
+    const pDim = this._passiveDimOverlay;
+    if (pDim) {
+      pDim.clear();
+      if (pCd > 0) {
+        pDim.fillStyle(0x000000, 0.62);
+        pDim.fillRoundedRect(bx - pSize / 2 + 2 * S, py - pSize / 2 + 2 * S, pSize - 4 * S, pSize - 4 * S, 8 * S);
+        this._passiveCdTxt?.setText(String(pCd)).setColor("#38e8ff").setVisible(true);
+      } else if (pActive > 0) {
+        this._passiveCdTxt?.setText("BẬT").setColor("#fde047").setVisible(true);
+      } else {
+        if (!pReady) {
+          pDim.fillStyle(0x000000, 0.35);
+          pDim.fillRoundedRect(bx - pSize / 2 + 2 * S, py - pSize / 2 + 2 * S, pSize - 4 * S, pSize - 4 * S, 8 * S);
+        }
+        this._passiveCdTxt?.setVisible(false);
+      }
+    }
+
+    // ── Icon Kỹ năng Nộ (lớn ở dưới) ──
+    const aIconId = ACTIVE_ICON_MAP[skill?.active_type] || 47;
+    const aKey = `skill_icon_${aIconId}`;
+    if (sc.textures.exists(aKey)) {
+      this._activeIconImg.setTexture(aKey)
+        .setDisplaySize(bw - 8 * S, bh - 8 * S)
+        .setVisible(true);
+    }
+
+=======
+>>>>>>> parent of d9bda5a (Commit - mới)
     const g = this._btnG;
     g.clear();
     g.fillStyle(0x000000, 0.35);
@@ -147,9 +220,44 @@ export default class CharSkillWidget {
     const skill = this.myState?.skill;
     if (!skill) return;
     const sc = this.scene;
+<<<<<<< HEAD
+    const { bx, by, bw, py, S, D } = this._pos;
+    const energy = Number(this.myState.energy || 0);
+    const maxE = Number(this.myState.max_energy || 100);
+    const ready = energy >= maxE && !this.myState.used_skill_this_turn && sc.isMyTurn && sc.canRoll;
+
+    const tw = Math.round(340 * S);
+    const padX = Math.round(14 * S);
+    const padY = Math.round(12 * S);
+
+    const pCd = Number(this.myState.passive_cooldown_left || 0);
+    const pActive = Number(this.myState.passive_active_turns || 0);
+    const passiveStatus = pActive > 0
+      ? `🔥 Đang bật (còn ${pActive} lượt)`
+      : pCd > 0
+      ? `⏳ Hồi chiêu: ${pCd} lượt`
+      : "⚡ Nhấn để bật (2 lượt)";
+    const statusLine = ready
+      ? "✅ Đủ Nộ — Nhấn để kích hoạt!"
+      : energy >= maxE
+      ? "⏳ Đủ Nộ — Chờ tới lượt tung xúc xắc"
+      : `⚡ Nộ: ${energy}/${maxE}`;
+
+    // Tạo text trước để đo chiều cao thực tế, tránh tràn khung
+    const txt = sc.add.text(0, 0,
+      `🛡 Nội tại — ${skill.passive_name} (${passiveStatus}):\n${skill.passive_desc}\n\n🔥 Nộ — ${skill.active_name} (${statusLine}):\n${skill.active_desc}`,
+      {
+        fontFamily: "Signika", fontSize: Math.max(11, Math.floor(13 * S)) + "px",
+        color: "#eef6ff", wordWrap: { width: tw - padX * 2 }, lineSpacing: 3,
+      }
+    ).setOrigin(0, 0).setDepth(D + 21);
+
+    const th = Math.max(Math.round(120 * S), Math.ceil(txt.height + padY * 2));
+=======
     const { bx, by, bw, S, D } = this._pos;
     const tw = Math.round(320 * S), th = Math.round(145 * S);
     // Mở tooltip sang bên trái nút kỹ năng để không bị tràn mép phải
+>>>>>>> parent of d9bda5a (Commit - mới)
     const tx = Math.max(tw / 2 + 12 * S, bx - bw / 2 - tw / 2 - 14 * S);
     const ty = Math.max(th / 2 + 12 * S, Math.min(sc.scale.height - th / 2 - 12 * S, by));
 
@@ -174,6 +282,17 @@ export default class CharSkillWidget {
     if (!this._tooltip) return;
     this._tooltip.forEach(o => { try { o.destroy(); } catch (e) {} });
     this._tooltip = null;
+  }
+
+  _onPassivePress() {
+    const sc = this.scene;
+    const st = this.myState;
+    if (!st?.skill) return;
+    if (!sc.isMyTurn || !sc.canRoll) return sc._showSkillToast?.("Chỉ bật kỹ năng trước khi tung xúc xắc!");
+    if ((st.passive_active_turns || 0) > 0) return sc._showSkillToast?.(`${st.skill.passive_name} đang được bật!`);
+    if ((st.passive_cooldown_left || 0) > 0) return sc._showSkillToast?.(`Đang hồi chiêu (còn ${st.passive_cooldown_left} lượt)!`);
+    const roomId = sc.gameRoomId ?? sc.room_id;
+    sc.socket?.emit("game:use_char_passive", { room_id: roomId });
   }
 
   _onPress() {

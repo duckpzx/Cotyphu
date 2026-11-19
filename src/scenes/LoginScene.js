@@ -1,5 +1,5 @@
 import { SERVER_URL } from "../config.js";
-import { setupClickSound } from "../utils/clickSound.js";
+import { setupClickSound, isMusicEnabled } from "../utils/clickSound.js";
 export default class LoginScene extends Phaser.Scene {
 
   constructor() {
@@ -192,7 +192,7 @@ export default class LoginScene extends Phaser.Scene {
     if (this.form) this.form.remove();
 
     // Play nhạc lobby ngay trong interaction context (user vừa click)
-    if (sceneName === "LobbyScene" && !this.sound.get("lobby_bgm")) {
+    if (sceneName === "LobbyScene" && isMusicEnabled() && !this.sound.get("lobby_bgm")) {
       try {
         const bgm = this.sound.add("lobby_bgm", { loop: true, volume: 0.56 });
         bgm.play();

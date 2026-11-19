@@ -2,7 +2,7 @@ import { getActiveProfile } from "../server/utils/playerData.js";
 import { SERVER_URL } from "../config.js";
 import ChatWidget from "./components/ChatWidget.js";
 import PlayerProfilePanel from "./components/PlayerProfilePanel.js";
-import { setupClickSound, playOutSound } from "../utils/clickSound.js";
+import { setupClickSound, playOutSound, isMusicEnabled, isSoundEnabled, setMusicEnabled, setSoundEnabled } from "../utils/clickSound.js";
 
 export default class RoomScene extends Phaser.Scene {
 
@@ -1164,16 +1164,48 @@ export default class RoomScene extends Phaser.Scene {
     icons.forEach((item, i) => {
       const ix = barX + PAD_X + i * (ICON_SIZE + GAP) + ICON_SIZE / 2;
       const iy = barY + barH / 2;
+      const isMusicBtn = item.key === "icon_music";
       const img = push(this.add.image(ix, iy, item.key)
         .setDisplaySize(ICON_SIZE, ICON_SIZE).setDepth(D + 1)
         .setInteractive({ useHandCursor: true, cursor: "pointer" }));
 
-      img.on("pointerover",  () => img.setTint(0xddddff));
-      img.on("pointerout",   () => img.clearTint());
+      const badgeG = push(this.add.graphics().setDepth(D + 2));
+      const badgeTxt = push(this.add.text(ix + 16, iy + 16, "×", {
+        fontFamily: "Signika", fontSize: "14px", color: "#ffffff", fontStyle: "bold"
+      }).setOrigin(0.5).setDepth(D + 3).setVisible(false));
+
+      const drawState = () => {
+        const active = isMusicBtn ? isMusicEnabled() : isSoundEnabled();
+        badgeG.clear();
+        if (active) {
+          img.clearTint();
+          img.setAlpha(1);
+          badgeTxt.setVisible(false);
+        } else {
+          img.setTint(0x7c8aa0);
+          img.setAlpha(0.55);
+          const bx = ix + 16, by = iy + 16, br = 9;
+          badgeG.fillStyle(0x000000, 0.35);
+          badgeG.fillCircle(bx + 1, by + 1.5, br);
+          badgeG.fillStyle(0xef4444, 1);
+          badgeG.fillCircle(bx, by, br);
+          badgeG.lineStyle(1.8, 0xffffff, 0.95);
+          badgeG.strokeCircle(bx, by, br);
+          badgeTxt.setPosition(bx, by - 0.5).setVisible(true);
+        }
+      };
+      drawState();
+
+      img.on("pointerover",  () => img.setAlpha(0.85));
+      img.on("pointerout",   () => drawState());
       img.on("pointerdown",  () => {
+        if (isMusicBtn) {
+          setMusicEnabled(this, !isMusicEnabled());
+        } else {
+          setSoundEnabled(this, !isSoundEnabled());
+        }
+        drawState();
         this.tweens.add({ targets: img, alpha: 0.5, duration: 60, yoyo: true });
-        img.setTint(0xffffff);
-        this.time.delayedCall(150, () => img.clearTint());
       });
     });
 

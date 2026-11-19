@@ -4,7 +4,7 @@ import ChatWidget from "./components/ChatWidget.js";
 import FriendPanel from "./components/FriendPanel.js";
 import { SERVER_URL } from "../config.js";
 import { tarotLevelKey, tarotImagePath } from "../utils/tarotLevel.js";
-import { setupClickSound, playTabSound, playOutSound } from "../utils/clickSound.js";
+import { setupClickSound, playTabSound, playOutSound, isMusicEnabled } from "../utils/clickSound.js";
 
 // ── Helper: chọn background theo giờ trong ngày ──────────────────
 // 5:00 → 19:00 = ban ngày (light), còn lại = ban đêm (dark)
@@ -59,8 +59,10 @@ export default class LobbyScene extends Phaser.Scene {
     // ── Nhạc nền sảnh ────────────────────────────────────────────
     // Lấy reference hoặc play lại nếu đã bị dừng (ví dụ sau khi thoát trận)
     this._bgm = this.sound.get("lobby_bgm") || null;
-    if (this._bgm && !this._bgm.isPlaying) {
+    if (this._bgm && !this._bgm.isPlaying && isMusicEnabled()) {
       this._bgm.play();
+    } else if (this._bgm && this._bgm.isPlaying && !isMusicEnabled()) {
+      this._bgm.stop();
     }
     setupClickSound(this);
 

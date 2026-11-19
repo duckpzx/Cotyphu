@@ -27,9 +27,25 @@ export default class RoomListScene extends Phaser.Scene {
     this.load.image("close",       "assets/ui/shared/close.png");
   }
 
+  _getRecommendedTabByEcoin() {
+    let playerData = this.registry.get("playerData");
+    if (!playerData) {
+      try { playerData = JSON.parse(localStorage.getItem("playerData") || "null"); } catch (e) {}
+    }
+    const ecoin = Number(playerData?.user?.ecoin ?? playerData?.ecoin ?? 0);
+    if (ecoin >= 5000000) return 3; // BẬC THẦY (5M)
+    if (ecoin >= 500000)  return 2; // CAO THỦ (500K - 1M)
+    if (ecoin >= 50000)   return 1; // TÂN THỦ (50K - 200K)
+    return 0;                       // PHỔ THÔNG (5K - 20K)
+  }
+
   create() {
     const { width, height } = this.scale;
     setupClickSound(this);
+
+    // Tự kiểm tra số tiền hiện có để ưu tiên chọn tab chế độ phù hợp
+    this.currentTab  = this._getRecommendedTabByEcoin();
+    this.currentPage = 0;
 
     // Khởi tạo rỗng, sẽ load từ API
     this.allRooms = [];

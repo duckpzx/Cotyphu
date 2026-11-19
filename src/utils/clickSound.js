@@ -1,7 +1,54 @@
 /**
- * clickSound — Helper phát âm thanh click toàn cục
+ * clickSound — Helper phát âm thanh & quản lý Bật/Tắt Nhạc nền / Âm thanh toàn cục
  * Gọi setupClickSound(scene) trong create() của mỗi scene
  */
+
+const LS_MUSIC_KEY = "setting_music_enabled";
+const LS_SOUND_KEY = "setting_sound_enabled";
+
+export function isMusicEnabled() {
+  try { return localStorage.getItem(LS_MUSIC_KEY) !== "0"; } catch (e) { return true; }
+}
+
+export function isSoundEnabled() {
+  try { return localStorage.getItem(LS_SOUND_KEY) !== "0"; } catch (e) { return true; }
+}
+
+export function setMusicEnabled(scene, enabled) {
+  try { localStorage.setItem(LS_MUSIC_KEY, enabled ? "1" : "0"); } catch (e) {}
+  try {
+    if (!scene?.sound) return;
+    const lobbyBgm = scene.sound.get("lobby_bgm");
+    const boardBgm = scene.sound.get("board_bgm");
+    if (!enabled) {
+      if (lobbyBgm?.isPlaying) lobbyBgm.stop();
+      if (boardBgm?.isPlaying) boardBgm.stop();
+    } else {
+      const key = scene.scene?.key;
+      if (key === "BoardScene") {
+        playBoardBGM(scene);
+      } else {
+        let bgm = lobbyBgm;
+        if (!bgm && scene.cache?.audio?.exists("lobby_bgm")) {
+          bgm = scene.sound.add("lobby_bgm", { loop: true, volume: 0.56 });
+        }
+        if (bgm && !bgm.isPlaying) bgm.play();
+      }
+    }
+  } catch (e) {}
+}
+
+export function setSoundEnabled(scene, enabled) {
+  try { localStorage.setItem(LS_SOUND_KEY, enabled ? "1" : "0"); } catch (e) {}
+  try {
+    if (!enabled && scene?.sound) {
+      ["board_footstep", "click_sfx", "click2_sfx", "out_sfx", "use_sfx", "buy_sfx"].forEach(k => {
+        const s = scene.sound.get(k);
+        if (s?.isPlaying) s.stop();
+      });
+    }
+  } catch (e) {}
+}
 
 export function setupClickSound(scene) {
   // Load nếu chưa có trong cache
@@ -16,7 +63,7 @@ export function setupClickSound(scene) {
 
 export function playTabSound(scene) {
   try {
-    if (!scene?.sound) return;
+    if (!scene?.sound || !isSoundEnabled()) return;
     if (!scene.cache.audio.exists("click2_sfx")) {
       scene.load.audio("click2_sfx", "assets/music/shared/click2.mp3");
       scene.load.once("complete", () => _playOnce(scene, "click2_sfx"));
@@ -29,7 +76,7 @@ export function playTabSound(scene) {
 
 export function playOutSound(scene) {
   try {
-    if (!scene?.sound) return;
+    if (!scene?.sound || !isSoundEnabled()) return;
     if (!scene.cache.audio.exists("out_sfx")) {
       scene.load.audio("out_sfx", "assets/music/shared/out.mp3");
       scene.load.once("complete", () => _playOnce(scene, "out_sfx"));
@@ -42,7 +89,7 @@ export function playOutSound(scene) {
 
 export function playUseSound(scene) {
   try {
-    if (!scene?.sound) return;
+    if (!scene?.sound || !isSoundEnabled()) return;
     if (!scene.cache.audio.exists("use_sfx")) {
       scene.load.audio("use_sfx", "assets/music/shared/use.mp3");
       scene.load.once("complete", () => _playOnce(scene, "use_sfx"));
@@ -55,7 +102,7 @@ export function playUseSound(scene) {
 
 export function playBuySound(scene) {
   try {
-    if (!scene?.sound) return;
+    if (!scene?.sound || !isSoundEnabled()) return;
     if (!scene.cache.audio.exists("buy_sfx")) {
       scene.load.audio("buy_sfx", "assets/music/shared/buy.mp3");
       scene.load.once("complete", () => _playOnce(scene, "buy_sfx"));
@@ -81,7 +128,7 @@ export function playBoardTarotSound(scene) {
 
 export function startFootstepSound(scene) {
   try {
-    if (!scene?.sound) return;
+    if (!scene?.sound || !isSoundEnabled()) return;
     // Dừng footstep cũ nếu có
     const existing = scene.sound.get("board_footstep");
     if (existing?.isPlaying) existing.stop();
@@ -143,10 +190,11 @@ export function playBoardCoinSound(scene) {
 
 export function playBoardBGM(scene) {
   try {
-    if (!scene?.sound) return;
+    if (!scene?.sound || !isMusicEnabled()) return;
     if (!scene.cache.audio.exists("board_bgm")) {
       scene.load.audio("board_bgm", "assets/music/board/game.mp3");
       scene.load.once("complete", () => {
+        if (!isMusicEnabled()) return;
         const bgm = scene.sound.add("board_bgm", { loop: true, volume: 0.44 });
         bgm.play();
       });
@@ -161,7 +209,7 @@ export function playBoardBGM(scene) {
 
 function _playBoardSound(scene, key, path) {
   try {
-    if (!scene?.sound) return;
+    if (!scene?.sound || !isSoundEnabled()) return;
     if (!scene.cache.audio.exists(key)) {
       scene.load.audio(key, path);
       scene.load.once("complete", () => _playOnce(scene, key, 1.0));
@@ -174,6 +222,7 @@ function _playBoardSound(scene, key, path) {
 
 function _playOnce(scene, key, volume = 1.0) {
   try {
+    if (!isSoundEnabled()) return;
     let sfx = scene.sound.get(key);
     if (!sfx) sfx = scene.sound.add(key, { volume });
     if (sfx && !sfx.isPlaying) sfx.play();
@@ -187,7 +236,7 @@ function _bindClick(scene) {
 
   scene.input.on("pointerdown", () => {
     try {
-      if (!scene.sound || !scene.scene.isActive()) return;
+      if (!scene.sound || !scene.scene.isActive() || !isSoundEnabled()) return;
       let sfx = scene.sound.get("click_sfx");
       if (!sfx) sfx = scene.sound.add("click_sfx", { volume: 0.9 });
       if (sfx && !sfx.isPlaying) sfx.play();

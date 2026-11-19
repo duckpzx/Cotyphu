@@ -813,6 +813,34 @@ function addCharEnergy(player, amount) {
   player.energy = Math.min(maxE, (Number(player.energy) || 0) + Number(amount || 0));
 }
 
+<<<<<<< HEAD
+const PASSIVE_COOLDOWN_TURNS = 3;
+
+function canTriggerPassive(player, passiveType) {
+  return (
+    player?.skill?.passive_type === passiveType &&
+    (Number(player.passive_active_turns) || 0) > 0
+  );
+}
+
+function triggerPassiveCooldown(gs, room_id, player, turns = PASSIVE_COOLDOWN_TURNS, message = null) {
+  if (!player) return;
+  player.passive_active_turns = 0;
+  player.passive_cooldown_left = turns;
+  if (message) {
+    io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:char_passive_triggered", {
+      user_id: player.user_id,
+      name: player.name,
+      passive_name: player.skill?.passive_name || "Kỹ năng phụ",
+      passive_cooldown_left: turns,
+      message,
+    });
+  }
+  emitCharSkillState(room_id);
+}
+
+=======
+>>>>>>> parent of d9bda5a (Commit - mới)
 function emitCharSkillState(room_id) {
   const gs = gameStates[room_id];
   if (!gs) return;
@@ -824,6 +852,11 @@ function emitCharSkillState(room_id) {
       energy: p.energy || 0,
       max_energy: p.skill?.energy_cost || 100,
       used_skill_this_turn: !!p.used_skill_this_turn,
+<<<<<<< HEAD
+      passive_cooldown_left: Number(p.passive_cooldown_left || 0),
+      passive_active_turns: Number(p.passive_active_turns || 0),
+=======
+>>>>>>> parent of d9bda5a (Commit - mới)
       skill: p.skill || null,
       dice_bias: p.dice_bias || null,
       rent_shield_turns: p.rent_shield_turns || 0,
@@ -895,7 +928,13 @@ async function initGameState(room_id, sockets, bet_ecoin = 5000, match_mode = "s
         soul_marked_by: null,
         soul_mark_turns: 0,
         soul_mark_percent: 0,
+<<<<<<< HEAD
+        revive_used: false,
+        passive_cooldown_left: 0,
+        passive_active_turns: 0
+=======
         revive_used: false
+>>>>>>> parent of d9bda5a (Commit - mới)
       };
     })
   );
@@ -1228,6 +1267,19 @@ function endTurn(room_id) {
     if (!next) return;
 
     resetTurnTarotFlags(next);
+<<<<<<< HEAD
+    if ((next.passive_active_turns || 0) > 0) {
+      next.passive_active_turns -= 1;
+      if (next.passive_active_turns <= 0) {
+        next.passive_active_turns = 0;
+        next.passive_cooldown_left = PASSIVE_COOLDOWN_TURNS;
+      }
+    } else if ((next.passive_cooldown_left || 0) > 0) {
+      next.passive_cooldown_left -= 1;
+    }
+    emitCharSkillState(room_id);
+=======
+>>>>>>> parent of d9bda5a (Commit - mới)
     tickProtectedCells(room_id);
 
     if ((next.skip_next_turn || 0) > 0) {
@@ -2150,6 +2202,51 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     });
 
     emitGameStateSync(rid);
+    emitCharSkillState(rid);
+  });
+
+  // ── KÍCH HOẠT CHỦ ĐỘNG KỸ NĂNG PHỤ (NỘI TẠI) ────────────────────────
+  socket.on("game:use_char_passive", ({ room_id }) => {
+    const rid = Number(room_id);
+    const gs = gameStates[rid];
+    if (!gs || gs.phase !== "IDLE") {
+      return socket.emit("game:char_skill_denied", { message: "Chỉ bật được trước khi tung xúc xắc!" });
+    }
+    const cur = getCurrentTurnPlayer(rid);
+    if (!cur || Number(cur.user_id) !== Number(socket.user_id)) {
+      return socket.emit("game:char_skill_denied", { message: "Chưa tới lượt của bạn!" });
+    }
+    const skill = cur.skill;
+    if (!skill?.passive_type) {
+      return socket.emit("game:char_skill_denied", { message: "Nhân vật không có kỹ năng này!" });
+    }
+    if ((cur.passive_active_turns || 0) > 0) {
+      return socket.emit("game:char_skill_denied", { message: `${skill.passive_name} đang được kích hoạt!` });
+    }
+    if ((cur.passive_cooldown_left || 0) > 0) {
+      return socket.emit("game:char_skill_denied", { message: `Đang hồi chiêu (còn ${cur.passive_cooldown_left} lượt)!` });
+    }
+
+    cur.passive_active_turns = 2;
+    if (skill.passive_type === "revive_cash_percent") {
+      const startingCash = (gs.bet_ecoin || 5000) * 20;
+      const threshold = Math.floor(startingCash * (skill.passive_value || 15) / 100);
+      if ((cur.cash || 0) < threshold && (cur.cash || 0) >= 0) {
+        cur.cash += threshold;
+        triggerPassiveCooldown(
+          gs, rid, cur, 4,
+          `${cur.name} kích hoạt ${skill.passive_name}: hồi +${threshold.toLocaleString()} tiền mặt (Hồi chiêu: 4 lượt)!`
+        );
+        return;
+      }
+    }
+
+    io.to(`room_${rid}`).to(`game_${rid}`).emit("game:char_passive_triggered", {
+      user_id: cur.user_id,
+      name: cur.name,
+      passive_name: skill.passive_name,
+      message: `${cur.name} đã bật ${skill.passive_name} (hiệu lực 2 lượt)!`,
+    });
     emitCharSkillState(rid);
   });
 

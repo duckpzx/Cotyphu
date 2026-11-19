@@ -79,6 +79,7 @@ export default class TarotModalSystem {
   }
 
   close() {
+    this._hideCardTooltip();
     this._cleanupTargetingListeners();
     this._objs.forEach(o => { try { o?.destroy?.(); } catch {} });
     this._objs   = [];
@@ -117,9 +118,9 @@ export default class TarotModalSystem {
     const _titlePlaceholder2 = push(sc.add.text(-9999, -9999, ""));
 
     // ── Layout thẻ — tính tổng chiều cao để căn giữa ────────────────────
-    const CARD_W  = 290 * S;
-    const CARD_H  = 400 * S;
-    const GAP     = 60 * S;
+    const CARD_W  = 240 * S;
+    const CARD_H  = 356 * S;
+    const GAP     = 54 * S;
     const TITLE_H = 80 * S;   // tiêu đề + subtitle
     const CLOSE_H = 60 * S;   // nút đóng
     const SPACING = 20 * S;   // khoảng cách giữa các phần
@@ -193,36 +194,13 @@ export default class TarotModalSystem {
     sc.tweens.add({ targets: bg, alpha: 1, duration: 280, delay, ease: 'Power2' });
     ui.bg = bg;
 
-    // Tên thẻ
-    const nameText = push(sc.add.text(cx, top + 26 * S,
-      card.name || `Thẻ ${card.id}`, {
-      fontFamily: "Signika", fontSize: Math.floor(20 * S) + "px",
-      color: onCooldown ? "#999999" : "#fff2bf", fontStyle: "bold",
-      align: "center", wordWrap: { width: CW - 28 * S },
-      stroke: "#000000", strokeThickness: 3
-    }).setOrigin(0.5, 0).setDepth(D + 5).setAlpha(0));
-    sc.tweens.add({ targets: nameText, alpha: 1, duration: 280, delay: delay + 60 });
-    ui.nameText = nameText;
-
     // Cấp thẻ chính xác (ưu tiên dữ liệu từ server, fallback playerData)
     const lv = card.level != null ? (Number(card.level) >= 2 ? 2 : 1) : getTarotLevel(sc, card.id);
 
-    // Badge cấp LV1 / LV2 góc trên phải thẻ
-    const lvBg = push(sc.add.graphics().setDepth(D + 6).setAlpha(0));
-    lvBg.fillStyle(lv >= 2 ? 0x8b2cf5 : 0x1585b8, 1);
-    lvBg.fillRoundedRect(left + CW - 54 * S, top + 12 * S, 44 * S, 20 * S, 8 * S);
-    lvBg.lineStyle(1.5 * S, lv >= 2 ? 0xffd55a : 0x99e6ff, 0.9);
-    lvBg.strokeRoundedRect(left + CW - 54 * S, top + 12 * S, 44 * S, 20 * S, 8 * S);
-    const lvTxt = push(sc.add.text(left + CW - 32 * S, top + 22 * S, `LV${lv}`, {
-      fontFamily: "Signika", fontSize: Math.floor(11 * S) + "px",
-      color: "#ffffff", fontStyle: "bold"
-    }).setOrigin(0.5).setDepth(D + 7).setAlpha(0));
-    sc.tweens.add({ targets: [lvBg, lvTxt], alpha: 1, duration: 280, delay: delay + 60 });
-
-    // Ảnh thẻ — luôn load đúng texture theo cấp LV1 / LV2
-    const IMG_AREA_W = CW * 0.78;
-    const IMG_AREA_H = CH * 0.46;
-    const IMG_CY     = top + CH * 0.22 + CH * 0.23; // giữa vùng ảnh
+    // Ảnh thẻ lớn — chiếm gần trọn khung (vì trên thẻ đã có tên thẻ)
+    const IMG_AREA_W = CW * 0.90;
+    const IMG_AREA_H = CH * 0.84;
+    const IMG_CY     = top + CH * 0.45;
     const lvlKey     = tarotLevelKey(card.id, lv, false);
     const fallbackKey = sc.textures.exists(lvlKey)
       ? lvlKey
@@ -234,12 +212,14 @@ export default class TarotModalSystem {
       .setDepth(D + 5).setAlpha(0)
       .setTint(onCooldown ? 0x555555 : 0xffffff));
 
+    let imgBaseScale = 1;
     const fitCardImage = (texKey) => {
       if (!img.scene || !sc.textures.exists(texKey)) return;
       img.setTexture(texKey);
       const nat = sc.textures.get(texKey).source[0];
       if (nat?.width && nat?.height) {
-        img.setScale(Math.min(IMG_AREA_W / nat.width, IMG_AREA_H / nat.height));
+        imgBaseScale = Math.min(IMG_AREA_W / nat.width, IMG_AREA_H / nat.height);
+        img.setScale(imgBaseScale);
       }
     };
 
@@ -255,28 +235,30 @@ export default class TarotModalSystem {
     }
     ui.img = img;
 
-    // Mô tả — căn giữa dọc trong phần còn lại
-    const descY = top + CH * 0.70;
-    const descText = push(sc.add.text(cx, descY,
-      card.description || "Không có mô tả", {
-      fontFamily: "Signika", fontSize: Math.floor(13 * S) + "px",
-      color: onCooldown ? "#777777" : "#dfe8ff",
-      align: "center", wordWrap: { width: CW - 32 * S }, lineSpacing: 3
-    }).setOrigin(0.5, 0).setDepth(D + 5).setAlpha(0));
-    sc.tweens.add({ targets: descText, alpha: 1, duration: 280, delay: delay + 100 });
+    // Badge cấp LV1 / LV2 góc trên phải thẻ
+    const lvBg = push(sc.add.graphics().setDepth(D + 6).setAlpha(0));
+    lvBg.fillStyle(lv >= 2 ? 0x8b2cf5 : 0x1585b8, 1);
+    lvBg.fillRoundedRect(left + CW - 50 * S, top + 8 * S, 42 * S, 19 * S, 8 * S);
+    lvBg.lineStyle(1.5 * S, lv >= 2 ? 0xffd55a : 0x99e6ff, 0.9);
+    lvBg.strokeRoundedRect(left + CW - 50 * S, top + 8 * S, 42 * S, 19 * S, 8 * S);
+    const lvTxt = push(sc.add.text(left + CW - 29 * S, top + 17.5 * S, `LV${lv}`, {
+      fontFamily: "Signika", fontSize: Math.floor(11 * S) + "px",
+      color: "#ffffff", fontStyle: "bold"
+    }).setOrigin(0.5).setDepth(D + 7).setAlpha(0));
+    sc.tweens.add({ targets: [lvBg, lvTxt], alpha: 1, duration: 280, delay: delay + 60 });
 
-    // Cooldown label
-    const cdText = push(sc.add.text(cx, top + CH - 52 * S,
+    // Cooldown label gọn ở mép dưới
+    const cdText = push(sc.add.text(cx, top + CH - 29 * S,
       onCooldown ? `⏳ Còn ${remaining} lần đổ` : `⚡ CD: ${card.cooldown_turns ?? card.cooldown_seconds ?? 0} lần`, {
-      fontFamily: "Signika", fontSize: Math.floor(14 * S) + "px",
+      fontFamily: "Signika", fontSize: Math.floor(13 * S) + "px",
       color: onCooldown ? "#ff9966" : "#ffe28a", fontStyle: "bold"
     }).setOrigin(0.5).setDepth(D + 5).setAlpha(0));
     sc.tweens.add({ targets: cdText, alpha: 1, duration: 280, delay: delay + 120 });
     ui.cdText = cdText;
 
     // Cooldown bar
-    const barW = CW - 32 * S, barH = 7 * S;
-    const barX = cx - barW / 2, barY = top + CH - 30 * S;
+    const barW = CW - 28 * S, barH = 6 * S;
+    const barX = cx - barW / 2, barY = top + CH - 15 * S;
     const barBg = push(sc.add.graphics().setDepth(D + 4).setAlpha(0));
     barBg.fillStyle(0x333333, 1);
     barBg.fillRoundedRect(barX, barY, barW, barH, barH / 2);
@@ -289,20 +271,26 @@ export default class TarotModalSystem {
     ui.barFill = barFill;
     ui.barX = barX; ui.barY = barY; ui.barW = barW; ui.barH = barH; ui.maxCd = maxCd;
 
-    // Click vào card để dùng thẻ (thay nút DÙNG THẺ)
-    if (!onCooldown && !usedThisTurn) {
-      const cardZone = push(sc.add.zone(cx, cy, CW, CH)
-        .setInteractive({ useHandCursor: true }).setDepth(D + 10));
-      cardZone.on("pointerover", () => {
-        bg.setAlpha(0.85);
-        sc.tweens.add({ targets: bg, scaleX: 1.03, scaleY: 1.03, duration: 100 });
-      });
-      cardZone.on("pointerout", () => {
-        bg.setAlpha(1);
-        sc.tweens.add({ targets: bg, scaleX: 1, scaleY: 1, duration: 100 });
-      });
+    // Zone tương tác: di chuột vào hiện chức năng thẻ, click để dùng nếu sẵn sàng
+    const canUse = !onCooldown && !usedThisTurn;
+    const cardZone = push(sc.add.zone(cx, cy, CW, CH)
+      .setInteractive({ useHandCursor: canUse }).setDepth(D + 10));
+    cardZone.on("pointerover", () => {
+      if (canUse) {
+        sc.tweens.add({ targets: img, scaleX: imgBaseScale * 1.05, scaleY: imgBaseScale * 1.05, duration: 110 });
+      }
+      this._showCardTooltip(card, lv, cx, cy, CW, CH, onCooldown, remaining, S, D);
+    });
+    cardZone.on("pointerout", () => {
+      if (canUse) {
+        sc.tweens.add({ targets: img, scaleX: imgBaseScale, scaleY: imgBaseScale, duration: 110 });
+      }
+      this._hideCardTooltip();
+    });
+    if (canUse) {
       cardZone.on("pointerdown", () => {
-        sc.tweens.add({ targets: bg, scaleX: 0.95, scaleY: 0.95, duration: 60, yoyo: true,
+        this._hideCardTooltip();
+        sc.tweens.add({ targets: img, scaleX: imgBaseScale * 0.94, scaleY: imgBaseScale * 0.94, duration: 60, yoyo: true,
           onComplete: () => this._useCard(card) });
       });
     }
@@ -325,25 +313,61 @@ export default class TarotModalSystem {
     return ui;
   }
 
+  _showCardTooltip(card, lv, cx, cy, CW, CH, onCooldown, remaining, S, D) {
+    this._hideCardTooltip();
+    const sc = this.scene;
+    const { width, height } = sc.scale;
+    const tw = Math.round(300 * S);
+    const padX = Math.round(14 * S);
+    const padY = Math.round(10 * S);
+
+    const cdLine = onCooldown
+      ? `⏳ Đang hồi chiêu: còn ${remaining} lần đổ`
+      : `⚡ Hồi chiêu: ${card.cooldown_turns ?? card.cooldown_seconds ?? 0} lần đổ`;
+
+    const txt = sc.add.text(0, 0,
+      `${card.name || `Thẻ ${card.id}`} (LV${lv})\n${card.description || "Không có mô tả"}\n${cdLine}`,
+      {
+        fontFamily: "Signika",
+        fontSize: Math.max(11, Math.floor(13.5 * S)) + "px",
+        color: "#f8fafc",
+        align: "center",
+        wordWrap: { width: tw - padX * 2 },
+        lineSpacing: 3,
+      }
+    ).setOrigin(0.5, 0).setDepth(D + 22);
+
+    const th = Math.ceil(txt.height + padY * 2);
+    const tx = Math.max(tw / 2 + 12 * S, Math.min(width - tw / 2 - 12 * S, cx));
+    // Ưu tiên hiện phía trên lá bài nếu đủ chỗ, hoặc ngay phía dưới
+    let ty = cy - CH / 2 - th / 2 - 10 * S;
+    if (ty - th / 2 < 10 * S) ty = Math.min(height - th / 2 - 10 * S, cy + CH / 2 + th / 2 + 10 * S);
+
+    txt.setPosition(tx, ty - th / 2 + padY);
+
+    const g = sc.add.graphics().setDepth(D + 21);
+    g.fillStyle(0x0b162c, 0.96);
+    g.fillRoundedRect(tx - tw / 2, ty - th / 2, tw, th, 12 * S);
+    g.lineStyle(2 * S, onCooldown ? 0xfb923c : 0xfacc15, 0.95);
+    g.strokeRoundedRect(tx - tw / 2, ty - th / 2, tw, th, 12 * S);
+
+    this._cardTooltipObjs = [g, txt];
+  }
+
+  _hideCardTooltip() {
+    if (!this._cardTooltipObjs) return;
+    this._cardTooltipObjs.forEach(o => { try { o?.destroy?.(); } catch {} });
+    this._cardTooltipObjs = [];
+  }
+
   _drawCardBg(g, left, top, CW, CH, RAD, onCooldown, S) {
     g.clear();
-    g.fillStyle(onCooldown ? 0x1a1a2e : 0x0d1b3e, 1);
+    g.fillStyle(onCooldown ? 0x1a1a2e : 0x0d1b3e, 0.95);
     g.fillRoundedRect(left, top, CW, CH, RAD);
-    g.fillStyle(onCooldown ? 0x333333 : 0x1a3a6e, 1);
-    g.fillRoundedRect(left, top, CW, CH * 0.18, RAD);
-    g.fillRect(left, top + CH * 0.12, CW, CH * 0.06);
-    g.fillStyle(0xffffff, onCooldown ? 0.04 : 0.10);
-    g.fillRoundedRect(left + 6 * S, top + 5 * S, CW - 12 * S, CH * 0.15, RAD - 4 * S);
-    g.lineStyle(3 * S, onCooldown ? 0x555555 : 0xf5c542, 1);
+    g.lineStyle(2.5 * S, onCooldown ? 0x555555 : 0xf5c542, 1);
     g.strokeRoundedRect(left, top, CW, CH, RAD);
-    g.lineStyle(1 * S, onCooldown ? 0x333333 : 0xc8901a, 0.5);
-    g.strokeRoundedRect(left + 5 * S, top + 5 * S, CW - 10 * S, CH - 10 * S, RAD - 3 * S);
-    if (!onCooldown) {
-      const cs = 12 * S;
-      [[left + 8*S, top + 8*S],[left+CW-8*S, top+8*S],[left+8*S, top+CH-8*S],[left+CW-8*S, top+CH-8*S]].forEach(([x,y]) => {
-        g.fillStyle(0xf5c542, 0.6); g.fillCircle(x, y, cs / 2);
-      });
-    }
+    g.lineStyle(1 * S, onCooldown ? 0x333333 : 0xc8901a, 0.45);
+    g.strokeRoundedRect(left + 4 * S, top + 4 * S, CW - 8 * S, CH - 8 * S, RAD - 3 * S);
   }
 
   _drawCdBar(g, barX, barY, barW, barH, pct, onCooldown) {

@@ -6,7 +6,7 @@
  *   "orb"     → Viền xoay cầu vồng energy orb
  *   "shimmer" → Nút pill ngang có ánh sáng quét
  */
-import { setupClickSound } from "../utils/clickSound.js";
+import { setupClickSound, isMusicEnabled } from "../utils/clickSound.js";
 
 // ── Helper: chọn background theo giờ trong ngày ──────────────────
 // 5:00 → 19:00 = ban ngày (light), còn lại = ban đêm (dark)
@@ -530,6 +530,7 @@ export default class SplashScene extends Phaser.Scene {
   }
 
   _playLobbyBgm() {
+    if (!isMusicEnabled()) return;
     if (!this.sound.get("lobby_bgm")) {
       try {
         const bgm = this.sound.add("lobby_bgm", { loop: true, volume: 0.56 });
