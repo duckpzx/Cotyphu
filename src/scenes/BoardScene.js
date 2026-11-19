@@ -7,7 +7,8 @@ import { SERVER_URL }    from "../config.js";
 import { getActiveProfile, getPlayerData } from "../server/utils/playerData.js";
 import { createLoadingOverlay } from "../utils/loadingOverlay.js";
 import { getTarotLevel, tarotImagePath, prepareLevelTexture, markLevelTexture, tarotLevelKey, ensureTarotLevelTexture } from "../utils/tarotLevel.js";
-import ChatWidget        from "./components/ChatWidget.js";
+import ChatWidget         from "./components/ChatWidget.js";
+import PlayerProfilePanel from "./components/PlayerProfilePanel.js";
 import {
   playBoardBuySound, playBoardErrSound, playBoardHunterSound,
   playBoardIncreaseSound, playBoardTeacherSound, playBoardSkillSound,
@@ -269,16 +270,36 @@ _closeTarotModal() { this.tarotModal?.close(); }
       } catch(e) {}
       playBoardBGM(this);
 
-      // Cập nhật tất cả badges thành "Sẵn sàng" rồi mới ẩn
+      // Phân biệt lần vào trận mới (chạy hiệu ứng Intro như video) vs reconnect / init lần 2
+      const isFirstFreshInit =
+        !this._isReconnecting &&
+        !this._introPlayedOnce &&
+        Number(data.turn_number || 1) <= 1 &&
+        Object.keys(this.cellStates || {}).length === 0;
+
+      // Cập nhật tất cả badges thành "Hoàn thành" + hiện huy hiệu thứ tự lượt 1st..4th
       if (this._loadingStatusTexts) {
-        data.players.forEach(p => {
+        data.players.forEach((p, idx) => {
           const entry = this._loadingStatusTexts[p.user_id];
-          if (entry?.drawStatus) entry.drawStatus("Sẵn sàng", 0x22aa55);
+          if (entry?.drawStatus) entry.drawStatus("Hoàn thành", 0x16a34a);
+          if (entry?.drawRankBadge) entry.drawRankBadge(p.turn_order || (idx + 1));
         });
       }
       this._loadingFallbackTimer && clearTimeout(this._loadingFallbackTimer);
       this._loadingFallbackTimer = null;
-      this._hideLoadingScreen();
+
+      if (isFirstFreshInit) {
+        this._introPlayedOnce = true;
+        this._isIntroRunning = true;
+        this._playMatchStartIntro(data.players);
+      } else if (!this._isIntroRunning) {
+        this._hideLoadingScreen();
+      }
+
+      if (this._isReconnecting && !this._gameChatHistoryFetched) {
+        this._gameChatHistoryFetched = true;
+        this.socket?.emit("chat:game:history:get");
+      }
 
       this.createPlayerPanels(this.minRatio);
       this._refreshPlayerPanelsFromGameState();
@@ -440,10 +461,12 @@ _closeTarotModal() { this.tarotModal?.close(); }
       this._applyTurnState();
       this._updateTurnInfo();
       this._updateTurnCounter(data.turn_number || 0);
-      this._showTurnBanner(
-        this.isMyTurn ? "🎲 Lượt của bạn! Nhấn SPACE" : `⏸ Lượt của ${data.name}...`,
-        this.isMyTurn ? "#ffdd00" : "#aaaaaa"
-      );
+      if (!this._isIntroRunning) {
+        this._showTurnBanner(
+          this.isMyTurn ? "🎲 Lượt của bạn! Nhấn SPACE" : `⏸ Lượt của ${data.name}...`,
+          this.isMyTurn ? "#ffdd00" : "#aaaaaa"
+        );
+      }
 
         // Trong handler game:turn_changed, thêm đoạn này:
       if (this.tarotStateByUserId[myUid]) {
@@ -1367,7 +1390,7 @@ _closeTarotModal() { this.tarotModal?.close(); }
   });
 
   this.socket.on("game:monster_target", (data) => {
-    const details = data.target_details || (data.cell_indexes || []).map(i => ({ cell_index: i, had_planet: true }));
+    const details = (data.target_details || (data.cell_indexes || []).map(i => ({ cell_index: i, had_planet: true }))).slice(0, 3);
     if (!details || details.length === 0) return;
 
     const sourceCell = this.boardPath[28];
@@ -1414,10 +1437,7 @@ _closeTarotModal() { this.tarotModal?.close(); }
       if (this.cellStates) delete this.cellStates[data.cell_index];
       this._showToast(`☄ Ô ${data.cell_index} bị phá hủy!`, "#ff4444");
     } else {
-      // Ô trống — vẫn tạo impact nhỏ tại vị trí ô
-      const { width, height } = this.scale;
-      const cx = cell.x * width, cy = cell.y * height;
-      this._createFireImpact(cx, cy);
+      // Ô trống — hiệu ứng nổ lửa đã chạy khi mũi tên chạm đất trong _fireArrowFromAbove
       this._showToast(`💨 Ô ${data.cell_index} trúng đạn nhưng trống`, "#aaaaaa");
     }
 
@@ -1713,9 +1733,15 @@ this.socket.on("game:tarot_denied", (data) => {
   });
   this.socket.on("game:char_passive_triggered", (data) => {
     if (data?.message) this._showToast(data.message, "#88ffcc", 2400);
+    if (data?.user_id) this.charSkillWidget?.playImpactOnUser?.(data.user_id, "water");
   });
   this.socket.on("game:char_skill_fx", (data) => {
     if (data?.message) this._showToast(data.message, "#ffaa55", 2400);
+    if (data?.cell_index !== undefined && data?.cell_index !== null) {
+      this.charSkillWidget?.playImpactOnCell?.(data.cell_index, "flame");
+    } else if (data?.target_user_id) {
+      this.charSkillWidget?.playImpactOnUser?.(data.target_user_id, "flame");
+    }
   });
 
   // ── game:state_sync — đồng bộ toàn bộ state (cellStates, players) ──
@@ -2508,44 +2534,124 @@ this.socket.on("game:tarot_denied", (data) => {
   }
 
   _showSkillPanel({ title, text, icon }) {
-    const { width, height } = this.scale;
-    const S = this.minRatio;
-    const D = 170;
+    const { width } = this.scale;
+    const S = this.minRatio || 1;
+    const D = 175;
 
+    if (this._skillHideTimer) {
+      try { this._skillHideTimer.remove(false); } catch (e) {}
+      this._skillHideTimer = null;
+    }
     if (this._skillObjs) {
-      this._skillObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
+      this._skillObjs.forEach(o => { try { o?.destroy(); } catch (e) {} });
     }
     this._skillObjs = [];
     const push = (o) => { this._skillObjs.push(o); return o; };
 
-    push(this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.45).setDepth(D));
-    const panel = push(this.createStyledPanel(width / 2, height / 2, 520 * S, 220 * S, 20 * S));
-    panel.setDepth(D + 1);
+    const bw = Math.min(Math.round(520 * S), width - Math.round(40 * S));
+    const bh = Math.round(64 * S);
+    const bx = width / 2;
+    const by = Math.round(104 * S);
 
-    push(this.add.text(width / 2, height / 2 - 60 * S, title, {
-      fontFamily: "Signika",
-      fontSize: Math.floor(26 * S) + "px",
-      color: "#8b5e1a",
-      fontStyle: "bold"
-    }).setOrigin(0.5).setDepth(D + 2));
+    const g = push(this.add.graphics().setDepth(D));
+    g.fillStyle(0x000000, 0.35);
+    g.fillRoundedRect(bx - bw / 2 + 2, by - bh / 2 + 4, bw, bh, 14 * S);
+    g.fillGradientStyle(0x0b1f3f, 0x0b1f3f, 0x051024, 0x051024, 0.94);
+    g.fillRoundedRect(bx - bw / 2, by - bh / 2, bw, bh, 14 * S);
+    g.lineStyle(2 * S, 0x38bdf8, 0.9);
+    g.strokeRoundedRect(bx - bw / 2, by - bh / 2, bw, bh, 14 * S);
 
-    push(this.add.text(width / 2, height / 2 - 20 * S, text, {
-      fontFamily: "Signika",
-      fontSize: Math.floor(20 * S) + "px",
-      color: "#8b5e1a",
-      align: "center",
-      wordWrap: { width: 460 * S }
-    }).setOrigin(0.5).setDepth(D + 2));
-
-    if (icon) {
-      push(this.add.image(width / 2, height / 2 + 50 * S, icon)
-        .setScale(0.35 * S).setOrigin(0.5).setDepth(D + 2));
+    let textCenterX = bx;
+    if (icon && this.textures.exists(icon)) {
+      const ico = push(this.add.image(bx - bw / 2 + 34 * S, by, icon)
+        .setDisplaySize(38 * S, 38 * S).setOrigin(0.5).setDepth(D + 1));
+      ico.setAlpha(0.98);
+      textCenterX = bx + 16 * S;
     }
 
-    this.time.delayedCall(2000, () => {
-      this._skillObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
-      this._skillObjs = [];
+    const titleObj = push(this.add.text(textCenterX, by - 13 * S, title || "SỰ KIỆN", {
+      fontFamily: "Signika",
+      fontSize: Math.max(13, Math.floor(17 * S)) + "px",
+      color: "#fde047",
+      fontStyle: "bold",
+      stroke: "#020617",
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(D + 2));
+
+    const bodyObj = push(this.add.text(textCenterX, by + 12 * S, text || "", {
+      fontFamily: "Signika",
+      fontSize: Math.max(11, Math.floor(14 * S)) + "px",
+      color: "#f1f5f9",
+      align: "center",
+      stroke: "#020617",
+      strokeThickness: 2,
+      wordWrap: { width: bw - 84 * S },
+    }).setOrigin(0.5).setDepth(D + 2));
+
+    // Slide nhẹ từ trên xuống
+    [g, titleObj, bodyObj].forEach(o => o.setAlpha(0));
+    this._skillObjs.forEach(o => {
+      this.tweens.add({ targets: o, alpha: 1, y: o.y + 4 * S, duration: 180, ease: "Quad.easeOut" });
     });
+
+    this._pushMiniEventLog(title, text);
+
+    this._skillHideTimer = this.time.delayedCall(2200, () => {
+      const objs = this._skillObjs || [];
+      this.tweens.add({
+        targets: objs,
+        alpha: 0,
+        duration: 240,
+        onComplete: () => {
+          objs.forEach(o => { try { o?.destroy(); } catch (e) {} });
+          if (this._skillObjs === objs) this._skillObjs = [];
+        },
+      });
+    });
+  }
+
+  _pushMiniEventLog(title, text) {
+    if (!title && !text) return;
+    if (!this._miniEventLogs) this._miniEventLogs = [];
+    const cleanText = String(text || "").replace(/\s+/g, " ").trim();
+    const entry = cleanText ? `${title}: ${cleanText}` : String(title);
+    this._miniEventLogs.unshift(entry);
+    if (this._miniEventLogs.length > 3) this._miniEventLogs.length = 3;
+    this._renderMiniEventLog();
+  }
+
+  _renderMiniEventLog() {
+    this._miniEventLogObjs?.forEach(o => { try { o?.destroy(); } catch (e) {} });
+    this._miniEventLogObjs = [];
+    if (!this._miniEventLogs?.length) return;
+
+    const S = this.minRatio || 1;
+    const D = 52;
+    const lx = Math.round(16 * S);
+    const ly = Math.round(182 * S);
+    const lw = Math.round(290 * S);
+    const pad = Math.round(8 * S);
+
+    const objs = [];
+    const push = (o) => { objs.push(o); return o; };
+
+    const content = this._miniEventLogs.map((m, idx) => `${idx === 0 ? "▸" : "•"} ${m}`).join("\n");
+    const txt = push(this.add.text(lx + pad, ly + pad, content, {
+      fontFamily: "Signika",
+      fontSize: Math.max(10, Math.floor(11.5 * S)) + "px",
+      color: "#cbd5e1",
+      lineSpacing: 3,
+      wordWrap: { width: lw - pad * 2 },
+    }).setOrigin(0, 0).setDepth(D + 1));
+
+    const lh = Math.ceil(txt.height + pad * 2);
+    const bg = push(this.add.graphics().setDepth(D));
+    bg.fillStyle(0x041428, 0.72);
+    bg.fillRoundedRect(lx, ly, lw, lh, 10 * S);
+    bg.lineStyle(1 * S, 0x38bdf8, 0.4);
+    bg.strokeRoundedRect(lx, ly, lw, lh, 10 * S);
+
+    this._miniEventLogObjs = objs;
   }
 
   _stopDarkMapEffect() {
@@ -2749,6 +2855,11 @@ this.socket.on("game:tarot_denied", (data) => {
   //  Turn state helper
   // ─────────────────────────────────────────────
   _applyTurnState() {
+    if (this._isIntroRunning) {
+      this.powerDice?.hide();
+      this.tarotBtn?.hide();
+      return;
+    }
     if (!this.isMyTurn || this.mustAnswerNext) {
       this.powerDice?.hide();
       this.tarotBtn?.hide();
@@ -2848,15 +2959,26 @@ this.socket.on("game:tarot_denied", (data) => {
         `./assets/characters/craftpix-net-381552-free-water-and-fire-magic-sprite-vector-pack/Fire Ball/PNG/Fire Ball_Frame_${frame}.png`);
     }
 
+    // Hoạt ảnh tác động Nước (Water4 - 16 frames) & Lửa/Nổ (flame2 - 16 frames)
+    for (let i = 0; i <= 15; i++) {
+      const idx2 = String(i).padStart(2, "0");
+      this.load.image(`fx_water4_${idx2}`,
+        `./assets/resources/Effect/Water/Water4/Png/water400${idx2}.png`);
+      this.load.image(`fx_flame2_${idx2}`,
+        `./assets/resources/Effect/Flame/flame2/png/${idx2}.png`);
+    }
+
+    // Skill icons pack (50 RPG icons)
+    for (let i = 1; i <= 50; i++) {
+      this.load.image(`skill_icon_${i}`, `./assets/resources/Skin/PNG/${i}.png`);
+    }
+
     this.load.image("card_slot_small", "./assets/ui/tarot/card.png");
     this.load.image("chat_btn",        "./assets/ui/lobby/chat.png");
-<<<<<<< HEAD
     this.load.image("add_friend",      "./assets/ui/shared/friend.png");
     this.load.image("icon_setting",    "./assets/ui/shared/setting.png");
     this.load.image("icon_sound",      "./assets/ui/shared/sound.png");
     this.load.image("icon_music",      "./assets/ui/shared/music.png");
-=======
->>>>>>> parent of d9bda5a (Commit - mới)
     for (let i = 1; i <= 10; i++) {
       const lv = getTarotLevel(this, i);
       if (prepareLevelTexture(this, `tarot_${i}`, lv)) {
@@ -3003,7 +3125,8 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
       } else {
         slot.icon.setVisible(false);
       }
-      slot.cooldownOverlay?.setVisible(false);
+      slot.icon?.clearTint();
+      slot.icon?.setAlpha(0.96);
       slot.cooldownText?.setVisible(false);
     }
   });
@@ -3019,14 +3142,14 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
       const turnsLeft = Number(cooldowns[index] ?? 0);
 
       if (turnsLeft > 0) {
-        slot.cooldownOverlay?.setVisible(true);
-        slot.cooldownIcon?.setVisible(true);
+        slot.icon?.setTint(0x64748b);
+        slot.icon?.setAlpha(0.55);
         slot.cooldownText?.setVisible(true);
         slot.cooldownText?.setText(String(turnsLeft));
         slot.text?.setVisible(false); // ẩn số thứ tự slot khi đang cooldown
       } else {
-        slot.cooldownOverlay?.setVisible(false);
-        slot.cooldownIcon?.setVisible(false);
+        slot.icon?.clearTint();
+        slot.icon?.setAlpha(0.96);
         slot.cooldownText?.setVisible(false);
         slot.text?.setVisible(true); // hiện lại số thứ tự slot
       }
@@ -3422,6 +3545,11 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
     op.nameText = nameText;
     op.user_id = playerData.user_id || null;
     op.planet_color = planetColor || null;
+    if (this._isIntroRunning) {
+      op.setAlpha(0);
+      shadow.setAlpha(0);
+      nameText.setAlpha(0);
+    }
     this.otherPlayers[playerData.id] = op;
   }
 
@@ -3437,6 +3565,9 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
     setupClickSound(this);
 
     this.gameRoomId = data?.roomData?.id || null;
+    this._isIntroRunning = false;
+    this._introPlayedOnce = false;
+    this._introTimers = [];
 
     const activeProfile = getActiveProfile(this);
 
@@ -3680,10 +3811,19 @@ this.input.keyboard.on("keydown-Y", () => {
       .setVisible(false).setDepth(20).setOrigin(0.5,1).setScale(1*minRatio);
     this.targetArrowTween = null;
 
-    // Keyboard handler — chỉ Space để bắt đầu giữ, R để reset
+    // Keyboard handler — chỉ Space để bắt đầu giữ, R để reset, F9 mở thanh Demo
     this.input.keyboard.on("keydown-SPACE", () => this.handleSpacePress());
     this.input.keyboard.on("keyup-SPACE",   () => this.handleSpaceRelease());
     this.input.keyboard.on("keydown-R",     () => this.resetPlayer());
+
+    if (this._onDemoKeyDown) window.removeEventListener("keydown", this._onDemoKeyDown);
+    this._onDemoKeyDown = (e) => {
+      if (e.key === "F9") {
+        e.preventDefault();
+        this._toggleDemoPanel();
+      }
+    };
+    window.addEventListener("keydown", this._onDemoKeyDown);
   }
 
   // =====================
@@ -3897,6 +4037,31 @@ this.input.keyboard.on("keydown-Y", () => {
         ease: "Sine.easeInOut"
       });
 
+      // ===== Zone click vào icon/avatar người chơi để xem Profile & Kết bạn =====
+      const avaZoneSize = Math.max(64, Math.floor(86 * minRatio));
+      const avaZone = this.add.zone(avaCX, avaCY, avaZoneSize, avaZoneSize)
+        .setInteractive({ useHandCursor: true })
+        .setDepth(DEPTH + 6);
+      avaZone.on("pointerover", () => avaOrb.setScale(avaOrb.scaleX * 1.06));
+      avaZone.on("pointerout",  () => avaOrb.setScale(avaOrb.scaleX / 1.06));
+      avaZone.on("pointerdown", () => {
+        const target = this.gamePlayers?.[idx];
+        if (!target?.user_id) return;
+        const myUid = this._myUserId();
+        if (this._profilePanel) this._profilePanel.destroy();
+        this._profilePanel = new PlayerProfilePanel(this, {
+          socket: this.socket,
+          depth: 500,
+        });
+        this._profilePanel.open(width, height, {
+          user_id:          target.user_id,
+          name:             target.name,
+          character_name:   target.characterName,
+          skin_id:          target.skin,
+          active_tarot_ids: target.active_tarot_ids || [],
+        }, myUid);
+      });
+
       // ===== Badge số thứ tự =====
       const badgeR = 15 * minRatio;
       const badgeX = isLeft ? avaCX - AVA_R * 0.6 : avaCX + AVA_R * 0.6;
@@ -4043,41 +4208,24 @@ this.input.keyboard.on("keydown-Y", () => {
           4 * minRatio
         );
 
-        // Lớp đen nhẹ phủ toàn thẻ khi cooldown
+        // Số lượt còn chờ — hiện giữa thẻ bài, to và rõ (không lớp phủ đen, không đồng hồ cát)
         const slotRadius = 6 * minRatio;
-        const cooldownOverlay = this.add.graphics().setDepth(DEPTH + 6);
-        cooldownOverlay.fillStyle(0x000000, 0.68);
-        cooldownOverlay.fillRoundedRect(cardX, cY, CARD_W, CARD_H, slotRadius);
-
-        // Icon đồng hồ
-        const cooldownIcon = this.add.text(
-          cardX + CARD_W / 2,
-          cY + CARD_H * 0.30,
-          "⏳",
-          {
-            fontSize: Math.floor(20 * minRatio) + "px"
-          }
-        ).setOrigin(0.5, 0.5).setDepth(DEPTH + 8);
-
-        // Số lượt còn chờ — hiện giữa thẻ bài, to và rõ
         const cooldownText = this.add.text(
           cardX + CARD_W / 2,
-          cY + CARD_H * 0.62,
+          cY + CARD_H * 0.50,
           "0",
           {
             fontFamily: "Signika",
             fontSize: Math.floor(38 * minRatio) + "px",
-            color: "#00ddff",
+            color: "#38e8ff",
             fontStyle: "bold",
-            stroke: "#001a22",
+            stroke: "#020617",
             strokeThickness: Math.floor(5 * minRatio),
             shadow: { offsetX: 0, offsetY: 2, color: "#000000", blur: 8, fill: true }
           }
         ).setOrigin(0.5, 0.5).setDepth(DEPTH + 8);
 
         // Ẩn mặc định
-        cooldownOverlay.setVisible(false);
-        cooldownIcon.setVisible(false);
         cooldownText.setVisible(false);
 
         p.tarotSlots.push({
@@ -4086,8 +4234,6 @@ this.input.keyboard.on("keydown-Y", () => {
           text: slotText,
           icon,
           footer,
-          cooldownOverlay,
-          cooldownIcon,
           cooldownText,
           x: cardX,
           y: cY,
@@ -4107,7 +4253,7 @@ this.input.keyboard.on("keydown-Y", () => {
 
       p._ui = {
         bg1, bg2, bg3, border,
-        glowG, avaBg, avaOrb,
+        glowG, avaBg, avaOrb, avaZone,
         badge, badgeText,
         nameBar, nameText,
         faceLabel, assetLabel,
@@ -6005,7 +6151,53 @@ this.input.keyboard.on("keydown-Y", () => {
     icon.on("pointerout",   () => icon.clearTint());
     icon.on("pointerdown",  () => this._toggleGameChatPanel(width, height));
 
-    this._gameChatBtnObjs = [bgG, icon, label];
+    // ── Badge số lượng tin nhắn chưa đọc trên icon Chat ──────────────
+    const badgeX = btnX + BTN_SIZE / 2 - 8;
+    const badgeY = iconY - BTN_SIZE / 2 + 10;
+    const badgeG = this.add.graphics().setDepth(D + 3).setVisible(false);
+    const badgeTxt = this.add.text(badgeX, badgeY, "0", {
+      fontFamily: "Signika", fontSize: "12px", color: "#ffffff", fontStyle: "bold",
+      stroke: "#7f1d1d", strokeThickness: 2,
+    }).setOrigin(0.5, 0.5).setDepth(D + 4).setVisible(false);
+    this._gameChatBadgeG = badgeG;
+    this._gameChatBadgeTxt = badgeTxt;
+    this._gameChatBadgePos = { x: badgeX, y: badgeY };
+
+    this._gameChatBtnObjs = [bgG, icon, label, badgeG, badgeTxt];
+
+    // ── Lắng nghe chat:game:message liên tục ngay cả khi chưa mở hộp chat ──
+    this._gameChatHistory = [];
+    this._gameChatUnread = 0;
+    this._gameChatHistoryFetched = false;
+
+    if (this._onGameChatMsg) this.socket?.off("chat:game:message", this._onGameChatMsg);
+    if (this._onGameChatHist) this.socket?.off("chat:game:history", this._onGameChatHist);
+
+    this._onGameChatMsg = (data) => {
+      if (!data) return;
+      this._gameChatHistory.push({
+        user_id: data.user_id,
+        name: data.name,
+        message: data.message,
+        time: data.time,
+      });
+      if (this._gameChatHistory.length > 200) this._gameChatHistory.shift();
+
+      if (!this._gameChatPanelOpen && Number(data.user_id) !== Number(this._myUserId())) {
+        this._gameChatUnread = (this._gameChatUnread || 0) + 1;
+        this._updateGameChatBadge(true);
+      }
+    };
+
+    this._onGameChatHist = (history) => {
+      if (!Array.isArray(history)) return;
+      if (!this._gameChatHistory?.length) {
+        this._gameChatHistory = history.slice(-200);
+      }
+    };
+
+    this.socket?.on("chat:game:message", this._onGameChatMsg);
+    this.socket?.on("chat:game:history", this._onGameChatHist);
 
     // ── Nút Cài Đặt Âm Thanh / Nhạc Nền ngay phía trên nút Chat ──────────
     if (this.textures.exists("icon_setting")) {
@@ -6021,6 +6213,44 @@ this.input.keyboard.on("keydown-Y", () => {
       this._gameChatBtnObjs.push(gearBtn);
     }
     this._gameChatPanelOpen = false;
+  }
+
+  _updateGameChatBadge(animate = false) {
+    const g = this._gameChatBadgeG;
+    const txt = this._gameChatBadgeTxt;
+    const pos = this._gameChatBadgePos;
+    if (!g || !txt || !pos) return;
+
+    const count = Number(this._gameChatUnread || 0);
+    g.clear();
+    if (count <= 0) {
+      g.setVisible(false);
+      txt.setVisible(false);
+      return;
+    }
+
+    const label = count > 99 ? "99+" : String(count);
+    const rx = label.length >= 3 ? 14 : label.length === 2 ? 12 : 10.5;
+    const ry = 10.5;
+    g.fillStyle(0x000000, 0.35);
+    g.fillEllipse(pos.x + 1, pos.y + 2, rx * 2, ry * 2);
+    g.fillStyle(0xef4444, 1);
+    g.fillEllipse(pos.x, pos.y, rx * 2, ry * 2);
+    g.lineStyle(2, 0xffffff, 0.96);
+    g.strokeEllipse(pos.x, pos.y, rx * 2, ry * 2);
+    g.setVisible(true);
+
+    txt.setText(label).setPosition(pos.x, pos.y - 0.5).setVisible(true);
+    if (animate) {
+      txt.setScale(1.35);
+      this.tweens.add({
+        targets: txt,
+        scaleX: 1,
+        scaleY: 1,
+        duration: 200,
+        ease: "Back.easeOut",
+      });
+    }
   }
 
   _toggleBoardSettingsBar(gearX, gearY) {
@@ -6104,6 +6334,8 @@ this.input.keyboard.on("keydown-Y", () => {
 
   _openGameChatPanel(width, height) {
     this._gameChatPanelOpen = true;
+    this._gameChatUnread = 0;
+    this._updateGameChatBadge(false);
 
     const PANEL_W = Math.min(320, Math.floor(width * 0.26));
     const PANEL_H = 320;
@@ -6157,6 +6389,14 @@ this.input.keyboard.on("keydown-Y", () => {
     this._gameChat.build(PANEL_X, PANEL_Y + TAB_H, PANEL_W, PANEL_H - TAB_H);
     this._gameChat.addSystemMessage("Chat trong trận — Chúc vui!");
 
+    // Hiển thị lại các tin nhắn đã nhận trước đó (kể cả lúc đóng chat)
+    const myUid = Number(this._myUserId());
+    (this._gameChatHistory || []).forEach(d => {
+      const isMe = myUid && Number(d.user_id) === myUid;
+      const label = isMe ? `[Bạn] ${d.message}` : `[${d.name}] ${d.message}`;
+      this._gameChat._appendLine(label, isMe ? "#aaddff" : "#ffffff", d.time);
+    });
+
     this._gameChatPanelObjs = objs;
   }
 
@@ -6168,13 +6408,142 @@ this.input.keyboard.on("keydown-Y", () => {
     this._gameChatPanelObjs = [];
   }
 
+  // =====================
+  // DEMO / BÁO CÁO PANEL (Bật/tắt bằng phím F9)
+  // =====================
+  _toggleDemoPanel() {
+    if (this._demoPanelObjs && this._demoPanelObjs.length > 0) {
+      this._closeDemoPanel();
+    } else {
+      this._openDemoPanel();
+    }
+  }
+
+  _closeDemoPanel() {
+    if (!this._demoPanelObjs) return;
+    this._demoPanelObjs.forEach(o => { try { o?.destroy(); } catch (e) {} });
+    this._demoPanelObjs = [];
+  }
+
+  _demoRollToCell(targetCell) {
+    if (!this.isMyTurn || !this.canRoll) {
+      this._showToast("⏳ Chỉ dùng được khi đang tới lượt tung xúc xắc của bạn!", "#ffaa44", 2200);
+      return;
+    }
+    const idx = Number(targetCell);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= (this.boardPath?.length || 37)) {
+      this._showToast("❌ Số ô không hợp lệ (0 - 36)!", "#ff5555", 2000);
+      return;
+    }
+    this.canRoll = false;
+    this.powerDice?.hide();
+    playBoardDiceSound(this);
+    this.socket.emit("game:demo_roll_to", {
+      room_id: this.gameRoomId,
+      target_cell: idx,
+    });
+  }
+
+  _openDemoPanel() {
+    this._closeDemoPanel();
+    const { width } = this.scale;
+    const S = this.minRatio || 1;
+    const D = 500;
+    this._demoPanelObjs = [];
+    const push = (o) => { this._demoPanelObjs.push(o); return o; };
+
+    const items = [
+      { label: "👹 Ô 28 Quái Vật",  color: 0xdc2626, fn: () => this._demoRollToCell(28) },
+      { label: "👨‍🏫 Ô 18 Thầy Giáo", color: 0x2563eb, fn: () => this._demoRollToCell(18) },
+      { label: "💎 Ô 9 Kho Báu",    color: 0xd97706, fn: () => this._demoRollToCell(9) },
+      { label: "🏁 Ô 0 START",      color: 0x16a34a, fn: () => this._demoRollToCell(0) },
+      { label: "🎯 Ô Bất Kỳ...",    color: 0x7c3aed, fn: () => {
+        const val = window.prompt("Nhập số ô muốn đi tới (0 - 36):", "28");
+        if (val !== null && val.trim() !== "") this._demoRollToCell(Number(val.trim()));
+      }},
+      { label: "⚡ Đầy 100 Nộ",     color: 0x0891b2, fn: () => {
+        this.socket.emit("game:demo_fill_energy", { room_id: this.gameRoomId });
+        this._showToast("⚡ Đã nạp đầy 100 Nộ!", "#38bdf8", 1600);
+      }},
+      { label: "✕ Đóng (F9)",       color: 0x475569, fn: () => this._closeDemoPanel() },
+    ];
+
+    const BTN_W = 122 * S, BTN_H = 34 * S, GAP = 8 * S, PAD = 12 * S;
+    const PW = items.length * BTN_W + (items.length - 1) * GAP + PAD * 2;
+    const PH = 72 * S;
+    const PCX = width / 2;
+    const PCY = 58 * S;
+
+    const bg = push(this.add.graphics().setDepth(D));
+    bg.fillStyle(0x0b1222, 0.92);
+    bg.fillRoundedRect(PCX - PW / 2, PCY - PH / 2, PW, PH, 14 * S);
+    bg.lineStyle(2 * S, 0x38bdf8, 0.85);
+    bg.strokeRoundedRect(PCX - PW / 2, PCY - PH / 2, PW, PH, 14 * S);
+
+    push(this.add.text(PCX, PCY - PH / 2 + 12 * S, "🎛 CHẾ ĐỘ DEMO BÁO CÁO (Phím F9 để bật/tắt)", {
+      fontFamily: "Signika", fontSize: Math.max(10, Math.floor(11.5 * S)) + "px",
+      color: "#7dd3fc", fontStyle: "bold"
+    }).setOrigin(0.5).setDepth(D + 1));
+
+    const startX = PCX - PW / 2 + PAD + BTN_W / 2;
+    const btnY = PCY + 11 * S;
+    items.forEach((it, i) => {
+      const bx = startX + i * (BTN_W + GAP);
+      const g = push(this.add.graphics().setDepth(D + 1));
+      g.fillStyle(it.color, 1);
+      g.fillRoundedRect(bx - BTN_W / 2, btnY - BTN_H / 2, BTN_W, BTN_H, 8 * S);
+      g.lineStyle(1.5 * S, 0xffffff, 0.55);
+      g.strokeRoundedRect(bx - BTN_W / 2, btnY - BTN_H / 2, BTN_W, BTN_H, 8 * S);
+
+      push(this.add.text(bx, btnY, it.label, {
+        fontFamily: "Signika", fontSize: Math.max(10, Math.floor(11.5 * S)) + "px",
+        color: "#ffffff", fontStyle: "bold", stroke: "#000000", strokeThickness: 2
+      }).setOrigin(0.5).setDepth(D + 2));
+
+      const z = push(this.add.zone(bx, btnY, BTN_W, BTN_H).setDepth(D + 3).setInteractive({ useHandCursor: true }));
+      z.on("pointerdown", () => it.fn());
+    });
+  }
+
   shutdown() {
-    // Dừng nhạc nền board
+    // Dừng nhạc nền board & xóa intro timers
     try { this.sound.get("board_bgm")?.stop(); } catch(e) {}
-    // Đảm bảo xóa blur
-    try { this.game.canvas.style.filter = ""; } catch(e) {}
+    try {
+      this.game.canvas.style.filter = "";
+      this.game.canvas.style.transition = "";
+    } catch(e) {}
+    if (this._onDemoKeyDown) {
+      window.removeEventListener("keydown", this._onDemoKeyDown);
+      this._onDemoKeyDown = null;
+    }
+    this._closeDemoPanel();
+    this._profilePanel?.destroy();
+    this._profilePanel = null;
+    if (this._skillHideTimer) {
+      try { this._skillHideTimer.remove(false); } catch (e) {}
+      this._skillHideTimer = null;
+    }
+    this._skillObjs?.forEach(o => { try { o?.destroy(); } catch (e) {} });
+    this._skillObjs = [];
+    this._miniEventLogObjs?.forEach(o => { try { o?.destroy(); } catch (e) {} });
+    this._miniEventLogObjs = [];
+    (this._introTimers || []).forEach(id => clearTimeout(id));
+    this._introTimers = [];
+    this._isIntroRunning = false;
     this._loadingFallbackTimer && clearTimeout(this._loadingFallbackTimer);
     this._loadingFallbackTimer = null;
+    if (this._onGameChatMsg) {
+      this.socket?.off("chat:game:message", this._onGameChatMsg);
+      this._onGameChatMsg = null;
+    }
+    if (this._onGameChatHist) {
+      this.socket?.off("chat:game:history", this._onGameChatHist);
+      this._onGameChatHist = null;
+    }
+    this._gameChatBadgeG = null;
+    this._gameChatBadgeTxt = null;
+    this._gameChatHistory = [];
+    this._gameChatUnread = 0;
     this._destroyGameChatPanel();
     this._gameChatBtnObjs?.forEach(o => { try { o?.destroy(); } catch(e){} });
     this._gameChatBtnObjs = [];
@@ -6185,64 +6554,81 @@ this.input.keyboard.on("keydown-Y", () => {
     }
   }
 
-  // ── LOADING SCREEN ────────────────────────────────────────────────────
+  // ── LOADING SCREEN + INTRO VÀO TRẬN (Chuẩn Cờ Tỷ Phú) ─────────────────
   _buildLoadingScreen(width, height, sceneData) {
     const D = 900;
     const S = this.minRatio || 1;
     const objs = [];
+    // Gán _loadingObjs ngay từ đầu để renderChar / renderBg đồng bộ không bị return sớm
+    this._loadingObjs = objs;
     const push = o => { objs.push(o); return o; };
 
-    // ── Blur map bằng CSS ─────────────────────────────────────────
-    this.game.canvas.style.filter = "blur(3px)";
+    // ── Overlay tối vừa đủ để làm nổi bật 4 thẻ & huy hiệu 1st..4th sắc nét ──
+    try {
+      this.game.canvas.style.transition = "";
+      this.game.canvas.style.filter = "";
+    } catch (e) {}
 
-    // ── Overlay tối nhẹ — KHÔNG dùng màu đen đậm ─────────────────
-    push(this.add.rectangle(width/2, height/2, width, height, 0x000000, 0.22).setDepth(D));
+    const overlayRect = push(
+      this.add.rectangle(width / 2, height / 2, width, height, 0x020617, 1)
+        .setDepth(D)
+        .setAlpha(0.62)
+    );
+    this._loadingOverlayRect = overlayRect;
 
     const players = sceneData?.players || [];
     const myUid   = this._myUserId();
 
-    // Card size lớn hơn, giống ảnh mẫu
-    const CARD_W = Math.floor(Math.min(220 * S, (width - 80) / Math.max(players.length, 1) - 20));
-    const CARD_H = Math.floor(CARD_W * 1.25);
-    const GAP    = Math.floor(28 * S);
+    // Tỉ lệ thẻ chuẩn giống phòng chờ (không bị méo nền) + chừa chỗ huy hiệu 1st..4th ở dưới
+    const CARD_W = Math.floor(Math.min(230 * S, (width - 100) / Math.max(players.length, 1) - 24));
+    const CARD_H = Math.floor(CARD_W * 1.12);
+    const GAP    = Math.floor(24 * S);
     const count  = Math.max(players.length, 1);
     const totalW = count * CARD_W + (count - 1) * GAP;
     const startX = width / 2 - totalW / 2;
-    const cardY  = height / 2 - 10 * S;
+    const cardY  = height * 0.36;
 
     this._loadingStatusTexts = {};
+    this._loadingCardGroups = [];
 
     players.forEach((p, i) => {
       const cx = startX + i * (CARD_W + GAP) + CARD_W / 2;
       const left = cx - CARD_W / 2;
       const top  = cardY - CARD_H / 2;
       const bR   = 14 * S;
+      const innerW = CARD_W - 8 * S;
+      const innerH = CARD_H - 8 * S;
+      const cardObjs = [];
+      const pushCard = (o) => { push(o); cardObjs.push(o); return o; };
 
-      // ── Khung card vàng ──────────────────────────────────────
-      const cardG = push(this.add.graphics().setDepth(D + 1));
-      // Nền xanh dương nhạt (giống ảnh mẫu)
-      cardG.fillStyle(0x4ab8e8, 0.9);
+      // ── Khung card viền sáng nổi bật ──────────────────────────
+      const cardG = pushCard(this.add.graphics().setDepth(D + 1));
+      cardG.fillStyle(0x000000, 0.35);
+      cardG.fillRoundedRect(left + 4 * S, top + 6 * S, CARD_W, CARD_H, bR);
+      cardG.fillStyle(0x1e6ea8, 0.94);
       cardG.fillRoundedRect(left, top, CARD_W, CARD_H, bR);
-      // Viền vàng
-      cardG.lineStyle(3 * S, 0xf5c542, 1);
+      cardG.lineStyle(3 * S, 0xffffff, 0.95);
       cardG.strokeRoundedRect(left, top, CARD_W, CARD_H, bR);
-      // Gloss trên
-      cardG.fillStyle(0xffffff, 0.15);
-      cardG.fillRoundedRect(left + 4*S, top + 4*S, CARD_W - 8*S, CARD_H * 0.3, bR - 2*S);
+      cardG.fillStyle(0xffffff, 0.16);
+      cardG.fillRoundedRect(left + 4 * S, top + 4 * S, innerW, CARD_H * 0.28, bR - 2 * S);
 
-      // ── Phông nền nhân vật ───────────────────────────────────
+      // ── Phông nền nhân vật (scale kiểu cover giữ nguyên tỉ lệ, không méo) ──
       const bgPath = p.active_bg_path;
       if (bgPath) {
         const bgKey = `ls_bg_${p.user_id}`;
         const fullPath = bgPath.startsWith("assets/") ? bgPath : `assets/ui/bg/${bgPath}`;
         const renderBg = () => {
           if (!this.textures.exists(bgKey) || !this._loadingObjs) return;
-          const bgImg = push(this.add.image(cx, cardY, bgKey)
-            .setDisplaySize(CARD_W - 6, CARD_H - 6).setDepth(D + 2));
+          const bgImg = pushCard(this.add.image(cx, cardY, bgKey).setDepth(D + 2));
+          const wRatio = innerW / Math.max(1, bgImg.width);
+          const hRatio = innerH / Math.max(1, bgImg.height);
+          bgImg.setScale(Math.max(wRatio, hRatio));
+
           const maskG = this.make.graphics({ add: false });
           maskG.fillStyle(0xffffff);
-          maskG.fillRoundedRect(left + 3, top + 3, CARD_W - 6, CARD_H - 6, bR - 2);
+          maskG.fillRoundedRect(left + 4 * S, top + 4 * S, innerW, innerH, bR - 3 * S);
           bgImg.setMask(maskG.createGeometryMask());
+          push(maskG);
         };
         if (!this.textures.exists(bgKey)) {
           this.load.image(bgKey, fullPath);
@@ -6253,24 +6639,24 @@ this.input.keyboard.on("keydown-Y", () => {
         }
       }
 
-      // ── Avatar nhân vật ──────────────────────────────────────
+      // ── Avatar nhân vật đứng giữa thẻ ────────────────────────
       const charName = p.character_name || p.characterName || "Dark_Oracle";
       const skinId   = p.skin_id || p.skin || 1;
       const frameKey = `${charName}_${skinId}_idle_000`;
+      const idleAnim = `${charName}_${skinId}_idle`;
       const renderChar = () => {
         if (!this.textures.exists(frameKey) || !this._loadingObjs) return;
-        const tex = this.textures.get(frameKey);
-        const nat = tex.source[0];
-        const maxH = CARD_H * 0.72;
-        const maxW = CARD_W * 0.85;
-        const scale = Math.min(maxW / nat.width, maxH / nat.height);
-        push(this.add.image(cx, cardY + CARD_H * 0.05, frameKey)
-          .setScale(scale).setOrigin(0.5, 0.5).setDepth(D + 3));
+        const sp = pushCard(this.add.sprite(cx, cardY + CARD_H * 0.05, frameKey)
+          .setOrigin(0.5, 0.5).setDepth(D + 3));
+        const maxH = innerH * 0.88;
+        const maxW = innerW * 0.88;
+        const sc = Math.min(maxW / Math.max(1, sp.width), maxH / Math.max(1, sp.height));
+        sp.setScale(sc);
+        if (this.anims.exists(idleAnim)) sp.play(idleAnim);
       };
       if (this.textures.exists(frameKey)) {
         renderChar();
       } else {
-        // Load frame đầu tiên nếu chưa có
         const imgPath = `assets/characters/${charName}/${charName}_${skinId}/PNG/PNG Sequences/Idle Blinking/0_${charName}_Idle Blinking_000.png`;
         this.load.image(frameKey, imgPath);
         this.load.once(`filecomplete-image-${frameKey}`, renderChar);
@@ -6278,48 +6664,94 @@ this.input.keyboard.on("keydown-Y", () => {
       }
 
       // ── Tên người chơi ───────────────────────────────────────
-      push(this.add.text(cx, top - 14 * S, p.name || "Player", {
+      pushCard(this.add.text(cx, top - 12 * S, p.name || "Player", {
         fontFamily: "Signika", fontSize: Math.floor(17 * S) + "px",
         color: "#ffffff", fontStyle: "bold",
         stroke: "#000000", strokeThickness: 4
       }).setOrigin(0.5, 1).setDepth(D + 3));
 
-      // ── Badge trạng thái ─────────────────────────────────────
+      // ── Trạng thái ("Hoàn thành" / "Đang tải...") ────────────
       const isMe = Number(p.user_id) === Number(myUid);
-      const BADGE_H = Math.floor(30 * S);
-      const badgeY  = top + CARD_H + 6 * S;
+      const BADGE_H = Math.floor(28 * S);
+      const badgeY  = top + CARD_H + 8 * S;
 
-      const statusG   = push(this.add.graphics().setDepth(D + 3));
-      const statusTxt = push(this.add.text(cx, badgeY + BADGE_H / 2, "", {
-        fontFamily: "Signika", fontSize: Math.floor(14 * S) + "px",
-        color: "#ffffff", fontStyle: "bold",
+      const statusG   = pushCard(this.add.graphics().setDepth(D + 3));
+      const statusTxt = pushCard(this.add.text(cx, badgeY + BADGE_H / 2, "", {
+        fontFamily: "Signika", fontSize: Math.floor(15 * S) + "px",
+        color: "#ffffff", fontStyle: "bold", stroke: "#000000", strokeThickness: 3,
       }).setOrigin(0.5, 0.5).setDepth(D + 4));
 
       const drawStatus = (label, color) => {
         if (!statusTxt?.active) return;
         statusTxt.setText(label);
-        // Đợi 1 frame để text render xong rồi vẽ nền
         this.time.delayedCall(16, () => {
           if (!statusG?.active) return;
           statusG.clear();
-          const sw = statusTxt.width + 28 * S;
-          statusG.fillStyle(color, 0.92);
-          statusG.fillRoundedRect(cx - sw/2, badgeY, sw, BADGE_H, BADGE_H/2);
+          const sw = statusTxt.width + 26 * S;
+          statusG.fillStyle(color, 0.90);
+          statusG.fillRoundedRect(cx - sw / 2, badgeY, sw, BADGE_H, BADGE_H / 2);
         });
       };
 
-      drawStatus(isMe ? "Sẵn sàng" : "Đang tải...", isMe ? 0x22aa55 : 0xcc8800);
-      this._loadingStatusTexts[p.user_id] = { drawStatus };
+      drawStatus(isMe ? "Hoàn thành" : "Đang tải...", isMe ? 0x16a34a : 0xd97706);
 
-      // Timeout 30s
+      // ── Huy hiệu tròn thứ tự lượt 1st / 2nd / 3rd / 4th ──────
+      const rankY = badgeY + BADGE_H + 56 * S;
+      const rankR = 34 * S;
+      let rankBuilt = false;
+      const drawRankBadge = (orderNum) => {
+        if (rankBuilt || !this._loadingObjs) return;
+        rankBuilt = true;
+        const ord = Math.max(1, Math.min(4, Number(orderNum || (i + 1))));
+        const suffix = ord === 1 ? "st" : ord === 2 ? "nd" : ord === 3 ? "rd" : "th";
+        const palette = {
+          1: { c1: 0xfacc15, c2: 0xb45309, rim: 0xfff3b0, txt: "#fffbeb" },
+          2: { c1: 0xd97706, c2: 0x78350f, rim: 0xfde68a, txt: "#fef3c7" },
+          3: { c1: 0xc26d27, c2: 0x6b320b, rim: 0xfcd34d, txt: "#fef3c7" },
+          4: { c1: 0xa16207, c2: 0x5c3409, rim: 0xfbbf24, txt: "#fef3c7" },
+        }[ord];
+
+        const rg = pushCard(this.add.graphics().setDepth(D + 5));
+        rg.fillStyle(0x000000, 0.45);
+        rg.fillCircle(cx + 2 * S, rankY + 4 * S, rankR);
+        rg.fillGradientStyle(palette.c1, palette.c1, palette.c2, palette.c2, 1);
+        rg.fillCircle(cx, rankY, rankR);
+        rg.lineStyle(3.5 * S, palette.rim, 1);
+        rg.strokeCircle(cx, rankY, rankR);
+        rg.lineStyle(1.5 * S, 0x000000, 0.45);
+        rg.strokeCircle(cx, rankY, rankR - 4 * S);
+        rg.fillStyle(0xffffff, 0.25);
+        rg.fillEllipse(cx, rankY - rankR * 0.42, rankR * 1.15, rankR * 0.48);
+
+        const numTxt = pushCard(this.add.text(cx - 8 * S, rankY, `${ord}`, {
+          fontFamily: "Signika", fontSize: Math.floor(34 * S) + "px",
+          color: palette.txt, fontStyle: "bold", stroke: "#2d1400", strokeThickness: 5,
+        }).setOrigin(0.5).setDepth(D + 6));
+        const supTxt = pushCard(this.add.text(cx + 12 * S, rankY + 6 * S, suffix, {
+          fontFamily: "Signika", fontSize: Math.floor(16 * S) + "px",
+          color: palette.txt, fontStyle: "bold", stroke: "#2d1400", strokeThickness: 3,
+        }).setOrigin(0.5).setDepth(D + 6));
+
+        [rg, numTxt, supTxt].forEach(o => o.setAlpha(0));
+        this.tweens.add({
+          targets: [rg, numTxt, supTxt],
+          alpha: 1,
+          duration: 240,
+          delay: i * 70,
+          ease: "Back.easeOut"
+        });
+      };
+
+      this._loadingStatusTexts[p.user_id] = { drawStatus, drawRankBadge };
+      this._loadingCardGroups.push({ objs: cardObjs, userId: p.user_id });
+
       if (!isMe) {
         this.time.delayedCall(30000, () => {
-          if (this._loadingObjs) drawStatus("Kết nối thất bại", 0xcc2222);
+          if (this._loadingObjs && !this._isIntroRunning) drawStatus("Kết nối thất bại", 0xcc2222);
         });
       }
     });
 
-    // Fallback nếu không có players
     if (!players.length) {
       push(this.add.text(width/2, height/2, "⏳ Đang kết nối...", {
         fontFamily: "Signika", fontSize: Math.floor(24 * S) + "px",
@@ -6330,14 +6762,236 @@ this.input.keyboard.on("keydown-Y", () => {
     this._loadingObjs = objs;
   }
 
+  _playMatchStartIntro(players = []) {
+    const { width, height } = this.scale;
+    const S = this.minRatio || 1;
+    const myUid = Number(this._myUserId());
+
+    const pushTimer = (fn, ms) => {
+      const id = setTimeout(fn, ms);
+      this._introTimers = this._introTimers || [];
+      this._introTimers.push(id);
+      return id;
+    };
+
+    // Ẩn tạm nhân vật & nút điều khiển ở ô START trước khi giáng thế từ cột sáng
+    this.powerDice?.hide();
+    this.tarotBtn?.hide();
+    if (this.player) this.player.setAlpha(0);
+    if (this.shadow) this.shadow.setAlpha(0);
+    if (this.playerNameText) this.playerNameText.setAlpha(0);
+    Object.values(this.otherPlayers || {}).forEach(op => {
+      op?.setAlpha?.(0);
+      op?.shadow?.setAlpha?.(0);
+      op?.nameText?.setAlpha?.(0);
+    });
+
+    const sorted = [...(players || [])].sort((a, b) => Number(a.turn_order || 99) - Number(b.turn_order || 99));
+
+    const finishIntro = () => {
+      if (!this.scene?.isActive?.()) return;
+      this._isIntroRunning = false;
+      this._hideLoadingScreen();
+
+      // Đảm bảo tất cả nhân vật đều hiện đầy đủ ở đúng vị trí
+      const cell0 = this.boardPath?.[0];
+      sorted.forEach(p => {
+        const sp = this._getSpriteByUserId(p.user_id);
+        const c = this.boardPath?.[Number(p.index || 0)] || cell0;
+        if (!sp || !c) return;
+        const wx = c.x * width, wy = c.y * height;
+        sp.setPosition(wx, wy).setAlpha(1).setVisible(true);
+        sp.setScale(this.playerBaseScale || 0.24 * S);
+        if (Number(p.user_id) === myUid) {
+          this.shadow?.setPosition(wx, wy + 5).setAlpha(1).setVisible(true);
+          this.playerNameText?.setPosition(wx, wy - 140 * S).setAlpha(1).setVisible(true);
+        } else {
+          sp.shadow?.setPosition(wx, wy + 5).setAlpha(1).setVisible(true);
+          sp.nameText?.setPosition(wx, wy - 140 * S).setAlpha(1).setVisible(true);
+        }
+      });
+
+      this._applyTurnState();
+      this._updateTurnInfo();
+      const firstPlayer = sorted[0];
+      if (firstPlayer) {
+        const isFirstMe = Number(firstPlayer.user_id) === myUid;
+        this._showTurnBanner?.(
+          isFirstMe ? "🎲 Lượt đầu tiên của bạn! Nhấn SPACE" : `🎲 Lượt đầu tiên: ${firstPlayer.name}`,
+          isFirstMe ? "#ffdd00" : "#38bdf8"
+        );
+      }
+    };
+
+    // Fail-safe bảo đảm luôn mở khóa lượt dù tab bị ẩn
+    pushTimer(() => {
+      if (this._isIntroRunning) finishIntro();
+    }, 5400);
+
+    // Bước 1 (2400ms — giữ rõ thẻ + huy hiệu 1st..4th ~2.4 giây):
+    // Chạy sóng sét xanh dương + thu dọn các thẻ Card & mờ lớp tối
+    pushTimer(() => {
+      if (!this.scene?.isActive?.()) return;
+      this._playIntroBlueLightningWave();
+
+      try { this.game.canvas.style.filter = ""; } catch (e) {}
+      if (this._loadingOverlayRect?.active) {
+        this.tweens.add({ targets: this._loadingOverlayRect, alpha: 0, duration: 400, ease: "Power2" });
+      }
+      (this._loadingCardGroups || []).forEach((grp) => {
+        this.tweens.add({
+          targets: grp.objs.filter(o => o?.active),
+          y: `-=${70 * S}`,
+          alpha: 0,
+          duration: 360,
+          ease: "Power2.easeIn"
+        });
+      });
+
+      pushTimer(() => this._hideLoadingScreen(), 420);
+    }, 2400);
+
+    // Bước 2 (2850ms): Từng nhân vật giáng thế từ cột tia sáng đỏ-vàng xuống ô START
+    const startDropMs = 2850;
+    const dropGapMs = 190;
+    sorted.forEach((p, idx) => {
+      pushTimer(() => {
+        if (!this.scene?.isActive?.()) return;
+        const c = this.boardPath?.[Number(p.index || 0)] || this.boardPath?.[0];
+        if (!c) return;
+        const wx = c.x * width, wy = c.y * height;
+        const sp = this._getSpriteByUserId(p.user_id);
+        const isMe = Number(p.user_id) === myUid;
+        const shadowObj = isMe ? this.shadow : sp?.shadow;
+        const nameObj   = isMe ? this.playerNameText : sp?.nameText;
+
+        this._playSpawnBeamAt(wx, wy, idx === 0);
+
+        if (sp?.active) {
+          const baseScale = this.playerBaseScale || (0.24 * S);
+          sp.setPosition(wx, wy - 200 * S).setAlpha(0.35).setScale(baseScale).setVisible(true);
+          this.tweens.add({
+            targets: sp,
+            y: wy,
+            alpha: 1,
+            duration: 240,
+            ease: "Cubic.easeIn",
+            onComplete: () => {
+              if (!sp.active) return;
+              sp.setScale(baseScale * 1.12, baseScale * 0.88);
+              this.tweens.add({
+                targets: sp, scaleX: baseScale, scaleY: baseScale, duration: 180, ease: "Back.easeOut"
+              });
+              if (shadowObj?.active) {
+                shadowObj.setPosition(wx, wy + 5).setVisible(true);
+                this.tweens.add({ targets: shadowObj, alpha: 1, duration: 180 });
+              }
+              if (nameObj?.active) {
+                nameObj.setPosition(wx, wy - 140 * S).setVisible(true);
+                this.tweens.add({ targets: nameObj, alpha: 1, duration: 200 });
+              }
+            }
+          });
+        }
+      }, startDropMs + idx * dropGapMs);
+    });
+
+    const totalMs = startDropMs + Math.max(sorted.length - 1, 0) * dropGapMs + 520;
+    pushTimer(() => finishIntro(), totalMs);
+  }
+
+  _playIntroBlueLightningWave() {
+    const { width, height } = this.scale;
+    const S = this.minRatio || 1;
+    const D = 930;
+
+    // Lóe sáng xanh dương dịu toàn màn hình
+    const flash = this.add.rectangle(width / 2, height / 2, width, height, 0x38bdf8, 1)
+      .setDepth(D).setAlpha(0.24).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: flash, alpha: 0, duration: 420, ease: "Cubic.easeOut",
+      onComplete: () => { try { flash.destroy(); } catch (e) {} }
+    });
+
+    // Chùm tia sét xanh cyan bung tỏa giống hiệu ứng chuyển cảnh
+    const boltG = this.add.graphics().setDepth(D + 1).setBlendMode(Phaser.BlendModes.ADD);
+    const drawBolts = () => {
+      boltG.clear();
+      for (let b = 0; b < 14; b++) {
+        let bx = (width * 0.08) + Math.random() * (width * 0.84);
+        let by = height * (0.48 + Math.random() * 0.45);
+        boltG.lineStyle((2.5 + Math.random() * 2.5) * S, b % 2 === 0 ? 0x38bdf8 : 0xe0f2fe, 0.92);
+        boltG.beginPath();
+        boltG.moveTo(bx, by);
+        const segs = 5;
+        for (let s = 0; s < segs; s++) {
+          bx += (Math.random() - 0.5) * 95 * S;
+          by -= (28 + Math.random() * 48) * S;
+          boltG.lineTo(bx, by);
+        }
+        boltG.strokePath();
+      }
+    };
+    drawBolts();
+    const ev = this.time.addEvent({ delay: 75, repeat: 4, callback: drawBolts });
+    this.tweens.add({
+      targets: boltG, alpha: 0, duration: 440, ease: "Sine.easeOut",
+      onComplete: () => {
+        try { ev?.destroy(); } catch (e) {}
+        try { boltG.destroy(); } catch (e) {}
+      }
+    });
+  }
+
+  _playSpawnBeamAt(wx, wy, playSound = false) {
+    const S = this.minRatio || 1;
+    const D = 40;
+    const beamH = wy + 40 * S;
+
+    const beamG = this.add.graphics().setDepth(D).setBlendMode(Phaser.BlendModes.ADD);
+    beamG.fillStyle(0xff4500, 0.28);
+    beamG.fillRect(wx - 28 * S, 0, 56 * S, beamH);
+    beamG.fillStyle(0xffaa33, 0.50);
+    beamG.fillRect(wx - 15 * S, 0, 30 * S, beamH);
+    beamG.fillStyle(0xffffff, 0.85);
+    beamG.fillRect(wx - 5 * S, 0, 10 * S, beamH);
+
+    // Điểm hội tụ sáng trên mặt ô START
+    const footRing = this.add.ellipse(wx, wy + 2 * S, 54 * S, 24 * S, 0xffaa22, 0.35)
+      .setStrokeStyle(3 * S, 0xfff3b0, 0.95).setDepth(D + 1).setBlendMode(Phaser.BlendModes.ADD);
+
+    if (playSound) playBoardStartSound(this);
+
+    this.tweens.add({
+      targets: beamG,
+      alpha: 0,
+      duration: 460,
+      delay: 140,
+      ease: "Cubic.easeOut",
+      onComplete: () => { try { beamG.destroy(); } catch (e) {} }
+    });
+    this.tweens.add({
+      targets: footRing,
+      scaleX: 2.1, scaleY: 2.1, alpha: 0,
+      duration: 440,
+      delay: 180,
+      ease: "Quad.easeOut",
+      onComplete: () => { try { footRing.destroy(); } catch (e) {} }
+    });
+  }
+
   _hideLoadingScreen() {
     // Luôn xóa blur ngay lập tức
-    try { this.game.canvas.style.filter = ""; } catch(e) {}
+    try {
+      this.game.canvas.style.filter = "";
+      this.game.canvas.style.transition = "";
+    } catch(e) {}
+    this._loadingOverlayRect = null;
+    this._loadingCardGroups = null;
     if (!this._loadingObjs) return;
     const objs = this._loadingObjs;
     this._loadingObjs = null;
     this._loadingStatusTexts = null;
-    // Destroy ngay — không dùng tween vì tab có thể đang ẩn
     objs.forEach(o => { try { o?.destroy(); } catch(e){} });
   }
 
@@ -6347,10 +7001,11 @@ this.input.keyboard.on("keydown-Y", () => {
 
   /** Lấy sprite của player theo userId */
   _getSpriteByUserId(userId) {
-    if (this._myUserId() === userId) return this.player;
+    const uid = Number(userId);
+    if (Number(this._myUserId()) === uid) return this.player;
     const sid = Object.keys(this.otherPlayers || {}).find(s => {
       const op = this.otherPlayers[s];
-      return op?._userId === userId || op?.userId === userId;
+      return Number(op?._userId) === uid || Number(op?.user_id) === uid;
     });
     return sid ? this.otherPlayers[sid] : null;
   }

@@ -813,7 +813,6 @@ function addCharEnergy(player, amount) {
   player.energy = Math.min(maxE, (Number(player.energy) || 0) + Number(amount || 0));
 }
 
-<<<<<<< HEAD
 const PASSIVE_COOLDOWN_TURNS = 3;
 
 function canTriggerPassive(player, passiveType) {
@@ -839,8 +838,6 @@ function triggerPassiveCooldown(gs, room_id, player, turns = PASSIVE_COOLDOWN_TU
   emitCharSkillState(room_id);
 }
 
-=======
->>>>>>> parent of d9bda5a (Commit - mới)
 function emitCharSkillState(room_id) {
   const gs = gameStates[room_id];
   if (!gs) return;
@@ -852,11 +849,8 @@ function emitCharSkillState(room_id) {
       energy: p.energy || 0,
       max_energy: p.skill?.energy_cost || 100,
       used_skill_this_turn: !!p.used_skill_this_turn,
-<<<<<<< HEAD
       passive_cooldown_left: Number(p.passive_cooldown_left || 0),
       passive_active_turns: Number(p.passive_active_turns || 0),
-=======
->>>>>>> parent of d9bda5a (Commit - mới)
       skill: p.skill || null,
       dice_bias: p.dice_bias || null,
       rent_shield_turns: p.rent_shield_turns || 0,
@@ -928,13 +922,9 @@ async function initGameState(room_id, sockets, bet_ecoin = 5000, match_mode = "s
         soul_marked_by: null,
         soul_mark_turns: 0,
         soul_mark_percent: 0,
-<<<<<<< HEAD
         revive_used: false,
         passive_cooldown_left: 0,
         passive_active_turns: 0
-=======
-        revive_used: false
->>>>>>> parent of d9bda5a (Commit - mới)
       };
     })
   );
@@ -1236,6 +1226,7 @@ function endTurn(room_id) {
   if (curPlayer && !curPlayer.eliminated && curPlayer.extra_roll_queued) {
     curPlayer.extra_roll_queued = false;
     gs.phase = "IDLE";
+  gs._monsterAttackLock = false;
     const now = Date.now();
     io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:turn_changed", {
       current_turn: curPlayer.socket_id,
@@ -1255,6 +1246,7 @@ function endTurn(room_id) {
   }
 
   gs.phase = "IDLE";
+  gs._monsterAttackLock = false;
 
   let next = null;
   let safe = 0;
@@ -1267,7 +1259,6 @@ function endTurn(room_id) {
     if (!next) return;
 
     resetTurnTarotFlags(next);
-<<<<<<< HEAD
     if ((next.passive_active_turns || 0) > 0) {
       next.passive_active_turns -= 1;
       if (next.passive_active_turns <= 0) {
@@ -1278,8 +1269,6 @@ function endTurn(room_id) {
       next.passive_cooldown_left -= 1;
     }
     emitCharSkillState(room_id);
-=======
->>>>>>> parent of d9bda5a (Commit - mới)
     tickProtectedCells(room_id);
 
     if ((next.skip_next_turn || 0) > 0) {
@@ -1332,12 +1321,14 @@ function endTurn(room_id) {
     const nextSocket = io.sockets.sockets.get(next.socket_id);
     if (!nextSocket) {
       gs.phase = "IDLE";
+  gs._monsterAttackLock = false;
       setTimeout(() => endTurn(room_id), 500);
     } else {
       questionsService.getRandomQuestion()
         .then((result) => {
           if (!result.success || !result.question) {
             gs.phase = "IDLE";
+  gs._monsterAttackLock = false;
             setTimeout(() => endTurn(room_id), 500);
             return;
           }
@@ -1382,11 +1373,13 @@ function endTurn(room_id) {
             gs.currentQuiz = null;
             gs._quizTimer = null;
             gs.phase = "IDLE";
+  gs._monsterAttackLock = false;
             setTimeout(() => endTurn(room_id), 800);
           }, 15000);
         })
         .catch(() => {
           gs.phase = "IDLE";
+  gs._monsterAttackLock = false;
           setTimeout(() => endTurn(room_id), 500);
         });
     }
@@ -2250,6 +2243,54 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     emitCharSkillState(rid);
   });
 
+  // ── DEMO / BÁO CÁO: ÉP TUNG XÚC XẮC ĐẾN ĐÚNG Ô CHỈ ĐỊNH (Phím F9) ──
+  socket.on("game:demo_roll_to", ({ room_id, target_cell }) => {
+    const gs = gameStates[room_id];
+    if (!gs) return socket.emit("game:error", { message: "Không tìm thấy game" });
+    if (gs.phase !== "IDLE") return socket.emit("game:error", { message: "Đang xử lý, chờ hoàn tất lượt!" });
+    const cur = getCurrentTurnPlayer(room_id);
+    if (!cur || cur.user_id !== socket.user_id) return socket.emit("game:error", { message: "Chưa tới lượt của bạn!" });
+
+    const targetIdx = Number(target_cell);
+    if (!Number.isInteger(targetIdx) || targetIdx < 0 || targetIdx >= TOTAL_CELLS) {
+      return socket.emit("game:error", { message: "Số ô không hợp lệ (0 - 36)!" });
+    }
+
+    Object.values(cur.tarot_runtime || {}).forEach(rt => {
+      if ((rt.cooldown_turns_left ?? 0) > 0) rt.cooldown_turns_left -= 1;
+    });
+    addCharEnergy(cur, 25);
+
+    gs.phase = "ROLLING";
+    const steps = (targetIdx - Number(cur.index || 0) + TOTAL_CELLS) % TOTAL_CELLS || TOTAL_CELLS;
+    let dice1 = 6, dice2 = 6;
+    if (steps >= 2 && steps <= 12) {
+      dice1 = Math.max(1, Math.min(6, Math.floor(steps / 2)));
+      dice2 = steps - dice1;
+      if (dice2 > 6) { dice1 += dice2 - 6; dice2 = 6; }
+    }
+
+    console.log(`🎯 [DEMO] ${cur.name} forced roll -> cell ${targetIdx} (${steps} steps) in room ${room_id}`);
+    io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:dice_result", {
+      room_id, socket_id: socket.id, user_id: socket.user_id, name: cur.name,
+      dice: steps, dice1, dice2, extra_turn: false, is_demo: true,
+    });
+
+    emitTarotState(room_id);
+    emitCharSkillState(room_id);
+  });
+
+  socket.on("game:demo_fill_energy", ({ room_id }) => {
+    const gs = gameStates[room_id];
+    if (!gs) return;
+    const p = gs.players.find(pl => Number(pl.user_id) === Number(socket.user_id));
+    if (!p) return;
+    p.energy = Number(p.skill?.energy_cost || 100);
+    p.used_skill_this_turn = false;
+    p.passive_cooldown_left = 0;
+    emitCharSkillState(room_id);
+  });
+
   // ── GAME ROLL ────────────────────────────────────────────────────
   socket.on("game:roll", ({ room_id }) => {
     const gs = gameStates[room_id];
@@ -2490,6 +2531,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
         // Extra roll
         if (picked.type === "extra_roll") {
           gs.phase = "IDLE";
+  gs._monsterAttackLock = false;
           cur.has_extra_roll = true;
           io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:skill_event", {
             type: "extra_roll",
@@ -2725,6 +2767,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
               message: result.message || "Không lấy được câu hỏi từ hệ thống"
             });
             gs.phase = "IDLE";
+  gs._monsterAttackLock = false;
             setTimeout(() => endTurn(room_id), 500);
             return;
           }
@@ -2788,6 +2831,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
             gs.currentQuiz = null;
             gs._quizTimer = null;
             gs.phase = "IDLE";
+  gs._monsterAttackLock = false;
             setTimeout(() => endTurn(room_id), 800);
           }, 15000);
         })
@@ -2797,28 +2841,33 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
             message: "Lỗi server khi lấy câu hỏi"
           });
           gs.phase = "IDLE";
+  gs._monsterAttackLock = false;
           setTimeout(() => endTurn(room_id), 500);
         });
 
       return;
     }
 
-    // Ô 28: quái vật phá 2-3 tinh cầu ngẫu nhiên
+    // Ô 28: quái vật phá tối đa 1-3 ô ngẫu nhiên (kể cả ô trống hoặc có tinh cầu)
     if (idx === 28) {
-      // Random 1-2 ô bất kỳ (kể cả ô trống), bỏ qua ô skill
+      if (gs._monsterAttackLock) return;
+      gs._monsterAttackLock = true;
+
+      // Random 1-3 ô bất kỳ (kể cả ô trống), bỏ qua ô skill
       const candidateIndexes = [];
       for (let i = 0; i < TOTAL_CELLS; i++) {
         if (!SKILL_CELLS.includes(i)) candidateIndexes.push(i);
       }
 
       if (candidateIndexes.length === 0) {
+        gs._monsterAttackLock = false;
         setTimeout(() => endTurn(room_id), 800);
         return;
       }
 
       const destroyCount = Math.min(
         candidateIndexes.length,
-        Math.floor(Math.random() * 2) + 1 // 1 hoặc 2
+        Math.floor(Math.random() * 3) + 1 // Random 1, 2 hoặc tối đa 3 ô
       );
 
       const shuffled = [...candidateIndexes].sort(() => Math.random() - 0.5);
@@ -3289,6 +3338,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
       });
 
       gs.phase = "IDLE";
+  gs._monsterAttackLock = false;
       gs.currentQuiz = null;
       // Giữ lượt hiện tại
       setTimeout(() => {
@@ -3334,6 +3384,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     });
 
     gs.phase = "IDLE";
+  gs._monsterAttackLock = false;
     gs.currentQuiz = null;
     setTimeout(() => endTurn(room_id), 800);
   });

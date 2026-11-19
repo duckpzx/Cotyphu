@@ -139,6 +139,23 @@ export function registerChatHandlers(socket, io) {
     }
   });
 
+  // ── GAME CHAT HISTORY ─────────────────────────────────────────────────
+  socket.on("chat:game:history:get", async () => {
+    const game_id = socket.current_game_id;
+    if (!game_id) return;
+    try {
+      const history = await chatRepo.getHistory({ channel: "game", channel_id: game_id, limit: 50 });
+      socket.emit("chat:game:history", history.map(r => ({
+        user_id: r.user_id,
+        name:    r.user_name,
+        message: r.message,
+        time:    new Date(r.created_at).getTime()
+      })));
+    } catch (err) {
+      console.error("chat:game:history:get error:", err);
+    }
+  });
+
   // ── JOIN WORLD CHAT ROOM ──────────────────────────────────────────────
   socket.on("chat:world:join", async () => {
     socket.join("chat:world");

@@ -1,3 +1,24 @@
+// Map icon (assets/resources/Skin/PNG/1..50.png) phù hợp với từng loại kỹ năng
+const PASSIVE_ICON_MAP = {
+  start_bonus_percent:    35, // Tia lướt tốc độ xanh dương — Bước Chân Thần / Thưởng qua START
+  build_discount_percent: 38, // Vòng đá kiến tạo nâu vàng — Giảm chi phí xây dựng
+  rent_bonus_percent:     20, // Quả cầu vàng rực tài phú — Tăng tiền thuê thu được
+  rent_discount_percent:  16, // Xoáy gió xanh bảo hộ — Giảm tiền thuê phải trả
+  touch_tax_percent:      48, // Quả cầu điện vàng — Thuế va chạm
+  revive_cash_percent:     4, // Ngọn lửa xanh hồi sinh — Hồi sinh / cứu nguy
+  siphon_rent_percent:    28, // Hố đen tím hút năng lượng — Hút lợi tức
+};
+
+const ACTIVE_ICON_MAP = {
+  weaken_cell_rent: 27, // Mũi tên xanh phát sáng — Mũi Tên Phá Thuế
+  dice_bias:        43, // Ma pháp nguyên tử xanh — Định mệnh xúc xắc
+  rent_shield:      19, // Quả cầu hộ thuẫn xanh — Khiên chắn tiền thuê
+  push_back_enemy:  46, // Lốc xoáy xanh dương — Đẩy lùi đối thủ
+  curse_enemy:      45, // Vòng xoáy ma thuật tím — Yểm lời nguyền
+  soul_mark:        49, // Ấn ký sao tím rực — Dấu ấn linh hồn
+  poison_trap:      31, // Vũng độc xanh bốc khói — Đặt bẫy độc
+};
+
 export default class CharSkillWidget {
   constructor(scene) {
     this.scene = scene;
@@ -18,62 +39,77 @@ export default class CharSkillWidget {
     const { width, height } = sc.scale;
     const S = Math.min(width / 1920, height / 1080);
 
-    // Đặt bên phải màn hình, cách mép phải một khoảng nhỏ (đối xứng với nút Chat bên trái, không đè panel góc)
-    const bw = Math.round(196 * S);
-    const bh = Math.round(86 * S);
-    const marginRight = Math.round(24 * S);
-    const bx = width - marginRight - bw / 2;
-    const by = height * 0.50;
+    // Đặt bên phải màn hình, gọn gàng kiểu ô icon RPG (Nội tại phía trên, Kỹ năng Nộ phía dưới)
+    const pSize = Math.round(62 * S);
+    const aSize = Math.round(86 * S);
+    const marginRight = Math.round(28 * S);
+    const bx = width - marginRight - aSize / 2;
+    const by = height * 0.54;
+    const py = by - aSize / 2 - pSize / 2 - Math.round(28 * S);
     const D = 120;
 
-    this._pos = { bx, by, bw, bh, S, D };
+    this._pos = { bx, by, bw: aSize, bh: aSize, aSize, py, pSize, S, D };
 
-<<<<<<< HEAD
-    // ── Khung & Icon Nội tại (phía trên) ──
+    // ── Ô Icon Kỹ năng phụ / Nội tại (phía trên) ──
     this._passiveFrameG = sc.add.graphics().setDepth(D);
-    this._passiveIconImg = sc.add.image(bx, py, "skill_icon_28")
+    this._passiveIconImg = sc.add.image(bx, py, "skill_icon_35")
       .setDisplaySize(pSize - 6 * S, pSize - 6 * S)
       .setDepth(D + 1)
       .setVisible(false);
     this._passiveDimOverlay = sc.add.graphics().setDepth(D + 2);
+    this._passiveBorderG = sc.add.graphics().setDepth(D + 3);
     this._passiveCdTxt = sc.add.text(bx, py, "", {
-      fontFamily: "Signika", fontSize: Math.max(14, Math.floor(18 * S)) + "px",
+      fontFamily: "Signika", fontSize: Math.max(13, Math.floor(17 * S)) + "px",
       color: "#38e8ff", fontStyle: "bold", stroke: "#000000", strokeThickness: 4,
-    }).setOrigin(0.5).setDepth(D + 3).setVisible(false);
-    this._passiveZone = sc.add.zone(bx, py, pSize + 8 * S, pSize + 8 * S)
-      .setDepth(D + 4).setInteractive({ cursor: "pointer" });
+    }).setOrigin(0.5).setDepth(D + 4).setVisible(false);
+    this._passiveSubTxt = sc.add.text(bx, py + pSize / 2 + 10 * S, "Nội tại", {
+      fontFamily: "Signika", fontSize: Math.max(10, Math.floor(11.5 * S)) + "px",
+      color: "#7dd3fc", fontStyle: "bold", stroke: "#000000", strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(D + 4);
+    this._passiveZone = sc.add.zone(bx, py, pSize + 8 * S, pSize + 18 * S)
+      .setDepth(D + 5).setInteractive({ cursor: "pointer" });
     this._passiveZone.on("pointerover", () => this._showTooltip("passive"));
     this._passiveZone.on("pointerout",  () => this._hideTooltip());
     this._passiveZone.on("pointerup",   () => this._onPassivePress());
 
-    // ── Khung & Icon Kỹ năng Nộ (ở giữa, bấm để dùng) ──
-=======
->>>>>>> parent of d9bda5a (Commit - mới)
+    // ── Ô Icon Kỹ năng Nộ (phía dưới) ──
     this._btnG = sc.add.graphics().setDepth(D);
-    this._barG = sc.add.graphics().setDepth(D + 1);
+    this._activeIconImg = sc.add.image(bx, by, "skill_icon_27")
+      .setDisplaySize(aSize - 8 * S, aSize - 8 * S)
+      .setDepth(D + 1)
+      .setVisible(false);
+    this._activeDimG = sc.add.graphics().setDepth(D + 2);
+    this._activeBorderG = sc.add.graphics().setDepth(D + 3);
+    this._barG = sc.add.graphics().setDepth(D + 4);
 
-    this._tagTxt = sc.add.text(bx, by - 26 * S, "⚡ KỸ NĂNG NỘ", {
-      fontFamily: "Signika", fontSize: Math.max(10, Math.floor(11.5 * S)) + "px",
-      color: "#7dd3fc", fontStyle: "bold", stroke: "#000000", strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(D + 2);
-
-    this._titleTxt = sc.add.text(bx, by - 5 * S, "KỸ NĂNG", {
-      fontFamily: "Signika", fontSize: Math.max(13, Math.floor(16 * S)) + "px",
-      color: "#ffffff", fontStyle: "bold", stroke: "#000000", strokeThickness: 3,
-      align: "center", wordWrap: { width: bw - 16 * S },
-    }).setOrigin(0.5).setDepth(D + 2);
-
-    this._energyTxt = sc.add.text(bx, by + 26 * S, "Nộ: 0/100", {
+    this._energyTxt = sc.add.text(bx, by + aSize / 2 + 19 * S, "Nộ: 0/100", {
       fontFamily: "Signika", fontSize: Math.max(10, Math.floor(12 * S)) + "px",
       color: "#ffe9a8", fontStyle: "bold", stroke: "#000000", strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(D + 3);
+    }).setOrigin(0.5).setDepth(D + 4);
 
-    this._zone = sc.add.zone(bx, by, bw, bh).setDepth(D + 4).setInteractive({ cursor: "pointer" });
-    this._zone.on("pointerover", () => this._showTooltip());
+    // Mask bo góc cho 2 icon để nằm gọn trong khung RPG
+    const pMaskG = sc.make.graphics({ add: false });
+    pMaskG.fillStyle(0xffffff);
+    pMaskG.fillRoundedRect(bx - (pSize - 6 * S) / 2, py - (pSize - 6 * S) / 2, pSize - 6 * S, pSize - 6 * S, 9 * S);
+    this._passiveIconImg.setMask(pMaskG.createGeometryMask());
+
+    const aMaskG = sc.make.graphics({ add: false });
+    aMaskG.fillStyle(0xffffff);
+    aMaskG.fillRoundedRect(bx - (aSize - 8 * S) / 2, by - (aSize - 8 * S) / 2, aSize - 8 * S, aSize - 8 * S, 12 * S);
+    this._activeIconImg.setMask(aMaskG.createGeometryMask());
+
+    this._zone = sc.add.zone(bx, by, aSize + 8 * S, aSize + 24 * S)
+      .setDepth(D + 5).setInteractive({ cursor: "pointer" });
+    this._zone.on("pointerover", () => this._showTooltip("active"));
     this._zone.on("pointerout",  () => this._hideTooltip());
     this._zone.on("pointerup",   () => this._onPress());
 
-    this._objs.push(this._btnG, this._barG, this._tagTxt, this._titleTxt, this._energyTxt, this._zone);
+    this._objs.push(
+      this._passiveFrameG, this._passiveIconImg, this._passiveDimOverlay, this._passiveBorderG,
+      this._passiveCdTxt, this._passiveSubTxt, this._passiveZone, pMaskG,
+      this._btnG, this._activeIconImg, this._activeDimG, this._activeBorderG,
+      this._barG, this._energyTxt, this._zone, aMaskG
+    );
     this._createAnims();
   }
 
@@ -95,6 +131,22 @@ export default class CharSkillWidget {
       }
       if (f.length) sc.anims.create({ key: "fx_fire_ball", frames: f, frameRate: 16, repeat: -1 });
     }
+    if (!sc.anims.exists("fx_water4_impact")) {
+      const f = [];
+      for (let i = 0; i <= 15; i++) {
+        const k = `fx_water4_${String(i).padStart(2, "0")}`;
+        if (sc.textures.exists(k)) f.push({ key: k });
+      }
+      if (f.length) sc.anims.create({ key: "fx_water4_impact", frames: f, frameRate: 24, repeat: 0 });
+    }
+    if (!sc.anims.exists("fx_flame2_impact")) {
+      const f = [];
+      for (let i = 0; i <= 15; i++) {
+        const k = `fx_flame2_${String(i).padStart(2, "0")}`;
+        if (sc.textures.exists(k)) f.push({ key: k });
+      }
+      if (f.length) sc.anims.create({ key: "fx_flame2_impact", frames: f, frameRate: 24, repeat: 0 });
+    }
   }
 
   syncState(data) {
@@ -112,15 +164,14 @@ export default class CharSkillWidget {
   refresh() {
     if (!this._built || !this.myState) return;
     const sc = this.scene;
-    const { bx, by, bw, bh, S } = this._pos;
+    const { bx, by, aSize, py, pSize, S } = this._pos;
     const skill = this.myState.skill;
     const energy = Number(this.myState.energy || 0);
     const maxE = Number(this.myState.max_energy || 100);
     const ready = energy >= maxE && !this.myState.used_skill_this_turn && sc.isMyTurn && sc.canRoll;
 
-<<<<<<< HEAD
-    // ── Icon Nội tại / Kỹ năng phụ (nhỏ phía trên, bấm để kích hoạt) ──
-    const pIconId = PASSIVE_ICON_MAP[skill?.passive_type] || 28;
+    // ── Icon Nội tại / Kỹ năng phụ (phía trên) ──
+    const pIconId = PASSIVE_ICON_MAP[skill?.passive_type] || 35;
     const pKey = `skill_icon_${pIconId}`;
     const pCd = Number(this.myState.passive_cooldown_left || 0);
     const pActive = Number(this.myState.passive_active_turns || 0);
@@ -131,96 +182,115 @@ export default class CharSkillWidget {
         .setDisplaySize(pSize - 6 * S, pSize - 6 * S)
         .setVisible(true);
     }
+
     const pg = this._passiveFrameG;
-    pg.clear();
-    pg.fillStyle(0x000000, 0.45);
-    pg.fillRoundedRect(bx - pSize / 2 + 2, py - pSize / 2 + 3, pSize, pSize, 10 * S);
-    pg.fillStyle(0x0f172a, 0.9);
-    pg.fillRoundedRect(bx - pSize / 2, py - pSize / 2, pSize, pSize, 10 * S);
-    const pBorderCol = pActive > 0 ? 0xfacc15 : pReady ? 0x38bdf8 : 0x64748b;
-    pg.lineStyle((pActive > 0 || pReady ? 2.5 : 2) * S, pBorderCol, 0.95);
-    pg.strokeRoundedRect(bx - pSize / 2, py - pSize / 2, pSize, pSize, 10 * S);
+    if (pg) {
+      pg.clear();
+      pg.fillStyle(0x000000, 0.48);
+      pg.fillRoundedRect(bx - pSize / 2 + 2, py - pSize / 2 + 3, pSize, pSize, 12 * S);
+      pg.fillStyle(0x0b1224, 0.96);
+      pg.fillRoundedRect(bx - pSize / 2, py - pSize / 2, pSize, pSize, 12 * S);
+    }
+
+    const pBorder = this._passiveBorderG;
+    if (pBorder) {
+      pBorder.clear();
+      const pBorderCol = pActive > 0 ? 0xfacc15 : pReady ? 0x38bdf8 : 0x64748b;
+      pBorder.lineStyle((pActive > 0 || pReady ? 2.6 : 1.8) * S, pBorderCol, 0.98);
+      pBorder.strokeRoundedRect(bx - pSize / 2, py - pSize / 2, pSize, pSize, 12 * S);
+    }
 
     const pDim = this._passiveDimOverlay;
     if (pDim) {
       pDim.clear();
       if (pCd > 0) {
-        pDim.fillStyle(0x000000, 0.62);
-        pDim.fillRoundedRect(bx - pSize / 2 + 2 * S, py - pSize / 2 + 2 * S, pSize - 4 * S, pSize - 4 * S, 8 * S);
+        pDim.fillStyle(0x000000, 0.65);
+        pDim.fillRoundedRect(bx - pSize / 2 + 2 * S, py - pSize / 2 + 2 * S, pSize - 4 * S, pSize - 4 * S, 10 * S);
         this._passiveCdTxt?.setText(String(pCd)).setColor("#38e8ff").setVisible(true);
       } else if (pActive > 0) {
         this._passiveCdTxt?.setText("BẬT").setColor("#fde047").setVisible(true);
       } else {
         if (!pReady) {
           pDim.fillStyle(0x000000, 0.35);
-          pDim.fillRoundedRect(bx - pSize / 2 + 2 * S, py - pSize / 2 + 2 * S, pSize - 4 * S, pSize - 4 * S, 8 * S);
+          pDim.fillRoundedRect(bx - pSize / 2 + 2 * S, py - pSize / 2 + 2 * S, pSize - 4 * S, pSize - 4 * S, 10 * S);
         }
         this._passiveCdTxt?.setVisible(false);
       }
     }
 
-    // ── Icon Kỹ năng Nộ (lớn ở dưới) ──
-    const aIconId = ACTIVE_ICON_MAP[skill?.active_type] || 47;
+    if (pActive > 0) {
+      this._passiveSubTxt?.setText(`BẬT (${pActive}L)`).setColor("#fde047");
+    } else if (pCd > 0) {
+      this._passiveSubTxt?.setText(`Hồi ${pCd}L`).setColor("#38e8ff");
+    } else if (pReady) {
+      this._passiveSubTxt?.setText("Bật Nội Tại").setColor("#7dd3fc");
+    } else {
+      this._passiveSubTxt?.setText("Nội tại").setColor("#94a3b8");
+    }
+
+    // ── Icon Kỹ năng Nộ (phía dưới) ──
+    const aIconId = ACTIVE_ICON_MAP[skill?.active_type] || 27;
     const aKey = `skill_icon_${aIconId}`;
     if (sc.textures.exists(aKey)) {
       this._activeIconImg.setTexture(aKey)
-        .setDisplaySize(bw - 8 * S, bh - 8 * S)
+        .setDisplaySize(aSize - 8 * S, aSize - 8 * S)
         .setVisible(true);
     }
 
-=======
->>>>>>> parent of d9bda5a (Commit - mới)
     const g = this._btnG;
     g.clear();
-    g.fillStyle(0x000000, 0.35);
-    g.fillRoundedRect(bx - bw / 2 + 2, by - bh / 2 + 4, bw, bh, 14 * S);
-    if (ready) {
-      g.fillGradientStyle(0xffc93c, 0xffc93c, 0xd46a10, 0xd46a10, 1);
-      g.lineStyle(2.5, 0xfff5b0, 1);
-    } else {
-      g.fillGradientStyle(0x1f3c70, 0x1f3c70, 0x102244, 0x102244, 0.95);
-      g.lineStyle(2, 0x5599dd, 0.85);
-    }
-    g.fillRoundedRect(bx - bw / 2, by - bh / 2, bw, bh, 14 * S);
-    g.strokeRoundedRect(bx - bw / 2, by - bh / 2, bw, bh, 14 * S);
+    g.fillStyle(0x000000, 0.48);
+    g.fillRoundedRect(bx - aSize / 2 + 2, by - aSize / 2 + 4, aSize, aSize, 15 * S);
+    g.fillStyle(0x0a1326, 0.96);
+    g.fillRoundedRect(bx - aSize / 2, by - aSize / 2, aSize, aSize, 15 * S);
 
-    // Thanh năng lượng
-    const barW = bw - 24 * S;
-    const barH = 10 * S;
+    const aDim = this._activeDimG;
+    if (aDim) {
+      aDim.clear();
+      if (!ready) {
+        aDim.fillStyle(0x000000, energy >= maxE ? 0.25 : 0.48);
+        aDim.fillRoundedRect(bx - aSize / 2 + 3 * S, by - aSize / 2 + 3 * S, aSize - 6 * S, aSize - 6 * S, 12 * S);
+      }
+    }
+
+    const aBorder = this._activeBorderG;
+    if (aBorder) {
+      aBorder.clear();
+      const bCol = ready ? 0xffd54a : energy >= maxE ? 0x38bdf8 : 0x5588bb;
+      aBorder.lineStyle((ready ? 3 : 2) * S, bCol, 1);
+      aBorder.strokeRoundedRect(bx - aSize / 2, by - aSize / 2, aSize, aSize, 15 * S);
+    }
+
+    // Thanh năng lượng Nộ ngay dưới icon
+    const barW = aSize;
+    const barH = 8 * S;
     const barX = bx - barW / 2;
-    const barY = by + 10 * S;
+    const barY = by + aSize / 2 + 5 * S;
     const ratio = Math.max(0, Math.min(1, energy / maxE));
 
     const bg = this._barG;
     bg.clear();
-    bg.fillStyle(0x000000, 0.55);
-    bg.fillRoundedRect(barX, barY, barW, barH, 5 * S);
+    bg.fillStyle(0x000000, 0.65);
+    bg.fillRoundedRect(barX, barY, barW, barH, 4 * S);
     if (ratio > 0) {
-      bg.fillStyle(ready ? 0xffe066 : 0x44ccff, 1);
-      bg.fillRoundedRect(barX, barY, Math.max(8 * S, barW * ratio), barH, 5 * S);
+      bg.fillStyle(ready ? 0xffd54a : 0x38bdf8, 1);
+      bg.fillRoundedRect(barX, barY, Math.max(6 * S, barW * ratio), barH, 4 * S);
     }
 
-    this._tagTxt?.setColor(ready ? "#fff3b0" : "#7dd3fc");
-    this._titleTxt.setText(skill ? skill.active_name : "KỸ NĂNG");
-    this._titleTxt.setColor(ready ? "#4a1800" : "#ffffff");
     if (ready) {
-      this._energyTxt.setText("NHẤN ĐỂ DÙNG!");
-      this._energyTxt.setColor("#fff7cc");
+      this._energyTxt.setText("DÙNG NỘ!").setColor("#fde047");
     } else if (energy >= maxE && !this.myState.used_skill_this_turn) {
-      this._energyTxt.setText(`Nộ: ${energy}/${maxE} • Chờ lượt`);
-      this._energyTxt.setColor("#fde047");
+      this._energyTxt.setText(`${energy}/${maxE} • Chờ lượt`).setColor("#7dd3fc");
     } else {
-      this._energyTxt.setText(`Nộ: ${energy}/${maxE}`);
-      this._energyTxt.setColor("#e2e8f0");
+      this._energyTxt.setText(`Nộ: ${energy}/${maxE}`).setColor("#e2e8f0");
     }
   }
 
-  _showTooltip() {
+  _showTooltip(which = "active") {
     this._hideTooltip();
     const skill = this.myState?.skill;
     if (!skill) return;
     const sc = this.scene;
-<<<<<<< HEAD
     const { bx, by, bw, py, S, D } = this._pos;
     const energy = Number(this.myState.energy || 0);
     const maxE = Number(this.myState.max_energy || 100);
@@ -253,13 +323,9 @@ export default class CharSkillWidget {
     ).setOrigin(0, 0).setDepth(D + 21);
 
     const th = Math.max(Math.round(120 * S), Math.ceil(txt.height + padY * 2));
-=======
-    const { bx, by, bw, S, D } = this._pos;
-    const tw = Math.round(320 * S), th = Math.round(145 * S);
-    // Mở tooltip sang bên trái nút kỹ năng để không bị tràn mép phải
->>>>>>> parent of d9bda5a (Commit - mới)
+    const anchorY = which === "passive" && typeof py === "number" ? py : by;
     const tx = Math.max(tw / 2 + 12 * S, bx - bw / 2 - tw / 2 - 14 * S);
-    const ty = Math.max(th / 2 + 12 * S, Math.min(sc.scale.height - th / 2 - 12 * S, by));
+    const ty = Math.max(th / 2 + 12 * S, Math.min(sc.scale.height - th / 2 - 12 * S, anchorY));
 
     const g = sc.add.graphics().setDepth(D + 20);
     g.fillStyle(0x0e1830, 0.94);
@@ -267,13 +333,7 @@ export default class CharSkillWidget {
     g.lineStyle(2, 0xffe066, 0.9);
     g.strokeRoundedRect(tx - tw / 2, ty - th / 2, tw, th, 12);
 
-    const txt = sc.add.text(tx - tw / 2 + 12, ty - th / 2 + 10,
-      `Nội tại - ${skill.passive_name}:\n${skill.passive_desc}\n\nChủ động - ${skill.active_name}:\n${skill.active_desc}`,
-      {
-        fontFamily: "Signika", fontSize: Math.max(11, Math.floor(13 * S)) + "px",
-        color: "#eef6ff", wordWrap: { width: tw - 24 }, lineSpacing: 2,
-      }
-    ).setOrigin(0, 0).setDepth(D + 21);
+    txt.setPosition(tx - tw / 2 + padX, ty - th / 2 + padY);
 
     this._tooltip = [g, txt];
   }
@@ -413,44 +473,107 @@ export default class CharSkillWidget {
     sc.socket?.emit("game:use_char_skill", { room_id: roomId, ...extra });
   }
 
+  _getSpriteByUid(uid) {
+    const sc = this.scene;
+    const myUid = Number(sc._myUserId?.());
+    if (Number(uid) === myUid) return sc.player;
+    return Object.values(sc.otherPlayers || {}).find(o => Number(o?.user_id) === Number(uid)) || null;
+  }
+
+  playImpactAt(x, y, element = "flame") {
+    const sc = this.scene;
+    const S = Math.min(sc.scale.width / 1920, sc.scale.height / 1080);
+    const isWater = element === "water" || element === "water_ball";
+    const animKey = isWater && sc.anims.exists("fx_water4_impact")
+      ? "fx_water4_impact"
+      : sc.anims.exists("fx_flame2_impact")
+      ? "fx_flame2_impact"
+      : null;
+    if (!animKey) return;
+
+    const firstTex = animKey === "fx_water4_impact" ? "fx_water4_00" : "fx_flame2_00";
+    const srcImg = sc.textures.exists(firstTex) ? sc.textures.get(firstTex).getSourceImage() : null;
+    const targetW = 135 * S;
+    const impactScale = srcImg?.width ? (targetW / srcImg.width) : 0.35 * S;
+
+    const impact = sc.add.sprite(x, y - 22 * S, firstTex)
+      .setDepth(360)
+      .setScale(impactScale)
+      .setAlpha(0.75)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    impact.play(animKey);
+    sc.tweens.add({
+      targets: impact,
+      alpha: 0.18,
+      duration: 580,
+      ease: "Sine.easeOut",
+    });
+    impact.once("animationcomplete", () => {
+      try { impact.destroy(); } catch (e) {}
+    });
+  }
+
+  playImpactOnUser(uid, element = "flame") {
+    const sp = this._getSpriteByUid(uid);
+    if (sp) this.playImpactAt(sp.x, sp.y, element);
+  }
+
+  playImpactOnCell(cellIdx, element = "flame") {
+    const sc = this.scene;
+    const pt = sc.boardPath?.[Number(cellIdx)];
+    if (!pt) return;
+    this.playImpactAt(pt.x * sc.scale.width, pt.y * sc.scale.height, element);
+  }
+
   playSkillFX(data) {
     const sc = this.scene;
     if (data.message) sc._showSkillToast?.(data.message);
 
-    // Tìm tọa độ xuất phát và đích
-    const fromPlayer = sc.players?.[data.user_id] || sc.playerSprites?.[data.user_id];
-    let sx = fromPlayer?.x ?? sc.scale.width / 2;
-    let sy = fromPlayer?.y ?? sc.scale.height / 2;
+    // Tìm tọa độ xuất phát và đích chuẩn trên màn hình
+    const fromPlayer = this._getSpriteByUid(data.user_id);
+    const sx = fromPlayer?.x ?? sc.scale.width / 2;
+    const sy = fromPlayer?.y ?? sc.scale.height / 2;
 
     let tx = sx, ty = sy;
     if (data.target_user_id) {
-      const tp = sc.players?.[data.target_user_id] || sc.playerSprites?.[data.target_user_id];
+      const tp = this._getSpriteByUid(data.target_user_id);
       if (tp) { tx = tp.x; ty = tp.y; }
     } else if (data.target_cell_index !== null && data.target_cell_index !== undefined && sc.boardPath?.[data.target_cell_index]) {
       const pt = sc.boardPath[data.target_cell_index];
-      tx = pt.x; ty = pt.y;
+      tx = pt.x * sc.scale.width;
+      ty = pt.y * sc.scale.height;
     }
 
-    const animKey = data.fx_type === "water_ball" && sc.anims.exists("fx_water_ball")
+    const isWater = data.fx_type === "water_ball";
+    const animKey = isWater && sc.anims.exists("fx_water_ball")
       ? "fx_water_ball"
       : (sc.anims.exists("fx_fire_ball") ? "fx_fire_ball" : null);
-    if (!animKey) return;
+    if (!animKey) {
+      this.playImpactAt(tx, ty, isWater ? "water" : "flame");
+      return;
+    }
 
+    const S = Math.min(sc.scale.width / 1920, sc.scale.height / 1080);
     const tex0 = animKey === "fx_water_ball" ? "water_ball_01" : "fire_ball_01";
-    const fx = sc.add.sprite(sx, sy - 20, tex0).setDepth(350).setScale(0.45);
+    const fx = sc.add.sprite(sx, sy - 20 * S, tex0)
+      .setDepth(350)
+      .setScale(0.28 * S)
+      .setAlpha(0.82)
+      .setBlendMode(Phaser.BlendModes.ADD);
     fx.play(animKey);
     fx.setRotation(Phaser.Math.Angle.Between(sx, sy, tx, ty));
 
     sc.tweens.add({
       targets: fx,
       x: tx,
-      y: ty - 15,
-      duration: sx === tx && sy === ty ? 550 : 650,
+      y: ty - 15 * S,
+      duration: sx === tx && sy === ty ? 420 : 580,
       ease: "Quad.easeOut",
       onComplete: () => {
-        sc.cameras.main.shake(180, 0.004);
+        sc.cameras.main.shake(120, 0.0025);
+        this.playImpactAt(tx, ty, isWater ? "water" : "flame");
         sc.tweens.add({
-          targets: fx, scale: 0.9, alpha: 0, duration: 240,
+          targets: fx, scale: 0.45 * S, alpha: 0, duration: 180,
           onComplete: () => fx.destroy(),
         });
       },
