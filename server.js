@@ -2870,8 +2870,9 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
         Math.floor(Math.random() * 3) + 1 // Random 1, 2 hoặc tối đa 3 ô
       );
 
-      const shuffled = [...candidateIndexes].sort(() => Math.random() - 0.5);
+      const shuffled = [...new Set(candidateIndexes)].sort(() => Math.random() - 0.5);
       const targetIndexes = shuffled.slice(0, destroyCount);
+      console.log(`👹 [Cell 28] room=${room_id} destroyCount=${destroyCount} targets=`, targetIndexes);
 
       const targetDetails = targetIndexes.map(cellIndex => {
         const existing = gs.cellStates[cellIndex];

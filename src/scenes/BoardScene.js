@@ -1359,16 +1359,22 @@ _closeTarotModal() { this.tarotModal?.close(); }
     playBoardIncreaseSound(this);
     if (!this._taxBadges) this._taxBadges = {};
 
+    const seenBoost = new Set();
+    let idxOrder = 0;
     data.boosts.forEach(b => {
+      const ci = Number(b.cell_index);
+      if (seenBoost.has(ci)) return;
+      seenBoost.add(ci);
       // Cập nhật cellStates
-      if (this.cellStates?.[b.cell_index]) {
-        this.cellStates[b.cell_index].rent_multiplier = b.multiplier;
+      if (this.cellStates?.[ci]) {
+        this.cellStates[ci].rent_multiplier = b.multiplier;
       }
       // Hiệu ứng lần lượt
-      const targetCell = this.boardPath[b.cell_index];
+      const targetCell = this.boardPath[ci];
       if (!targetCell) return;
-      const i = data.boosts.indexOf(b);
-      this.time.delayedCall(i * 700, () => {
+      const delayMs = idxOrder * 700;
+      idxOrder++;
+      this.time.delayedCall(delayMs, () => {
         this._waterBallDrop(targetCell, b.multiplier);
       });
     });
@@ -1390,8 +1396,20 @@ _closeTarotModal() { this.tarotModal?.close(); }
   });
 
   this.socket.on("game:monster_target", (data) => {
-    const details = (data.target_details || (data.cell_indexes || []).map(i => ({ cell_index: i, had_planet: true }))).slice(0, 3);
+    const rawDetails = data.target_details || (data.cell_indexes || []).map(i => ({ cell_index: i, had_planet: true }));
+    const uniq = new Map();
+    rawDetails.forEach(d => {
+      const ci = Number(d?.cell_index);
+      if (Number.isInteger(ci) && !uniq.has(ci)) uniq.set(ci, d);
+    });
+    const details = Array.from(uniq.values()).slice(0, 3);
     if (!details || details.length === 0) return;
+
+    const sig = details.map(d => d.cell_index).join(",");
+    const now = Date.now();
+    if (this._lastMonsterSig === sig && (now - (this._lastMonsterAt || 0)) < 4000) return;
+    this._lastMonsterSig = sig;
+    this._lastMonsterAt = now;
 
     const sourceCell = this.boardPath[28];
     this._startDarkMapEffect();
@@ -3563,6 +3581,7 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
     if (!playerData) { this.scene.start("LoginScene"); return; }
 
     setupClickSound(this);
+    this.events.once("shutdown", () => this.shutdown());
 
     this.gameRoomId = data?.roomData?.id || null;
     this._isIntroRunning = false;
@@ -6547,6 +6566,13 @@ this.input.keyboard.on("keydown-Y", () => {
     this._destroyGameChatPanel();
     this._gameChatBtnObjs?.forEach(o => { try { o?.destroy(); } catch(e){} });
     this._gameChatBtnObjs = [];
+    if (this.socket) {
+      try {
+        this.socket.removeAllListeners();
+        this.socket.disconnect();
+      } catch (e) {}
+      this.socket = null;
+    }
     // Chỉ xóa session reconnect khi người dùng chủ động thoát (flag _intentionalExit = true)
     // Không xóa khi trang bị reload/unload — để SplashScene có thể reconnect
     if (this._intentionalExit) {
