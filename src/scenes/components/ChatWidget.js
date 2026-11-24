@@ -1,13 +1,40 @@
 /**
- * ChatWidget — Widget chat với scrollable message area
+ * ChatWidget — Widget chat với scrollable message area + nút Micro đồng bộ (tùy chọn)
  */
+import voiceChat from "../../utils/voiceChatManager.js";
+
+export function drawMicVectorIcon(g, cx, cy, scale = 1, active = false) {
+  const col = active ? 0xffffff : 0xcbd5e1;
+  const a = active ? 1 : 0.72;
+  // Thân bầu micro
+  const mw = 8 * scale;
+  const mh = 13 * scale;
+  g.fillStyle(col, a);
+  g.fillRoundedRect(cx - mw / 2, cy - mh / 2 - 3 * scale, mw, mh, 4 * scale);
+
+  // Vòng chữ U ôm micro
+  g.lineStyle(2.1 * scale, col, a);
+  g.beginPath();
+  g.arc(cx, cy - 1 * scale, 7.5 * scale, 0.12 * Math.PI, 0.88 * Math.PI, false);
+  g.strokePath();
+
+  // Chân đứng & đế ngang
+  g.beginPath();
+  g.moveTo(cx, cy + 6.5 * scale);
+  g.lineTo(cx, cy + 10.5 * scale);
+  g.moveTo(cx - 4.8 * scale, cy + 10.5 * scale);
+  g.lineTo(cx + 4.8 * scale, cy + 10.5 * scale);
+  g.strokePath();
+}
+
 export default class ChatWidget {
-  constructor(scene, { channel, socket, depth = 200, myId = null }) {
-    this.scene   = scene;
-    this.channel = channel;
-    this.socket  = socket;
-    this.depth   = depth;
-    this.myId    = myId ? Number(myId) : null;
+  constructor(scene, { channel, socket, depth = 200, myId = null, enableMic = false }) {
+    this.scene     = scene;
+    this.channel   = channel;
+    this.socket    = socket;
+    this.depth     = depth;
+    this.myId      = myId ? Number(myId) : null;
+    this.enableMic = !!enableMic;
 
     this._objects     = [];
     this._msgObjs     = []; // text objects trong vùng chat (bị mask)
@@ -20,6 +47,7 @@ export default class ChatWidget {
     this._scrollBar   = null;
     this._scrollThumb = null;
     this._isDragging  = false;
+    this._unsubVoice  = null;
   }
 
   build(x, y, w, h) {
@@ -29,7 +57,9 @@ export default class ChatWidget {
     const INPUT_H  = 40;
     const MSG_H    = h - INPUT_H;
     const SEND_W   = 52;
-    const INPUT_W  = w - SEND_W;
+    const MIC_W    = this.enableMic ? 42 : 0;
+    const MIC_GAP  = this.enableMic ? 4 : 0;
+    const INPUT_W  = w - SEND_W - MIC_W - MIC_GAP;
     const D        = this.depth;
 
     this._MSG_H   = MSG_H;
@@ -159,6 +189,77 @@ export default class ChatWidget {
     sendZone.on("pointerdown",  () => this._sendMessage());
     this._push(sendZone);
 
+    // ── Nút Micro bên phải nút Gửi (đồng bộ chuẩn với voiceChat) ──
+    if (this.enableMic) {
+      const micX = sendX + SEND_W + MIC_GAP;
+      const micCX = micX + MIC_W / 2;
+      const micCY = inputY + INPUT_H / 2;
+      const micG = this.scene.add.graphics().setDepth(D);
+      const micBadgeTxt = this.scene.add.text(micCX + 11, micCY + 10, "×", {
+        fontFamily: "Signika", fontSize: "12px", color: "#ffffff", fontStyle: "bold"
+      }).setOrigin(0.5).setDepth(D + 3).setVisible(false);
+      this._push(micG);
+      this._push(micBadgeTxt);
+
+      let micHovered = false;
+      const drawMic = (snap = voiceChat.getSnapshot()) => {
+        if (!micG?.active) return;
+        const on = !!snap?.micEnabled;
+        const speaking = on && !!snap?.isSpeaking;
+        micG.clear();
+
+        if (speaking) {
+          micG.fillGradientStyle(0x4ade80, 0x4ade80, 0x15803d, 0x15803d, 1);
+          micG.lineStyle(2, 0xbbf7d0, 1);
+        } else if (on) {
+          micG.fillGradientStyle(
+            micHovered ? 0x38ccff : 0x1aa8ff, micHovered ? 0x38ccff : 0x1aa8ff,
+            micHovered ? 0x0066dd : 0x0055bb, micHovered ? 0x0066dd : 0x0055bb, 1
+          );
+          micG.lineStyle(1.8, 0x93e6ff, 0.95);
+        } else {
+          micG.fillGradientStyle(
+            micHovered ? 0x2a4569 : 0x1b304d, micHovered ? 0x2a4569 : 0x1b304d,
+            micHovered ? 0x132642 : 0x0c1a30, micHovered ? 0x132642 : 0x0c1a30, 1
+          );
+          micG.lineStyle(1.5, 0x476891, 0.85);
+        }
+
+        micG.fillRoundedRect(micX + 1, inputY + 2, MIC_W - 2, INPUT_H - 4, 8);
+        micG.strokeRoundedRect(micX + 1, inputY + 2, MIC_W - 2, INPUT_H - 4, 8);
+
+        // Vệt bóng nhẹ phía trên giống phong cách nút game
+        micG.fillStyle(0xffffff, on ? 0.24 : 0.10);
+        micG.fillRoundedRect(micX + 5, inputY + 4, MIC_W - 10, (INPUT_H - 8) * 0.38, 4);
+
+        // Icon micro vector sắc nét
+        drawMicVectorIcon(micG, micCX, micCY + 1, 0.95, on);
+
+        // Chấm tròn đỏ dấu × khi đang TẮT mic
+        if (!on) {
+          const bx = micCX + 11, by = micCY + 10, br = 7;
+          micG.fillStyle(0x000000, 0.38);
+          micG.fillCircle(bx + 1, by + 1.5, br);
+          micG.fillStyle(0xef4444, 1);
+          micG.fillCircle(bx, by, br);
+          micG.lineStyle(1.5, 0xffffff, 0.95);
+          micG.strokeCircle(bx, by, br);
+          micBadgeTxt.setPosition(bx, by - 0.5).setVisible(true);
+        } else {
+          micBadgeTxt.setVisible(false);
+        }
+      };
+
+      const micZone = this.scene.add.zone(micCX, micCY, MIC_W, INPUT_H)
+        .setInteractive({ cursor: "pointer" }).setDepth(D + 4);
+      micZone.on("pointerover", () => { micHovered = true; drawMic(); });
+      micZone.on("pointerout",  () => { micHovered = false; drawMic(); });
+      micZone.on("pointerdown", () => { voiceChat.toggleMic(); });
+      this._push(micZone);
+
+      this._unsubVoice = voiceChat.onStateChange((snap) => drawMic(snap));
+    }
+
     this._bindSocket();
     return this;
   }
@@ -168,6 +269,10 @@ export default class ChatWidget {
   }
 
   destroy() {
+    if (this._unsubVoice) {
+      try { this._unsubVoice(); } catch {}
+      this._unsubVoice = null;
+    }
     if (this.channel === "world") this.socket?.emit("chat:world:leave");
     this._unbindSocket();
     this._removeKeyListener();

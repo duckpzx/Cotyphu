@@ -7,8 +7,9 @@ import { SERVER_URL }    from "../config.js";
 import { getActiveProfile, getPlayerData } from "../server/utils/playerData.js";
 import { createLoadingOverlay } from "../utils/loadingOverlay.js";
 import { getTarotLevel, tarotImagePath, prepareLevelTexture, markLevelTexture, tarotLevelKey, ensureTarotLevelTexture } from "../utils/tarotLevel.js";
-import ChatWidget         from "./components/ChatWidget.js";
+import ChatWidget, { drawMicVectorIcon } from "./components/ChatWidget.js";
 import PlayerProfilePanel from "./components/PlayerProfilePanel.js";
+import voiceChat          from "../utils/voiceChatManager.js";
 import {
   playBoardBuySound, playBoardErrSound, playBoardHunterSound,
   playBoardIncreaseSound, playBoardTeacherSound, playBoardSkillSound,
@@ -252,6 +253,12 @@ _closeTarotModal() { this.tarotModal?.close(); }
       this.canRoll = this.isMyTurn;
       this.gameRoomId = data.room_id || this.gameRoomId;
       this.serverClockOffsetMs = Number(data.server_now_ms || Date.now()) - Date.now();
+      if (this.gameRoomId && this.socket) {
+        voiceChat.join(this.socket, this.gameRoomId, myUid, this.playerName);
+        if (!this._unsubVoiceErr) {
+          this._unsubVoiceErr = voiceChat.onError((msg) => this._showToast?.(msg, "#ff6666", 3000));
+        }
+      }
 
       // ── Lưu session reconnect ────────────────────────────────
       try {
@@ -6231,6 +6238,70 @@ this.input.keyboard.on("keydown-Y", () => {
       gearBtn.on("pointerdown", () => this._toggleBoardSettingsBar(gearX, gearY));
       this._gameChatBtnObjs.push(gearBtn);
     }
+
+    // ── Nút Micro nhanh ngay phía dưới nút Chat (đồng bộ chuẩn với nút mic trong Chat) ──
+    const micX = 36;
+    const micY = centerY + bgH / 2 + 36;
+    const micR = 24;
+    const micG = this.add.graphics().setDepth(D + 2);
+    const micBadgeTxt = this.add.text(micX + 14, micY + 14, "×", {
+      fontFamily: "Signika", fontSize: "13px", color: "#ffffff", fontStyle: "bold"
+    }).setOrigin(0.5).setDepth(D + 4).setVisible(false);
+    let micHover = false;
+
+    const drawQuickMic = (snap = voiceChat.getSnapshot()) => {
+      if (!micG?.active) return;
+      const on = !!snap?.micEnabled;
+      const speaking = on && !!snap?.isSpeaking;
+      micG.clear();
+      micG.fillStyle(0x000000, 0.35);
+      micG.fillCircle(micX + 1.5, micY + 2.5, micR);
+
+      if (speaking) {
+        micG.fillGradientStyle(0x4ade80, 0x4ade80, 0x15803d, 0x15803d, 1);
+        micG.lineStyle(2.5, 0xbbf7d0, 1);
+      } else if (on) {
+        micG.fillGradientStyle(
+          micHover ? 0x38ccff : 0x1aa8ff, micHover ? 0x38ccff : 0x1aa8ff,
+          micHover ? 0x0066dd : 0x0055bb, micHover ? 0x0066dd : 0x0055bb, 1
+        );
+        micG.lineStyle(2, 0x93e6ff, 0.95);
+      } else {
+        micG.fillGradientStyle(
+          micHover ? 0x2a4569 : 0x1b304d, micHover ? 0x2a4569 : 0x1b304d,
+          micHover ? 0x132642 : 0x0c1a30, micHover ? 0x132642 : 0x0c1a30, 1
+        );
+        micG.lineStyle(1.8, 0x476891, 0.9);
+      }
+      micG.fillCircle(micX, micY, micR);
+      micG.strokeCircle(micX, micY, micR);
+
+      drawMicVectorIcon(micG, micX, micY + 1, 1.05, on);
+
+      if (!on) {
+        const bx = micX + 14, by = micY + 14, br = 8;
+        micG.fillStyle(0x000000, 0.38);
+        micG.fillCircle(bx + 1, by + 1.5, br);
+        micG.fillStyle(0xef4444, 1);
+        micG.fillCircle(bx, by, br);
+        micG.lineStyle(1.6, 0xffffff, 0.95);
+        micG.strokeCircle(bx, by, br);
+        micBadgeTxt.setPosition(bx, by - 0.5).setVisible(true);
+      } else {
+        micBadgeTxt.setVisible(false);
+      }
+    };
+
+    const micZone = this.add.zone(micX, micY, micR * 2.2, micR * 2.2)
+      .setDepth(D + 5).setInteractive({ useHandCursor: true });
+    micZone.on("pointerover", () => { micHover = true; drawQuickMic(); });
+    micZone.on("pointerout",  () => { micHover = false; drawQuickMic(); });
+    micZone.on("pointerdown", () => { voiceChat.toggleMic(); });
+
+    if (this._unsubVoiceHud) { try { this._unsubVoiceHud(); } catch {} }
+    this._unsubVoiceHud = voiceChat.onStateChange((snap) => drawQuickMic(snap));
+    this._gameChatBtnObjs.push(micG, micBadgeTxt, micZone);
+
     this._gameChatPanelOpen = false;
   }
 
@@ -6400,10 +6471,11 @@ this.input.keyboard.on("keydown-Y", () => {
     // ── ChatWidget channel "game" ──────────────────────────────────
     this._gameChat?.destroy();
     this._gameChat = new ChatWidget(this, {
-      channel: "game",
-      socket:  this.socket,
-      depth:   D + 1,
-      myId:    this._myUserId(),
+      channel:   "game",
+      socket:    this.socket,
+      depth:     D + 1,
+      myId:      this._myUserId(),
+      enableMic: true,
     });
     this._gameChat.build(PANEL_X, PANEL_Y + TAB_H, PANEL_W, PANEL_H - TAB_H);
     this._gameChat.addSystemMessage("Chat trong trận — Chúc vui!");
@@ -6564,6 +6636,9 @@ this.input.keyboard.on("keydown-Y", () => {
     this._gameChatHistory = [];
     this._gameChatUnread = 0;
     this._destroyGameChatPanel();
+    if (this._unsubVoiceHud) { try { this._unsubVoiceHud(); } catch {} this._unsubVoiceHud = null; }
+    if (this._unsubVoiceErr) { try { this._unsubVoiceErr(); } catch {} this._unsubVoiceErr = null; }
+    voiceChat.leave();
     this._gameChatBtnObjs?.forEach(o => { try { o?.destroy(); } catch(e){} });
     this._gameChatBtnObjs = [];
     if (this.socket) {

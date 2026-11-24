@@ -2,6 +2,7 @@ import { getActiveProfile } from "../server/utils/playerData.js";
 import { SERVER_URL } from "../config.js";
 import ChatWidget from "./components/ChatWidget.js";
 import PlayerProfilePanel from "./components/PlayerProfilePanel.js";
+import voiceChat from "../utils/voiceChatManager.js";
 import { setupClickSound, playOutSound, isMusicEnabled, isSoundEnabled, setMusicEnabled, setSoundEnabled } from "../utils/clickSound.js";
 
 export default class RoomScene extends Phaser.Scene {
@@ -686,10 +687,21 @@ export default class RoomScene extends Phaser.Scene {
     this._chatWidget?.destroy();
     const playerData = this.registry.get("playerData") || JSON.parse(localStorage.getItem("playerData") || "null");
     const myId = playerData?.user?.id || playerData?.id;
-    this._chatWidget = new ChatWidget(this, { channel: "room", socket: this.socket, myId });
+    const myName = playerData?.user?.name || playerData?.name || "Player";
+    this._chatWidget = new ChatWidget(this, { channel: "room", socket: this.socket, myId, enableMic: true });
     this._chatWidget.build(0, this._chatPanelY, this._chatW, this._chatPanelH);
     this._chatWidget.addSystemMessage("Chào mừng vào phòng chờ!");
     this._chatWidget.addSystemMessage("Nhấn Sẵn Sàng khi đã chuẩn bị.");
+
+    if (this.roomData?.id && this.socket) {
+      voiceChat.join(this.socket, this.roomData.id, myId, myName);
+    }
+    if (this._unsubVoiceErr) { try { this._unsubVoiceErr(); } catch {} }
+    this._unsubVoiceErr = voiceChat.onError((msg) => this._showNotice?.(msg));
+    if (!this._shutdownHooked) {
+      this._shutdownHooked = true;
+      this.events.once("shutdown", () => this.shutdown());
+    }
   }
 
   // Rebuild phần bottom panel (nút bắt đầu / sẵn sàng)
@@ -1092,12 +1104,14 @@ export default class RoomScene extends Phaser.Scene {
           this._showConfirm(
             "Bạn là chủ phòng.\nRời phòng sẽ XÓA phòng này.\nBạn có chắc chắn muốn rời?",
             () => {
+              voiceChat.leave();
               this.socket?.emit("room:leave");
               this.time.delayedCall(300, () => this.scene.start("RoomListScene"));
             }
           );
         } else {
           this._showConfirm("Bạn có muốn rời phòng không?", () => {
+            voiceChat.leave();
             this.socket?.emit("room:leave");
             this.time.delayedCall(300, () => this.scene.start("RoomListScene"));
           });
@@ -1527,6 +1541,8 @@ export default class RoomScene extends Phaser.Scene {
           cTxt.setText("BẮT ĐẦU!");
           cTxt.setStyle({ color: "#00ff88", stroke: "#005522" });
           setTimeout(() => {
+            this._transitioningToBoard = true;
+            voiceChat.detachForSceneTransition();
             if (this.socket) {
               this.socket.current_room_id = null;
               this.registry.set("gameSocket", this.socket);
@@ -1836,6 +1852,15 @@ export default class RoomScene extends Phaser.Scene {
 
   shutdown() {
     this.registry.set("currentRoomId", null);
+    if (this._unsubVoiceErr) {
+      try { this._unsubVoiceErr(); } catch {}
+      this._unsubVoiceErr = null;
+    }
+    if (!this._transitioningToBoard) {
+      voiceChat.leave();
+    }
+    this._transitioningToBoard = false;
+    this._shutdownHooked = false;
     this._chatWidget?.destroy();
     this._chatWidget = null;
     this._profilePanel?.destroy();

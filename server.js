@@ -25,6 +25,7 @@ import questionsService from "./src/server/services/questions.service.js";
 import db from "./src/server/config/db.js";
 import { registerChatHandlers, startChatCleanupJob } from "./src/server/handlers/chatHandler.js";
 import { registerFriendHandlers } from "./src/server/handlers/friendHandler.js";
+import { registerVoiceHandlers } from "./src/server/handlers/voiceHandler.js";
 
 const SECRET = process.env.JWT_SECRET;
 const app    = express();
@@ -1542,6 +1543,9 @@ io.on("connection", (socket) => {
 
   // ── CHAT ─────────────────────────────────────────────────────────────
   registerChatHandlers(socket, io);
+
+  // ── VOICE CHAT (WebRTC Signaling) ────────────────────────────────────
+  registerVoiceHandlers(socket, io);
 
   // ── FRIEND ───────────────────────────────────────────────────────────
   registerFriendHandlers(socket, io, { onlineUserSockets, gameStates });
