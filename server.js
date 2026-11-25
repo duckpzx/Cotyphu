@@ -4320,6 +4320,10 @@ app.get("/api/assets/npc-config", (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.json({ success: true, npcs: assetUploadService.getNpcConfig() });
 });
+app.get("/api/assets/map-config", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ success: true, active_map: assetUploadService.getActiveMapConfig() });
+});
 
 // ── PAYOS REAL-MONEY TOP-UP & WEBHOOK ──────────────────────────
 app.get("/api/payment/packages", (req, res) => {

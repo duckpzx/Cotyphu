@@ -2947,6 +2947,22 @@ this.socket.on("game:tarot_denied", (data) => {
 
     this.load.image("bg", "./assets/nen_trochoi.jpg");
 
+    // Nạp cấu hình bản đồ theo mùa (ảnh map + tọa độ 37 ô) từ Admin Map Editor
+    this._activeMapConfig = null;
+    this.load.json("map_config_live", `/api/assets/map-config?t=${Date.now()}`);
+    this.load.once("filecomplete-json-map_config_live", (_k, _t, payload) => {
+      const m = payload?.active_map;
+      if (m) {
+        this._activeMapConfig = m;
+        if (m.is_custom && m.image_url) {
+          const texKey = `bg_custom_${m.version || 0}`;
+          if (!this.textures.exists(texKey)) {
+            this.load.image(texKey, `${m.image_url}?v=${m.version || 0}`);
+          }
+        }
+      }
+    });
+
     this.characters.forEach(character => {
       for (let skin = 1; skin <= 3; skin++) {
         const image = `${character}_${skin}`;
@@ -3004,6 +3020,16 @@ this.socket.on("game:tarot_denied", (data) => {
         atkFrames.forEach((url, i) => {
           const num = String(i).padStart(3, "0");
           const k = `Hunter_Greeting_custom_${ver}_${num}`;
+          if (!this.textures.exists(k)) this.load.image(k, `${url}?v=${ver}`);
+        });
+      }
+
+      const trCfg = npcs.treasure;
+      if (trCfg?.is_custom && Array.isArray(trCfg.idle_frames) && trCfg.idle_frames.length > 0) {
+        const ver = trCfg.version || 0;
+        trCfg.idle_frames.forEach((url, i) => {
+          const num = String(i).padStart(3, "0");
+          const k = `Fantasy_Treasure_custom_${ver}_idle_${num}`;
           if (!this.textures.exists(k)) this.load.image(k, `${url}?v=${ver}`);
         });
       }
@@ -3144,6 +3170,18 @@ this.socket.on("game:tarot_denied", (data) => {
       for (let i = 0; i < 18; i++)
         teacherFrames.push({ key: `Fantasy_Teacher_idle_${String(i).padStart(3,"0")}` });
       this.anims.create({ key:"Fantasy_Teacher_idle", frames:teacherFrames, frameRate:12, repeat:-1 });
+    }
+
+    const trCfg = this._npcConfig?.treasure;
+    if (trCfg?.is_custom && Array.isArray(trCfg.idle_frames) && trCfg.idle_frames.length > 1) {
+      const ver = trCfg.version || 0;
+      const trFrames = trCfg.idle_frames
+        .map((_, i) => ({ key: `Fantasy_Treasure_custom_${ver}_idle_${String(i).padStart(3, "0")}` }))
+        .filter(f => this.textures.exists(f.key));
+      if (trFrames.length > 1) {
+        if (this.anims.exists("Fantasy_Treasure_custom_idle")) this.anims.remove("Fantasy_Treasure_custom_idle");
+        this.anims.create({ key: "Fantasy_Treasure_custom_idle", frames: trFrames, frameRate: Number(trCfg.fps) || 10, repeat: -1 });
+      }
     }
   }
 
@@ -3721,7 +3759,11 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
       this.mySkin        = activeProfile.skin_id || 1;
     }
 
-    const bg = this.add.image(width/2, height/2, "bg").setDisplaySize(width, height);
+    const customBgKey = this._activeMapConfig?.is_custom
+      ? `bg_custom_${this._activeMapConfig.version || 0}`
+      : null;
+    const bgTex = (customBgKey && this.textures.exists(customBgKey)) ? customBgKey : "bg";
+    const bg = this.add.image(width/2, height/2, bgTex).setDisplaySize(width, height);
     this.minRatio = Math.min(width/this.originalWidth, height/this.originalHeight);
     const minRatio = this.minRatio;
 
@@ -3838,6 +3880,11 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
       { index:36, x:0.274, y:0.52,  hw:0.0261,hh:0.0258,name:"Cell 36", type:"land"  },
     ];
 
+    // Ghi đè tọa độ 37 ô nếu Admin đang kích hoạt bản đồ tùy biến
+    if (Array.isArray(this._activeMapConfig?.board_path) && this._activeMapConfig.board_path.length === 37) {
+      this.boardPath = this._activeMapConfig.board_path.map(c => ({ ...c }));
+    }
+
     this.createLandTiles(minRatio);
     this.createBloodyAnimation();
 
@@ -3918,11 +3965,22 @@ this.input.keyboard.on("keydown-Y", () => {
     this.createLightningAura(tx, ty+18*minRatio, minRatio);
     this.add.ellipse(tx, ty+19*minRatio, 35*minRatio, 16*minRatio, 0x000000, 0.35).setDepth(5);
 
-    // NPC: Treasure tại ô 9
+    // NPC: Treasure tại ô 9 (hỗ trợ custom ảnh tĩnh hoặc hoạt ảnh nhiều frame từ Admin Studio)
+    const trCfgSpawn = this._npcConfig?.treasure;
+    const trVer = trCfgSpawn?.version || 0;
+    const trCustomKey0 = `Fantasy_Treasure_custom_${trVer}_idle_000`;
+    const trUseCustom = !!(trCfgSpawn?.is_custom && this.textures.exists(trCustomKey0));
+    const trScaleMult = Number(trCfgSpawn?.scale) || 1;
     const c9 = this.boardPath[9];
     const trx=c9.x*(width-5), try_=c9.y*(height-7);
-    this.treasure = this.add.image(trx, try_, "treasure")
-      .setScale(0.18*minRatio).setOrigin(0.5,0.8).setDepth(6);
+    if (trUseCustom && this.anims.exists("Fantasy_Treasure_custom_idle")) {
+      this.treasure = this.add.sprite(trx, try_, trCustomKey0)
+        .setScale(0.18 * trScaleMult * minRatio).setOrigin(0.5, 0.8).setDepth(6);
+      this.treasure.play("Fantasy_Treasure_custom_idle");
+    } else {
+      this.treasure = this.add.image(trx, try_, trUseCustom ? trCustomKey0 : "treasure")
+        .setScale(0.18 * trScaleMult * minRatio).setOrigin(0.5, 0.8).setDepth(6);
+    }
     this.add.ellipse(trx, try_+5, 35*minRatio, 14*minRatio, 0x000000, 0.35).setDepth(5);
     for (let i=0;i<4;i++)
       this.spawnLightningBolt(trx,try_+16*minRatio,minRatio,38*minRatio,13*minRatio,1800,(i/4)*Math.PI*2,0xffaa00,0xffdd55,0xffcc00);

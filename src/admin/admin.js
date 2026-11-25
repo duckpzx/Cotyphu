@@ -168,7 +168,7 @@ const TAB_TITLES = {
   audit: "[ NHẬT KÝ QUẢN TRỊ — AUDIT LOG ]",
   security: "[ GIÁM SÁT AN NINH & CHỐNG GIAN LẬN — SOC ]",
   blacklist: "[ IP BLACKLIST & PHIÊN ĐĂNG NHẬP ]",
-  sprites: "[ ASSET & SPRITE STUDIO — NPC / SKIN / TAROT / PHÔNG NỀN ]",
+  sprites: "[ ASSET & SPRITE STUDIO — NPC / SKIN / TAROT / PHÔNG NỀN / TINH CẦU ]",
 };
 
 function setTabHtml(html, silent = _silentRender) {
@@ -1212,9 +1212,22 @@ async function renderBlacklistAndSessions() {
 //  10. ASSET & SPRITE STUDIO (NPC / SKINS / TAROTS / BACKGROUNDS)
 // ═══════════════════════════════════════════════════════════════
 let spritePreviewTimer = null;
-let studioSubTab = "npcs"; // npcs | skins | tarots | backgrounds
+let studioSubTab = "npcs"; // npcs | skins | tarots | backgrounds | orbs | maps
 let cacheSkins = [];
 let cacheBackgrounds = [];
+let cacheOrbs = [];
+let mapEditorState = {
+  editingId: null,
+  name: "",
+  imageUrl: "/assets/nen_trochoi.jpg",
+  pickedImageDataUrl: null,
+  boardPath: [],
+  defaultBoardPath: [],
+  selectedCell: 0,
+  autoAdvance: false,
+  maps: [],
+  activeMapId: "default",
+};
 
 let spriteStudioState = {
   slot: "monster",
@@ -1295,10 +1308,12 @@ function startStudioAnimLoop(stateObj, getFramesFn, imgId = "studioPreviewImg", 
 
 function studioSubTabsHtml() {
   const tabs = [
-    { key: "npcs", label: "01. NPC (Quái vật & Thầy giáo)" },
+    { key: "npcs", label: "01. NPC & Rương Kho Báu" },
     { key: "skins", label: "02. Nhân vật & Trang phục" },
     { key: "tarots", label: "03. Ảnh Thẻ bài Tarot" },
-    { key: "backgrounds", label: "04. Phông nền (Backgrounds)" },
+    { key: "backgrounds", label: "04. Phông nền" },
+    { key: "orbs", label: "05. Tinh Cầu (Orbs)" },
+    { key: "maps", label: "06. Bản đồ Game (Map Editor)" },
   ];
   return `
     <div class="subtab-bar">
@@ -1317,6 +1332,8 @@ async function renderSpriteStudio() {
   if (studioSubTab === "skins") return renderStudioSkins();
   if (studioSubTab === "tarots") return renderStudioTarots();
   if (studioSubTab === "backgrounds") return renderStudioBackgrounds();
+  if (studioSubTab === "orbs") return renderStudioOrbs();
+  if (studioSubTab === "maps") return renderStudioMaps();
 }
 
 // ── SUB-TAB 1: NPC (QUÁI VẬT & THẦY GIÁO) ───────────────────────
@@ -1334,7 +1351,7 @@ async function renderStudioNpcs() {
     spriteStudioState.frameIdx = 0;
   }
 
-  const slotCardsHtml = ["monster", "teacher"].map(slotKey => {
+  const slotCardsHtml = ["monster", "teacher", "treasure"].map(slotKey => {
     const npc = npcs[slotKey];
     if (!npc) return "";
     const isSelected = spriteStudioState.slot === slotKey;
@@ -1926,6 +1943,369 @@ function openBackgroundModal(bgId) {
   };
 }
 
+// ── SUB-TAB 5: TINH CẦU (ORBS LV.1 → LV.2 NHÓM THEO TỪNG MÀU) ────
+async function renderStudioOrbs() {
+  const res = await api("/assets/orbs");
+  cacheOrbs = res.orbs || [];
+
+  const colorMeta = [
+    { color: "red",    label: "TINH CẦU ĐỎ",         accent: "#FF4D4F" },
+    { color: "blue",   label: "TINH CẦU XANH DƯƠNG", accent: "#00D8FF" },
+    { color: "purple", label: "TINH CẦU TÍM",        accent: "#C084FC" },
+    { color: "orange", label: "TINH CẦU CAM",        accent: "#F59E0B" },
+  ];
+
+  const renderOrbSlot = (o, lvTitle) => {
+    if (!o) return "";
+    return `
+      <div class="orb-slot-box">
+        <div class="sprite-stage" style="width:100%;height:126px">
+          <img src="${esc(o.preview_url)}" alt="${esc(o.color_label)} Lv.${o.level}" style="max-height:96px" />
+          <div class="sprite-stage-hud">
+            <span>${lvTitle}</span>
+            <span>${o.has_backup ? "[EDITED]" : "[DEFAULT]"}</span>
+          </div>
+        </div>
+        <div class="actions-cell" style="justify-content:center">
+          <button class="btn btn-primary btn-sm" data-act="upload-orb-img" data-key="${esc(o.key)}">Thay Lv.${o.level}</button>
+          ${o.has_backup ? `<button class="btn btn-danger btn-sm" data-act="reset-orb-img" data-key="${esc(o.key)}">Gốc</button>` : ""}
+        </div>
+      </div>
+    `;
+  };
+
+  setTabHtml(`
+    ${studioSubTabsHtml()}
+    <div class="panel">
+      <div class="panel-head">
+        <h3>[ KHO ẢNH TINH CẦU — NHÓM CẶP TIẾN HÓA LV.1 → LV.2 ]</h3>
+        <span class="muted">4 nhóm màu tinh cầu • mỗi nhóm liên kết trực tiếp Cấp 1 → Cấp 2 (Có Cánh)</span>
+      </div>
+      <div class="orb-pair-grid">
+        ${colorMeta.map(cm => {
+          const lv1 = cacheOrbs.find(o => o.color === cm.color && o.level === 1);
+          const lv2 = cacheOrbs.find(o => o.color === cm.color && o.level === 2);
+          return `
+            <div class="orb-pair-card" style="border-top:2px solid ${cm.accent}">
+              <div class="orb-pair-head">
+                <strong style="color:${cm.accent}">[ ${cm.label} ]</strong>
+                <span class="muted">${cm.color.toUpperCase()} • LV.1 → LV.2</span>
+              </div>
+              <div class="orb-pair-body">
+                ${renderOrbSlot(lv1, "LV.1 CƠ BẢN")}
+                <div class="orb-pair-arrow" title="Nâng cấp lên Lv.2">➜</div>
+                ${renderOrbSlot(lv2, "LV.2 CÓ CÁNH")}
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `);
+}
+
+function openOrbUploadModal(orbKey) {
+  const o = cacheOrbs.find(x => x.key === orbKey);
+  if (!o) return;
+  let pickedDataUrl = null;
+
+  openModal(`THAY ẢNH ${o.color_label.toUpperCase()} (LV.${o.level})`, `
+    <form id="orbImgForm">
+      <div style="display:flex;justify-content:center;margin-bottom:12px">
+        <div class="sprite-stage" style="width:180px;height:180px">
+          <img id="orbModalPreview" src="${esc(o.preview_url)}" />
+        </div>
+      </div>
+      <div class="field">
+        <label>CHỌN ẢNH TINH CẦU MỚI (PNG NỀN TRONG SUỐT KHUYẾN NGHỊ)</label>
+        <input id="orbFileInput" type="file" accept="image/png,image/webp,image/jpeg" required />
+      </div>
+      <div class="muted">Đường dẫn ghi đè: <code>${esc(o.rel_path)}</code> (tự sao lưu bản gốc trước khi ghi).</div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="document.getElementById('modalCloseBtn').click()">Hủy</button>
+        <button type="submit" class="btn btn-primary">💾 Lưu ảnh tinh cầu</button>
+      </div>
+    </form>
+  `);
+
+  $("orbFileInput").onchange = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    pickedDataUrl = (await readFilesAsDataUrls([f]))[0];
+    $("orbModalPreview").src = pickedDataUrl;
+  };
+
+  $("orbImgForm").onsubmit = async (e) => {
+    e.preventDefault();
+    if (!pickedDataUrl) return showToast("Vui lòng chọn ảnh trước!", "error");
+    const res = await api(`/assets/orbs/${o.key}/upload`, {
+      method: "POST",
+      body: JSON.stringify({ image_data_url: pickedDataUrl }),
+    });
+    if (!res.success) return showToast(res.message, "error");
+    showToast(res.message);
+    closeModal();
+    renderStudioOrbs();
+  };
+}
+
+// ── SUB-TAB 6: BẢN ĐỒ GAME THEO MÙA (VISUAL MAP EDITOR 37 Ô) ────
+function drawMapPinsAndPath() {
+  const stage = $("mapEditorStage");
+  const svg = $("mapEditorSvg");
+  if (!stage || !svg) return;
+
+  // Xóa các pin cũ
+  stage.querySelectorAll(".map-pin").forEach(el => el.remove());
+
+  const pathArr = mapEditorState.boardPath || [];
+  if (!pathArr.length) return;
+
+  // Vẽ đường nối 0 -> 1 -> ... -> 36 -> 0
+  const points = [...pathArr, pathArr[0]].map(c => `${(c.x * 100).toFixed(2)},${(c.y * 100).toFixed(2)}`).join(" ");
+  svg.innerHTML = `<polyline points="${points}" fill="none" stroke="rgba(0, 216, 255, 0.55)" stroke-width="0.35" stroke-dasharray="0.9 0.6" />`;
+
+  pathArr.forEach(c => {
+    const pin = document.createElement("div");
+    let cls = "map-pin";
+    if (c.index === 0) cls += " pin-start";
+    else if (c.index === 9) cls += " pin-chest";
+    else if (c.index === 18) cls += " pin-teacher";
+    else if (c.index === 28) cls += " pin-monster";
+    if (c.index === mapEditorState.selectedCell) cls += " pin-selected";
+    pin.className = cls;
+    pin.style.left = `${(c.x * 100).toFixed(3)}%`;
+    pin.style.top = `${(c.y * 100).toFixed(3)}%`;
+    pin.textContent = c.index;
+    pin.title = `Ô #${c.index} (${c.x}, ${c.y})`;
+    pin.dataset.cellIndex = c.index;
+
+    pin.onmousedown = (ev) => {
+      ev.stopPropagation();
+      mapEditorState.selectedCell = c.index;
+      syncSelectedCellInputs();
+      drawMapPinsAndPath();
+
+      const rect = stage.getBoundingClientRect();
+      const onMove = (me) => {
+        const nx = Math.min(0.98, Math.max(0.02, (me.clientX - rect.left) / rect.width));
+        const ny = Math.min(0.98, Math.max(0.02, (me.clientY - rect.top) / rect.height));
+        c.x = Number(nx.toFixed(4));
+        c.y = Number(ny.toFixed(4));
+        syncSelectedCellInputs();
+        drawMapPinsAndPath();
+      };
+      const onUp = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    };
+
+    stage.appendChild(pin);
+  });
+}
+
+function syncSelectedCellInputs() {
+  const c = mapEditorState.boardPath?.[mapEditorState.selectedCell];
+  if (!c) return;
+  if ($("mapCellSelect")) $("mapCellSelect").value = String(c.index);
+  if ($("mapCellXInput")) $("mapCellXInput").value = c.x;
+  if ($("mapCellYInput")) $("mapCellYInput").value = c.y;
+}
+
+async function renderStudioMaps() {
+  const res = await api("/assets/maps");
+  mapEditorState.maps = res.maps || [];
+  mapEditorState.activeMapId = res.active_map_id || "default";
+  mapEditorState.defaultBoardPath = res.default_board_path || [];
+
+  if (!mapEditorState.boardPath.length) {
+    const activeObj = mapEditorState.maps.find(m => m.id === mapEditorState.activeMapId) || mapEditorState.maps[0];
+    if (activeObj) {
+      mapEditorState.editingId = activeObj.is_custom ? activeObj.id : null;
+      mapEditorState.name = activeObj.is_custom ? activeObj.name : "Map Sự Kiện Mới";
+      mapEditorState.imageUrl = activeObj.image_url + (activeObj.version ? `?v=${activeObj.version}` : "");
+      mapEditorState.boardPath = (activeObj.board_path || mapEditorState.defaultBoardPath).map(c => ({ ...c }));
+    }
+  }
+
+  const curCell = mapEditorState.boardPath[mapEditorState.selectedCell] || { index: 0, x: 0.24, y: 0.59 };
+
+  setTabHtml(`
+    ${studioSubTabsHtml()}
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>[ TRÌNH CHỈNH BẢN ĐỒ &amp; TỌA ĐỘ 37 Ô (VISUAL MAP EDITOR) ]</h3>
+        <span class="muted">
+          <span class="accent-green">● 0:START</span> •
+          <span class="amber-val">● 9:Rương</span> •
+          <span class="cyan-val">● 18:Thầy giáo</span> •
+          <span class="red-val">● 28:Quái vật</span>
+        </span>
+      </div>
+
+      <div class="form-grid-2" style="margin-bottom:12px">
+        <div class="field" style="margin-bottom:0">
+          <label>TÊN BẢN ĐỒ (VD: GIÁNG SINH 2026, TẾT NGUYÊN ĐÁN...)</label>
+          <input id="mapNameInput" value="${esc(mapEditorState.name)}" placeholder="Nhập tên bản đồ..." />
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>UPLOAD ẢNH BẢN ĐỒ MỚI (TỈ LỆ 16:9 — PNG/JPG/WEBP)</label>
+          <input id="mapImageFileInput" type="file" accept="image/png,image/webp,image/jpeg" />
+        </div>
+      </div>
+
+      <div class="toolbar" style="margin-bottom:10px;justify-content:space-between">
+        <div class="toolbar">
+          <label class="muted" style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input id="mapAutoAdvanceChk" type="checkbox" style="width:auto" ${mapEditorState.autoAdvance ? "checked" : ""} />
+            <span style="color:var(--green);font-weight:700">CHẾ ĐỘ CLICK CHẤM NHANH (0 → 36)</span>
+          </label>
+          <select id="mapCellSelect" style="min-width:110px">
+            ${mapEditorState.boardPath.map(c => `<option value="${c.index}" ${c.index === mapEditorState.selectedCell ? "selected" : ""}>Ô #${c.index}${c.index === 0 ? " (START)" : c.index === 9 ? " (Rương)" : c.index === 18 ? " (Thầy)" : c.index === 28 ? " (Quái)" : ""}</option>`).join("")}
+          </select>
+          <span class="muted">X:</span>
+          <input id="mapCellXInput" type="number" step="0.001" min="0.02" max="0.98" value="${curCell.x}" style="width:86px;min-width:86px" />
+          <span class="muted">Y:</span>
+          <input id="mapCellYInput" type="number" step="0.001" min="0.02" max="0.98" value="${curCell.y}" style="width:86px;min-width:86px" />
+        </div>
+        <button id="mapResetCoordsBtn" class="btn btn-ghost btn-sm">↺ Đặt lại 37 tọa độ gốc</button>
+      </div>
+
+      <div id="mapEditorStage" class="map-stage-wrap">
+        <img id="mapStageImg" class="map-stage-img" src="${esc(mapEditorState.pickedImageDataUrl || mapEditorState.imageUrl)}" alt="Game Map" />
+        <svg id="mapEditorSvg" class="map-stage-svg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+      </div>
+
+      <div class="toolbar" style="margin-top:12px;justify-content:space-between">
+        <div class="muted">&gt; Kéo thả trực tiếp các chấm tròn trên bản đồ hoặc bật "Chế độ click chấm nhanh" để đặt tọa độ X/Y từng ô.</div>
+        <div class="toolbar">
+          <button id="mapNewPresetBtn" class="btn btn-ghost btn-sm">+ Tạo preset mới</button>
+          <button id="mapSaveOnlyBtn" class="btn btn-secondary btn-sm">Lưu vào kho</button>
+          <button id="mapSaveActivateBtn" class="btn btn-primary btn-sm">💾 LƯU &amp; ÁP DỤNG NGAY VÀO GAME</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>[ KHO BẢN ĐỒ THEO MÙA (${mapEditorState.maps.length}) ]</h3>
+        <span class="muted">Đang áp dụng: <b class="accent-green">${esc(mapEditorState.activeMapId)}</b></span>
+      </div>
+      <div class="asset-card-grid">
+        ${mapEditorState.maps.map(m => {
+          const isActive = m.id === mapEditorState.activeMapId;
+          const thumb = m.image_url + (m.version ? `?v=${m.version}` : "");
+          return `
+            <div class="asset-item-card ${isActive ? "selected" : ""}">
+              <img class="bg-thumb" src="${esc(thumb)}" alt="${esc(m.name)}" />
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
+                <strong>${esc(m.name)}</strong>
+                ${isActive ? `<span class="badge badge-online">[ĐANG DÙNG]</span>` : `<span class="badge badge-offline">[SẴN SÀNG]</span>`}
+              </div>
+              <div class="actions-cell">
+                ${!isActive ? `<button class="btn btn-primary btn-sm" data-act="activate-map" data-id="${esc(m.id)}">Áp dụng</button>` : ""}
+                <button class="btn btn-secondary btn-sm" data-act="load-map-editor" data-id="${esc(m.id)}">Chỉnh tọa độ</button>
+                ${m.is_custom ? `<button class="btn btn-danger btn-sm" data-act="delete-map" data-id="${esc(m.id)}">Xóa</button>` : ""}
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `);
+
+  drawMapPinsAndPath();
+
+  // Click trực tiếp lên ảnh bản đồ để đặt tọa độ cho ô đang chọn
+  $("mapEditorStage").onclick = (ev) => {
+    if (ev.target.classList.contains("map-pin")) return;
+    const rect = $("mapEditorStage").getBoundingClientRect();
+    const nx = Math.min(0.98, Math.max(0.02, (ev.clientX - rect.left) / rect.width));
+    const ny = Math.min(0.98, Math.max(0.02, (ev.clientY - rect.top) / rect.height));
+    const cell = mapEditorState.boardPath[mapEditorState.selectedCell];
+    if (!cell) return;
+    cell.x = Number(nx.toFixed(4));
+    cell.y = Number(ny.toFixed(4));
+
+    if (mapEditorState.autoAdvance) {
+      mapEditorState.selectedCell = (mapEditorState.selectedCell + 1) % mapEditorState.boardPath.length;
+    }
+    syncSelectedCellInputs();
+    drawMapPinsAndPath();
+  };
+
+  $("mapAutoAdvanceChk").onchange = (e) => { mapEditorState.autoAdvance = e.target.checked; };
+  $("mapCellSelect").onchange = (e) => {
+    mapEditorState.selectedCell = Number(e.target.value);
+    syncSelectedCellInputs();
+    drawMapPinsAndPath();
+  };
+  $("mapCellXInput").oninput = (e) => {
+    const v = Number(e.target.value);
+    if (Number.isFinite(v) && mapEditorState.boardPath[mapEditorState.selectedCell]) {
+      mapEditorState.boardPath[mapEditorState.selectedCell].x = Number(Math.min(0.98, Math.max(0.02, v)).toFixed(4));
+      drawMapPinsAndPath();
+    }
+  };
+  $("mapCellYInput").oninput = (e) => {
+    const v = Number(e.target.value);
+    if (Number.isFinite(v) && mapEditorState.boardPath[mapEditorState.selectedCell]) {
+      mapEditorState.boardPath[mapEditorState.selectedCell].y = Number(Math.min(0.98, Math.max(0.02, v)).toFixed(4));
+      drawMapPinsAndPath();
+    }
+  };
+  $("mapResetCoordsBtn").onclick = () => {
+    mapEditorState.boardPath = mapEditorState.defaultBoardPath.map(c => ({ ...c }));
+    syncSelectedCellInputs();
+    drawMapPinsAndPath();
+    showToast("Đã đặt lại 37 tọa độ về bản đồ gốc");
+  };
+  $("mapImageFileInput").onchange = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    mapEditorState.pickedImageDataUrl = (await readFilesAsDataUrls([f]))[0];
+    $("mapStageImg").src = mapEditorState.pickedImageDataUrl;
+    showToast("Đã nạp ảnh bản đồ mới lên trình chỉnh sửa!");
+  };
+  $("mapNewPresetBtn").onclick = () => {
+    mapEditorState.editingId = null;
+    mapEditorState.name = "";
+    mapEditorState.pickedImageDataUrl = null;
+    mapEditorState.imageUrl = "/assets/nen_trochoi.jpg";
+    mapEditorState.boardPath = mapEditorState.defaultBoardPath.map(c => ({ ...c }));
+    renderStudioMaps();
+  };
+
+  const doSaveMap = async (activate) => {
+    const name = $("mapNameInput").value.trim();
+    if (!name) return showToast("Vui lòng nhập tên bản đồ!", "error");
+    const resSave = await api("/assets/maps/save", {
+      method: "POST",
+      body: JSON.stringify({
+        id: mapEditorState.editingId,
+        name,
+        image_data_url: mapEditorState.pickedImageDataUrl,
+        board_path: mapEditorState.boardPath,
+        activate,
+      }),
+    });
+    if (!resSave.success) return showToast(resSave.message, "error");
+    showToast(resSave.message);
+    mapEditorState.editingId = resSave.map?.id || null;
+    mapEditorState.name = resSave.map?.name || name;
+    mapEditorState.pickedImageDataUrl = null;
+    mapEditorState.imageUrl = resSave.map?.image_url + (resSave.map?.version ? `?v=${resSave.map.version}` : "");
+    renderStudioMaps();
+  };
+
+  $("mapSaveOnlyBtn").onclick = () => doSaveMap(false);
+  $("mapSaveActivateBtn").onclick = () => doSaveMap(true);
+}
+
 // ═══════════════════════════════════════════════════════════════
 //  GLOBAL EVENT DELEGATION & BOOTSTRAP
 // ═══════════════════════════════════════════════════════════════
@@ -2020,6 +2400,38 @@ document.addEventListener("click", async (e) => {
       openTarotImageModal(id);
     } else if (act === "edit-bg-asset") {
       openBackgroundModal(id);
+    } else if (act === "upload-orb-img") {
+      openOrbUploadModal(btn.dataset.key);
+    } else if (act === "reset-orb-img") {
+      const k = btn.dataset.key;
+      if (!confirm(`Khôi phục ảnh gốc cho tinh cầu ${k}?`)) return;
+      const res = await api(`/assets/orbs/${k}/reset`, { method: "POST" });
+      showToast(res.message, res.success ? "success" : "error");
+      renderStudioOrbs();
+    } else if (act === "activate-map") {
+      const mapId = btn.dataset.id;
+      const res = await api(`/assets/maps/${encodeURIComponent(mapId)}/activate`, { method: "POST" });
+      showToast(res.message, res.success ? "success" : "error");
+      renderStudioMaps();
+    } else if (act === "load-map-editor") {
+      const mapId = btn.dataset.id;
+      const found = mapEditorState.maps.find(m => m.id === mapId);
+      if (found) {
+        mapEditorState.editingId = found.is_custom ? found.id : null;
+        mapEditorState.name = found.is_custom ? found.name : "Bản sao từ Mặc định";
+        mapEditorState.imageUrl = found.image_url + (found.version ? `?v=${found.version}` : "");
+        mapEditorState.pickedImageDataUrl = null;
+        mapEditorState.boardPath = (found.board_path || mapEditorState.defaultBoardPath).map(c => ({ ...c }));
+        mapEditorState.selectedCell = 0;
+        renderStudioMaps();
+      }
+    } else if (act === "delete-map") {
+      const mapId = btn.dataset.id;
+      if (!confirm("Xóa vĩnh viễn bản đồ này?")) return;
+      const res = await api(`/assets/maps/${encodeURIComponent(mapId)}`, { method: "DELETE" });
+      showToast(res.message, res.success ? "success" : "error");
+      if (mapEditorState.editingId === mapId) mapEditorState.editingId = null;
+      renderStudioMaps();
     }
   } catch (err) {
     showToast(err.message || "Có lỗi xảy ra", "error");

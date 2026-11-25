@@ -451,6 +451,84 @@ export function createAdminRouter(deps) {
     }
   });
 
+  // ── ORBS (TINH CẦU LV.1 & LV.2) ──────────────────────────────────
+  router.get("/assets/orbs", (req, res) => {
+    res.json({ success: true, orbs: assetUploadService.listOrbs() });
+  });
+
+  router.post("/assets/orbs/:orbKey/upload", async (req, res) => {
+    try {
+      const result = assetUploadService.uploadOrbImage(req.params.orbKey, req.body || {});
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "UPLOAD_ORB_IMAGE", "orb", req.params.orbKey);
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/assets/orbs/:orbKey/upload error:", err);
+      res.status(500).json({ success: false, message: "Lỗi lưu ảnh tinh cầu" });
+    }
+  });
+
+  router.post("/assets/orbs/:orbKey/reset", async (req, res) => {
+    try {
+      const result = assetUploadService.resetOrbImage(req.params.orbKey);
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "RESET_ORB_IMAGE", "orb", req.params.orbKey);
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/assets/orbs/:orbKey/reset error:", err);
+      res.status(500).json({ success: false, message: "Lỗi khôi phục ảnh tinh cầu" });
+    }
+  });
+
+  // ── SEASONAL GAME MAPS (UPLOAD + 37 CELL COORDINATE EDITOR) ──────
+  router.get("/assets/maps", (req, res) => {
+    res.json({ success: true, ...assetUploadService.listMaps() });
+  });
+
+  router.post("/assets/maps/save", async (req, res) => {
+    try {
+      const result = assetUploadService.saveCustomMap(req.body || {});
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "SAVE_GAME_MAP", "map", result.map?.id, {
+          name: result.map?.name,
+          activated: result.active_map_id === result.map?.id,
+        });
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/assets/maps/save error:", err);
+      res.status(500).json({ success: false, message: "Lỗi lưu bản đồ game" });
+    }
+  });
+
+  router.post("/assets/maps/:id/activate", async (req, res) => {
+    try {
+      const result = assetUploadService.activateMap(req.params.id);
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "ACTIVATE_GAME_MAP", "map", req.params.id);
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/assets/maps/:id/activate error:", err);
+      res.status(500).json({ success: false, message: "Lỗi áp dụng bản đồ" });
+    }
+  });
+
+  router.delete("/assets/maps/:id", async (req, res) => {
+    try {
+      const result = assetUploadService.deleteCustomMap(req.params.id);
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "DELETE_GAME_MAP", "map", req.params.id);
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("DELETE /api/admin/assets/maps/:id error:", err);
+      res.status(500).json({ success: false, message: "Lỗi xóa bản đồ" });
+    }
+  });
+
   return router;
 }
 
