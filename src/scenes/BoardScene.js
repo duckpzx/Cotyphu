@@ -7,7 +7,7 @@ import { SERVER_URL }    from "../config.js";
 import { getActiveProfile, getPlayerData } from "../server/utils/playerData.js";
 import { createLoadingOverlay } from "../utils/loadingOverlay.js";
 import { getTarotLevel, tarotImagePath, prepareLevelTexture, markLevelTexture, tarotLevelKey, ensureTarotLevelTexture } from "../utils/tarotLevel.js";
-import ChatWidget, { drawMicVectorIcon } from "./components/ChatWidget.js";
+import ChatWidget         from "./components/ChatWidget.js";
 import PlayerProfilePanel from "./components/PlayerProfilePanel.js";
 import voiceChat          from "../utils/voiceChatManager.js";
 import {
@@ -623,6 +623,43 @@ _closeTarotModal() { this.tarotModal?.close(); }
       }
 
       this._showToast(`🔄 ${data.name} đã kết nối lại`, "#44ccff", 2500);
+    });
+
+    // ── game:player_disconnected — cảnh báo mất kết nối trước khi Bot AI tiếp quản ──
+    this.socket.on("game:player_disconnected", (data) => {
+      if (!data) return;
+      const myUid = this._myUserId();
+      if (Number(data.user_id) === Number(myUid)) return;
+      const sec = Number(data.grace_seconds) || 15;
+      this._showToast(`⚠️ ${data.name} mất kết nối — Bot AI sẽ chơi hộ sau ${sec}s`, "#ffbb55", 3500);
+    });
+
+    // ── game:bot_status — Bot AI tiếp quản hoặc trả lại quyền cho người chơi ──
+    this.socket.on("game:bot_status", (data) => {
+      if (!data) return;
+      const uid = Number(data.user_id);
+      const isBot = !!data.is_bot;
+      const gp = (this.gamePlayers || []).find(p => Number(p.user_id) === uid);
+      if (gp) {
+        gp.is_bot_controlled = isBot;
+        gp.is_connected = !isBot;
+      }
+
+      // Cập nhật nhãn tên trên đầu nhân vật
+      const opKey = Object.keys(this.otherPlayers || {}).find(
+        k => Number(this.otherPlayers[k]?.user_id) === uid
+      );
+      if (opKey && this.otherPlayers[opKey]?.nameText) {
+        const baseName = data.name || gp?.name || "Player";
+        this.otherPlayers[opKey].nameText.setText(isBot ? `🤖 ${baseName}` : baseName);
+      }
+
+      this._refreshPlayerPanelsFromGameState();
+      if (isBot) {
+        this._showToast(`🤖 Bot AI đang chơi hộ ${data.name}`, "#66e0ff", 3500);
+      } else {
+        this._showToast(`✅ ${data.name} đã quay lại trận đấu!`, "#44ff88", 3000);
+      }
     });
 
     // ── playerMoved ───────────────────────────────────────────────
@@ -1789,8 +1826,11 @@ this.socket.on("game:tarot_denied", (data) => {
         if (gp) {
           if (sp.cash !== undefined) gp.cash = sp.cash;
           if (sp.skip_next_turn !== undefined) gp.skip_next_turn = sp.skip_next_turn;
+          if (sp.is_bot_controlled !== undefined) gp.is_bot_controlled = !!sp.is_bot_controlled;
+          if (sp.is_connected !== undefined) gp.is_connected = sp.is_connected !== false;
         }
       });
+      this._refreshPlayerPanelsFromGameState();
       this._updatePlayerStatsInUI();
     }
   });
@@ -2708,7 +2748,8 @@ this.socket.on("game:tarot_denied", (data) => {
       const invested = this._calculateInvestedAmount(gp.user_id);
       const asset = cash + invested;
 
-      panel.nameText?.setText(gp.name || `Player ${i+1}`);
+      const baseName = gp.name || `Player ${i+1}`;
+      panel.nameText?.setText(gp.is_bot_controlled ? `🤖 ${baseName}` : baseName);
       panel.statVal1?.setText(this._formatMoney(cash));
       panel.statVal2?.setText(this._formatMoney(asset));
     });
@@ -3004,6 +3045,7 @@ this.socket.on("game:tarot_denied", (data) => {
     this.load.image("icon_setting",    "./assets/ui/shared/setting.png");
     this.load.image("icon_sound",      "./assets/ui/shared/sound.png");
     this.load.image("icon_music",      "./assets/ui/shared/music.png");
+    this.load.image("icon_mic",        "./assets/ui/shared/microphone.png");
     for (let i = 1; i <= 10; i++) {
       const lv = getTarotLevel(this, i);
       if (prepareLevelTexture(this, `tarot_${i}`, lv)) {
@@ -6244,9 +6286,11 @@ this.input.keyboard.on("keydown-Y", () => {
     const micY = centerY + bgH / 2 + 36;
     const micR = 24;
     const micG = this.add.graphics().setDepth(D + 2);
-    const micBadgeTxt = this.add.text(micX + 14, micY + 14, "×", {
+    const micBadgeTxt = this.add.text(micX + 16, micY + 15, "×", {
       fontFamily: "Signika", fontSize: "13px", color: "#ffffff", fontStyle: "bold"
     }).setOrigin(0.5).setDepth(D + 4).setVisible(false);
+    const micImg = this.add.image(micX, micY, "icon_mic")
+      .setDisplaySize(46, 46).setDepth(D + 3);
     let micHover = false;
 
     const drawQuickMic = (snap = voiceChat.getSnapshot()) => {
@@ -6254,32 +6298,31 @@ this.input.keyboard.on("keydown-Y", () => {
       const on = !!snap?.micEnabled;
       const speaking = on && !!snap?.isSpeaking;
       micG.clear();
-      micG.fillStyle(0x000000, 0.35);
-      micG.fillCircle(micX + 1.5, micY + 2.5, micR);
+      const R = 23;
+
+      // Bóng đổ nhẹ (không còn nền tròn/vuông)
+      micG.fillStyle(0x000000, 0.32);
+      micG.fillCircle(micX + 1.5, micY + 3, R - 1);
 
       if (speaking) {
-        micG.fillGradientStyle(0x4ade80, 0x4ade80, 0x15803d, 0x15803d, 1);
-        micG.lineStyle(2.5, 0xbbf7d0, 1);
+        micG.lineStyle(7, 0x4ade80, 0.28);
+        micG.strokeCircle(micX, micY, R + 4);
+        micG.lineStyle(3, 0x86efac, 1);
+        micG.strokeCircle(micX, micY, R + 1.5);
       } else if (on) {
-        micG.fillGradientStyle(
-          micHover ? 0x38ccff : 0x1aa8ff, micHover ? 0x38ccff : 0x1aa8ff,
-          micHover ? 0x0066dd : 0x0055bb, micHover ? 0x0066dd : 0x0055bb, 1
-        );
-        micG.lineStyle(2, 0x93e6ff, 0.95);
-      } else {
-        micG.fillGradientStyle(
-          micHover ? 0x2a4569 : 0x1b304d, micHover ? 0x2a4569 : 0x1b304d,
-          micHover ? 0x132642 : 0x0c1a30, micHover ? 0x132642 : 0x0c1a30, 1
-        );
-        micG.lineStyle(1.8, 0x476891, 0.9);
+        micG.lineStyle(2, 0x93e6ff, 0.6);
+        micG.strokeCircle(micX, micY, R + 1.5);
       }
-      micG.fillCircle(micX, micY, micR);
-      micG.strokeCircle(micX, micY, micR);
 
-      drawMicVectorIcon(micG, micX, micY + 1, 1.05, on);
+      if (micImg?.active) {
+        const sc = (micHover ? 1.1 : 1) * (speaking ? 1.06 : 1);
+        micImg.setDisplaySize(46 * sc, 46 * sc);
+        if (on) { micImg.clearTint(); micImg.setAlpha(1); }
+        else    { micImg.setTint(0x9aa8bb); micImg.setAlpha(0.85); }
+      }
 
       if (!on) {
-        const bx = micX + 14, by = micY + 14, br = 8;
+        const bx = micX + 16, by = micY + 15, br = 8;
         micG.fillStyle(0x000000, 0.38);
         micG.fillCircle(bx + 1, by + 1.5, br);
         micG.fillStyle(0xef4444, 1);
@@ -6300,7 +6343,7 @@ this.input.keyboard.on("keydown-Y", () => {
 
     if (this._unsubVoiceHud) { try { this._unsubVoiceHud(); } catch {} }
     this._unsubVoiceHud = voiceChat.onStateChange((snap) => drawQuickMic(snap));
-    this._gameChatBtnObjs.push(micG, micBadgeTxt, micZone);
+    this._gameChatBtnObjs.push(micG, micImg, micBadgeTxt, micZone);
 
     this._gameChatPanelOpen = false;
   }

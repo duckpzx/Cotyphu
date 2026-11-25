@@ -201,43 +201,60 @@ export default class ChatWidget {
       this._push(micG);
       this._push(micBadgeTxt);
 
+      // Icon micro từ ảnh assets/ui/shared/microphone.png (nạp lười nếu scene chưa preload)
+      let micImg = null;
+      const MIC_ICON = 34;
+      const ensureMicImg = () => {
+        if (micImg || !this.scene?.textures?.exists("icon_mic")) return;
+        micImg = this.scene.add.image(micCX, micCY, "icon_mic")
+          .setDisplaySize(MIC_ICON, MIC_ICON).setDepth(D + 2);
+        this._push(micImg);
+      };
+      if (!this.scene.textures.exists("icon_mic")) {
+        this.scene.load.image("icon_mic", "assets/ui/shared/microphone.png");
+        this.scene.load.once("filecomplete-image-icon_mic", () => {
+          if (!micG?.active) return;
+          ensureMicImg();
+          drawMic();
+        });
+        this.scene.load.start();
+      }
+
       let micHovered = false;
       const drawMic = (snap = voiceChat.getSnapshot()) => {
         if (!micG?.active) return;
         const on = !!snap?.micEnabled;
         const speaking = on && !!snap?.isSpeaking;
         micG.clear();
+        const R = MIC_ICON / 2;
 
+        // Bóng đổ nhẹ phía dưới icon (không còn nền vuông)
+        micG.fillStyle(0x000000, 0.28);
+        micG.fillCircle(micCX + 1, micCY + 2.5, R - 1);
+
+        // Viền sáng: xanh lá phát sáng khi đang nói, xanh nhạt khi mic mở
         if (speaking) {
-          micG.fillGradientStyle(0x4ade80, 0x4ade80, 0x15803d, 0x15803d, 1);
-          micG.lineStyle(2, 0xbbf7d0, 1);
+          micG.lineStyle(6, 0x4ade80, 0.28);
+          micG.strokeCircle(micCX, micCY, R + 3.5);
+          micG.lineStyle(2.5, 0x86efac, 1);
+          micG.strokeCircle(micCX, micCY, R + 1.5);
         } else if (on) {
-          micG.fillGradientStyle(
-            micHovered ? 0x38ccff : 0x1aa8ff, micHovered ? 0x38ccff : 0x1aa8ff,
-            micHovered ? 0x0066dd : 0x0055bb, micHovered ? 0x0066dd : 0x0055bb, 1
-          );
-          micG.lineStyle(1.8, 0x93e6ff, 0.95);
-        } else {
-          micG.fillGradientStyle(
-            micHovered ? 0x2a4569 : 0x1b304d, micHovered ? 0x2a4569 : 0x1b304d,
-            micHovered ? 0x132642 : 0x0c1a30, micHovered ? 0x132642 : 0x0c1a30, 1
-          );
-          micG.lineStyle(1.5, 0x476891, 0.85);
+          micG.lineStyle(1.8, 0x93e6ff, 0.6);
+          micG.strokeCircle(micCX, micCY, R + 1.5);
         }
 
-        micG.fillRoundedRect(micX + 1, inputY + 2, MIC_W - 2, INPUT_H - 4, 8);
-        micG.strokeRoundedRect(micX + 1, inputY + 2, MIC_W - 2, INPUT_H - 4, 8);
-
-        // Vệt bóng nhẹ phía trên giống phong cách nút game
-        micG.fillStyle(0xffffff, on ? 0.24 : 0.10);
-        micG.fillRoundedRect(micX + 5, inputY + 4, MIC_W - 10, (INPUT_H - 8) * 0.38, 4);
-
-        // Icon micro vector sắc nét
-        drawMicVectorIcon(micG, micCX, micCY + 1, 0.95, on);
+        // Icon micro chính là nút bấm
+        ensureMicImg();
+        if (micImg) {
+          const sc = (micHovered ? 1.1 : 1) * (speaking ? 1.06 : 1);
+          micImg.setDisplaySize(MIC_ICON * sc, MIC_ICON * sc);
+          if (on) { micImg.clearTint(); micImg.setAlpha(1); }
+          else    { micImg.setTint(0x9aa8bb); micImg.setAlpha(0.85); }
+        }
 
         // Chấm tròn đỏ dấu × khi đang TẮT mic
         if (!on) {
-          const bx = micCX + 11, by = micCY + 10, br = 7;
+          const bx = micCX + 12, by = micCY + 11, br = 6.5;
           micG.fillStyle(0x000000, 0.38);
           micG.fillCircle(bx + 1, by + 1.5, br);
           micG.fillStyle(0xef4444, 1);

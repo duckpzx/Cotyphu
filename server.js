@@ -10,6 +10,7 @@ import compression from "compression";
 import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
+import { EventEmitter } from "events";
 import jwt from "jsonwebtoken";
 
 // ===== SERVICES =====
@@ -26,6 +27,7 @@ import db from "./src/server/config/db.js";
 import { registerChatHandlers, startChatCleanupJob } from "./src/server/handlers/chatHandler.js";
 import { registerFriendHandlers } from "./src/server/handlers/friendHandler.js";
 import { registerVoiceHandlers } from "./src/server/handlers/voiceHandler.js";
+import botAI from "./src/server/ai/botAI.js";
 
 const SECRET = process.env.JWT_SECRET;
 const app    = express();
@@ -925,7 +927,10 @@ async function initGameState(room_id, sockets, bet_ecoin = 5000, match_mode = "s
         soul_mark_percent: 0,
         revive_used: false,
         passive_cooldown_left: 0,
-        passive_active_turns: 0
+        passive_active_turns: 0,
+        is_connected: true,
+        is_bot_controlled: false,
+        disconnected_at: null,
       };
     })
   );
@@ -942,9 +947,354 @@ async function initGameState(room_id, sockets, bet_ecoin = 5000, match_mode = "s
     cellStates: {},
     traps: {},
     _buildTimer: null,
+    _botActionTimer: null,
+    _botTakeoverTimers: {},
+    _allBotsCleanupTimer: null,
+    _pendingPrompt: null,
+    _pendingMoveTarget: null,
   };
 
   return gameStates[room_id];
+}
+
+// ===== BOT AI TAKEOVER CONTROLLER =====
+let _registerGameplayOnSocket = null;
+
+function clearBotActionTimer(gs) {
+  if (gs?._botActionTimer) {
+    clearTimeout(gs._botActionTimer);
+    gs._botActionTimer = null;
+  }
+}
+
+function clearRoomBotTimers(gs) {
+  if (!gs) return;
+  clearBotActionTimer(gs);
+  if (gs._buildTimer) { clearTimeout(gs._buildTimer); gs._buildTimer = null; }
+  if (gs._quizTimer) { clearTimeout(gs._quizTimer); gs._quizTimer = null; }
+  if (gs._sellEndTimer) { clearTimeout(gs._sellEndTimer); gs._sellEndTimer = null; }
+  if (gs._allBotsCleanupTimer) {
+    clearTimeout(gs._allBotsCleanupTimer);
+    gs._allBotsCleanupTimer = null;
+  }
+  if (gs._botTakeoverTimers) {
+    Object.values(gs._botTakeoverTimers).forEach(t => clearTimeout(t));
+    gs._botTakeoverTimers = {};
+  }
+}
+
+function scheduleBotAction(room_id, delayMs, fn) {
+  const gs = gameStates[room_id];
+  if (!gs) return;
+  clearBotActionTimer(gs);
+  gs._botActionTimer = setTimeout(() => {
+    const liveGs = gameStates[room_id];
+    if (!liveGs || liveGs !== gs) return;
+    liveGs._botActionTimer = null;
+    try {
+      fn(liveGs);
+    } catch (err) {
+      console.error(`🤖 [BOT][room ${room_id}] action error:`, err);
+    }
+  }, delayMs);
+}
+
+function getOrCreateBotSocket(room_id, player) {
+  const emitter = new EventEmitter();
+  const botSocket = {
+    id: player.socket_id || `bot_${room_id}_${player.user_id}`,
+    user_id: player.user_id,
+    game_room_id: room_id,
+    current_room_id: room_id,
+    is_bot: true,
+    on(event, handler) {
+      emitter.on(event, handler);
+      return botSocket;
+    },
+    emit(event, payload) {
+      const gs = gameStates[room_id];
+      if (!gs || !player.is_bot_controlled) return;
+      if (event === "game:build_prompt") {
+        scheduleBotPropertyDecision(room_id, player, payload);
+      } else if (event === "game:quiz_prompt") {
+        scheduleBotQuizDecision(room_id, player);
+      } else if (event === "game:error" || event === "game:char_skill_denied") {
+        console.log(`🤖 [BOT][room ${room_id}] ${player.name} notice (${event}):`, payload?.message || "");
+      }
+    },
+    _dispatch(event, payload) {
+      const listeners = emitter.listeners(event);
+      for (const fn of listeners) {
+        Promise.resolve(fn(payload)).catch(err => {
+          console.error(`🤖 [BOT][room ${room_id}] handler error (${event}):`, err);
+        });
+      }
+    },
+  };
+  if (typeof _registerGameplayOnSocket === "function") {
+    _registerGameplayOnSocket(botSocket);
+  }
+  return botSocket;
+}
+
+function scheduleBotTurn(room_id) {
+  const gs = gameStates[room_id];
+  if (!gs) return;
+  const cur = getCurrentTurnPlayer(room_id);
+  if (!cur || !cur.is_bot_controlled || gs.phase !== "IDLE") return;
+
+  const delay = botAI.pickHumanDelay(1050, 1950);
+  scheduleBotAction(room_id, delay, (liveGs) => {
+    const liveCur = getCurrentTurnPlayer(room_id);
+    if (!liveCur || !liveCur.is_bot_controlled || liveGs.phase !== "IDLE") return;
+
+    const decision = botAI.decidePreRollAction(liveGs, liveCur, { computeCellRent });
+    const botSock = getOrCreateBotSocket(room_id, liveCur);
+
+    if (decision.type === "use_char_passive") {
+      console.log(`🤖 [BOT][room ${room_id}] ${liveCur.name} -> bật kỹ năng phụ`);
+      botSock._dispatch("game:use_char_passive", { room_id });
+      scheduleBotTurn(room_id);
+      return;
+    }
+
+    if (decision.type === "use_char_skill") {
+      console.log(`🤖 [BOT][room ${room_id}] ${liveCur.name} -> dùng kỹ năng chủ động`, decision.payload || {});
+      botSock._dispatch("game:use_char_skill", { room_id, ...(decision.payload || {}) });
+      scheduleBotTurn(room_id);
+      return;
+    }
+
+    console.log(`🤖 [BOT][room ${room_id}] ${liveCur.name} -> tung xúc xắc`);
+    botSock._dispatch("game:roll", { room_id });
+  });
+}
+
+function scheduleBotWalkAndMoveDone(room_id, player, destIndex, steps = 4) {
+  const gs = gameStates[room_id];
+  if (!gs || !player?.is_bot_controlled) return;
+  gs._pendingMoveTarget = destIndex;
+
+  // Phát sự kiện di chuyển để các client đang kết nối thấy nhân vật bot đi bộ mượt
+  setTimeout(() => {
+    const liveGs = gameStates[room_id];
+    if (!liveGs || !player.is_bot_controlled) return;
+    io.to(`room_${room_id}`).to(`game_${room_id}`).emit("playerMoved", {
+      id: player.socket_id,
+      user_id: player.user_id,
+      index: destIndex,
+      characterName: player.characterName || "Dark_Oracle",
+      skin: player.skin || 1,
+      steps,
+    });
+  }, 650);
+
+  const walkMs = Math.min(5200, Math.max(1300, Number(steps || 4) * 320 + 950));
+  scheduleBotAction(room_id, walkMs, (liveGs) => {
+    const liveCur = getCurrentTurnPlayer(room_id);
+    if (!liveCur || Number(liveCur.user_id) !== Number(player.user_id) || !liveCur.is_bot_controlled) return;
+    liveGs.phase = "MOVING";
+    const botSock = getOrCreateBotSocket(room_id, liveCur);
+    botSock._dispatch("game:move_done", { room_id, cell_index: destIndex });
+  });
+}
+
+function scheduleBotPropertyDecision(room_id, player, promptData) {
+  const gs = gameStates[room_id];
+  if (!gs || !player?.is_bot_controlled) return;
+
+  const delay = botAI.pickHumanDelay(1200, 2400);
+  scheduleBotAction(room_id, delay, (liveGs) => {
+    const liveCur = getCurrentTurnPlayer(room_id);
+    if (!liveCur || Number(liveCur.user_id) !== Number(player.user_id) || !liveCur.is_bot_controlled) return;
+    if (liveGs.phase !== "RESOLVING") return;
+
+    const decision = botAI.decidePropertyAction(liveGs, liveCur, promptData, { computeCellRent });
+    console.log(
+      `🤖 [BOT][room ${room_id}] ${liveCur.name} -> ${promptData?.mode || "build"} ô #${promptData?.cell_index}: ` +
+      `${decision.accept ? "ĐỒNG Ý" : "BỎ QUA"} (${decision.reason})`
+    );
+    const botSock = getOrCreateBotSocket(room_id, liveCur);
+    botSock._dispatch("game:build_response", {
+      room_id,
+      cell_index: promptData.cell_index,
+      accept: decision.accept,
+    });
+  });
+}
+
+function scheduleBotQuizDecision(room_id, player) {
+  const gs = gameStates[room_id];
+  if (!gs || !player?.is_bot_controlled) return;
+
+  const delay = botAI.pickHumanDelay(2200, 4200);
+  scheduleBotAction(room_id, delay, (liveGs) => {
+    const liveCur = getCurrentTurnPlayer(room_id);
+    if (!liveCur || Number(liveCur.user_id) !== Number(player.user_id) || !liveCur.is_bot_controlled) return;
+    if (liveGs.phase !== "QUIZ" || !liveGs.currentQuiz) return;
+
+    const answer = botAI.decideQuizAnswer(liveGs.currentQuiz.question);
+    console.log(`🤖 [BOT][room ${room_id}] ${liveCur.name} -> trả lời Quiz: ${answer}`);
+    const botSock = getOrCreateBotSocket(room_id, liveCur);
+    botSock._dispatch("game:quiz_answer", { room_id, answer });
+  });
+}
+
+function scheduleBotDebtDecision(room_id, player, debtData) {
+  const gs = gameStates[room_id];
+  if (!gs || !player?.is_bot_controlled) return;
+
+  const delay = botAI.pickHumanDelay(1800, 3200);
+  scheduleBotAction(room_id, delay, (liveGs) => {
+    const livePlayer = liveGs.players.find(p => Number(p.user_id) === Number(player.user_id));
+    if (!livePlayer || !livePlayer.is_bot_controlled) return;
+
+    const decision = botAI.decideDebtResolution(liveGs, livePlayer, debtData.required_rent);
+    const botSock = getOrCreateBotSocket(room_id, livePlayer);
+
+    if (decision.action === "sell" && decision.cells_to_sell.length > 0) {
+      console.log(
+        `🤖 [BOT][room ${room_id}] ${livePlayer.name} -> bán ${decision.cells_to_sell.length} ô ` +
+        `(+${decision.total_sell_price}) để trả thuê ${debtData.required_rent}`
+      );
+      botSock._dispatch("game:sell_and_pay_rent", {
+        room_id,
+        seller_user_id: livePlayer.user_id,
+        buyer_user_id: debtData.owner_user_id,
+        cells_to_sell: decision.cells_to_sell,
+        total_sell_price: decision.total_sell_price,
+        required_rent: debtData.required_rent,
+        cash_before: livePlayer.cash || 0,
+      });
+    } else {
+      console.log(`🤖 [BOT][room ${room_id}] ${livePlayer.name} -> không đủ tài sản, phá sản!`);
+      botSock._dispatch("game:bankruptcy", {
+        room_id,
+        user_id: livePlayer.user_id,
+      });
+    }
+  });
+}
+
+function resumeBotIfCurrentTurn(room_id, player) {
+  const gs = gameStates[room_id];
+  if (!gs || !player?.is_bot_controlled) return;
+  const cur = getCurrentTurnPlayer(room_id);
+  if (!cur || Number(cur.user_id) !== Number(player.user_id)) return;
+
+  if (gs.phase === "IDLE") {
+    scheduleBotTurn(room_id);
+  } else if (gs.phase === "ROLLING" || gs.phase === "MOVING") {
+    const target = gs._pendingMoveTarget ?? player.index ?? 0;
+    scheduleBotWalkAndMoveDone(room_id, player, target, 2);
+  } else if (gs.phase === "RESOLVING" && gs._pendingPrompt && Number(gs._pendingPrompt.user_id) === Number(player.user_id)) {
+    if (gs._pendingPrompt.type === "build") {
+      scheduleBotPropertyDecision(room_id, player, gs._pendingPrompt.data);
+    } else if (gs._pendingPrompt.type === "debt") {
+      scheduleBotDebtDecision(room_id, player, gs._pendingPrompt.data);
+    }
+  } else if (gs.phase === "QUIZ" && gs.currentQuiz && Number(gs.currentQuiz.user_id) === Number(player.user_id)) {
+    scheduleBotQuizDecision(room_id, player);
+  }
+}
+
+function handlePlayerDisconnectInActiveGame(socket) {
+  const uid = Number(socket.user_id);
+  for (const [roomIdKey, gs] of Object.entries(gameStates)) {
+    if (!gs || !Array.isArray(gs.players)) continue;
+    const room_id = Number(roomIdKey);
+    const p = gs.players.find(
+      pl => pl.socket_id === socket.id || (uid && Number(pl.user_id) === uid)
+    );
+    if (!p) continue;
+    // Nếu user vẫn còn tab/socket khác đang online thì bỏ qua
+    if (onlineUserSockets.has(uid) && onlineUserSockets.get(uid).size > 0) continue;
+
+    p.is_connected = false;
+    p.disconnected_at = Date.now();
+    const graceSec = Math.round(botAI.BOT_TAKEOVER_DELAY_MS / 1000);
+
+    console.log(`⚠️ [BOT][room ${room_id}] ${p.name} mất kết nối — Bot AI sẽ tiếp quản sau ${graceSec}s`);
+    io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:player_disconnected", {
+      room_id,
+      user_id: p.user_id,
+      name: p.name,
+      grace_seconds: graceSec,
+    });
+
+    gs._botTakeoverTimers = gs._botTakeoverTimers || {};
+    if (gs._botTakeoverTimers[p.user_id]) {
+      clearTimeout(gs._botTakeoverTimers[p.user_id]);
+    }
+    gs._botTakeoverTimers[p.user_id] = setTimeout(() => {
+      const liveGs = gameStates[room_id];
+      if (!liveGs) return;
+      const liveP = liveGs.players.find(pl => Number(pl.user_id) === Number(p.user_id));
+      if (!liveP || liveP.is_connected) return;
+
+      delete liveGs._botTakeoverTimers[p.user_id];
+      liveP.is_bot_controlled = true;
+      console.log(`🤖 [BOT][room ${room_id}] Bot AI ĐÃ TIẾP QUẢN ${liveP.name}`);
+
+      io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:bot_status", {
+        room_id,
+        user_id: liveP.user_id,
+        name: liveP.name,
+        is_bot: true,
+      });
+      emitGameStateSync(room_id);
+      resumeBotIfCurrentTurn(room_id, liveP);
+
+      // Bảo vệ: nếu TẤT CẢ người chơi đều mất kết nối thì dọn phòng sau ALL_BOTS_CLEANUP_MS
+      const allOffline = liveGs.players.every(pl => pl.is_connected === false);
+      if (allOffline && !liveGs._allBotsCleanupTimer) {
+        liveGs._allBotsCleanupTimer = setTimeout(async () => {
+          const checkGs = gameStates[room_id];
+          if (!checkGs) return;
+          if (checkGs.players.every(pl => pl.is_connected === false)) {
+            console.log(`🧹 [BOT][room ${room_id}] Toàn bộ người chơi đều rời trận — đóng gameState`);
+            clearRoomBotTimers(checkGs);
+            try { await roomRepo.updateRoomStatus(room_id, "finished"); } catch (_) {}
+            delete gameStates[room_id];
+          }
+        }, botAI.ALL_BOTS_CLEANUP_MS);
+      }
+    }, botAI.BOT_TAKEOVER_DELAY_MS);
+  }
+}
+
+function handlePlayerReconnectInActiveGame(room_id, player, newSocketId) {
+  const gs = gameStates[room_id];
+  if (!gs || !player) return;
+
+  if (gs._botTakeoverTimers?.[player.user_id]) {
+    clearTimeout(gs._botTakeoverTimers[player.user_id]);
+    delete gs._botTakeoverTimers[player.user_id];
+  }
+  if (gs._allBotsCleanupTimer) {
+    clearTimeout(gs._allBotsCleanupTimer);
+    gs._allBotsCleanupTimer = null;
+  }
+
+  const wasBot = !!player.is_bot_controlled;
+  player.socket_id = newSocketId;
+  player.is_connected = true;
+  player.disconnected_at = null;
+  player.is_bot_controlled = false;
+
+  if (wasBot) {
+    const cur = getCurrentTurnPlayer(room_id);
+    if (cur && Number(cur.user_id) === Number(player.user_id)) {
+      clearBotActionTimer(gs);
+    }
+    console.log(`✅ [BOT][room ${room_id}] ${player.name} đã kết nối lại — trả quyền điều khiển về người thật`);
+    io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:bot_status", {
+      room_id,
+      user_id: player.user_id,
+      name: player.name,
+      is_bot: false,
+    });
+  }
 }
 
 function getCurrentTurnPlayer(room_id) {
@@ -1083,6 +1433,7 @@ async function handleGameOver(room_id, gs, allPlayerIds) {
   const remainingPlayers = gs.players || [];
   if (remainingPlayers.length === 0) {
     // Không có người thắng (tất cả đều thua) — đánh dấu phòng finished rồi xóa state
+    clearRoomBotTimers(gs);
     try { await roomRepo.updateRoomStatus(room_id, "finished"); } catch(e) {}
     delete gameStates[room_id];
     return;
@@ -1211,6 +1562,7 @@ async function handleGameOver(room_id, gs, allPlayerIds) {
   });
 
   // ── 5. Xóa game state khỏi bộ nhớ ───────────────────────────────
+  clearRoomBotTimers(gs);
   delete gameStates[room_id];
 }
 
@@ -1221,13 +1573,16 @@ function endTurn(room_id) {
     clearTimeout(gs._buildTimer);
     gs._buildTimer = null;
   }
+  clearBotActionTimer(gs);
+  gs._pendingPrompt = null;
+  gs._pendingMoveTarget = null;
 
   // Xúc Xắc Ma Thuật hoặc tung đôi 1 / đôi 6: giữ lại lượt hiện tại
   const curPlayer = getCurrentTurnPlayer(room_id);
   if (curPlayer && !curPlayer.eliminated && curPlayer.extra_roll_queued) {
     curPlayer.extra_roll_queued = false;
     gs.phase = "IDLE";
-  gs._monsterAttackLock = false;
+    gs._monsterAttackLock = false;
     const now = Date.now();
     io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:turn_changed", {
       current_turn: curPlayer.socket_id,
@@ -1243,6 +1598,9 @@ function endTurn(room_id) {
       is_extra_turn: true
     });
     emitTarotState(room_id);
+    if (curPlayer.is_bot_controlled) {
+      scheduleBotTurn(room_id);
+    }
     return;
   }
 
@@ -1319,7 +1677,9 @@ function endTurn(room_id) {
     next.must_answer_next = false; // reset trước để không lặp
     gs.phase = "QUIZ";
 
-    const nextSocket = io.sockets.sockets.get(next.socket_id);
+    const nextSocket = next.is_bot_controlled
+      ? getOrCreateBotSocket(room_id, next)
+      : io.sockets.sockets.get(next.socket_id);
     if (!nextSocket) {
       gs.phase = "IDLE";
   gs._monsterAttackLock = false;
@@ -1388,6 +1748,11 @@ function endTurn(room_id) {
 
   emitTarotState(room_id);
   emitCharSkillState(room_id);
+
+  // Nếu lượt kế thuộc người chơi đang do Bot AI tiếp quản → tự động đi
+  if (next.is_bot_controlled && gs.phase === "IDLE") {
+    scheduleBotTurn(room_id);
+  }
 }
 
 // ===== HELPERS =====
@@ -1485,7 +1850,9 @@ function emitGameStateSync(room_id) {
       tax_multiplier_active: !!p.tax_multiplier_active,
       tax_multiplier_value: Number(p.tax_multiplier_value || 0),
       tax_multiplier_charges: Number(p.tax_multiplier_charges || 0),
-      recover_house_money_charges: Number(p.recover_house_money_charges || 0)
+      recover_house_money_charges: Number(p.recover_house_money_charges || 0),
+      is_connected: p.is_connected !== false,
+      is_bot_controlled: !!p.is_bot_controlled
     })),
     cellStates: gs.cellStates || {}
   };
@@ -1628,8 +1995,7 @@ io.on("connection", (socket) => {
       if (room_id && gameStates[room_id]) {
         const p = gameStates[room_id].players.find((p) => p.user_id === user_id);
         if (p) {
-          p.socket_id = socket.id;
-          p.is_connected = true;
+          handlePlayerReconnectInActiveGame(Number(room_id), p, socket.id);
           assignedColor = p.planet_color;
           console.log(`🔄 Updated socket_id & color for User ${user_id}`);
           // Rejoin game room để nhận chat và events
@@ -1967,7 +2333,9 @@ io.on("connection", (socket) => {
     socket.game_room_id = room_id;
 
     const p = gs.players.find(p => p.user_id === socket.user_id);
-    if (p) p.socket_id = socket.id;
+    if (p) {
+      handlePlayerReconnectInActiveGame(room_id, p, socket.id);
+    }
 
     const cur = getCurrentTurnPlayer(room_id);
 
@@ -2001,6 +2369,8 @@ io.on("connection", (socket) => {
     emitCharSkillState(room_id);
   });
 
+  // ── ĐĂNG KÝ HANDLER GAMEPLAY (DÙNG CHUNG CHO NGƯỜI THẬT & BOT AI) ──
+  function registerGameplayOnSocket(socket) {
 socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, target_cell_index = null, my_cell_index = null }) => {
   try {
     const gs = gameStates[room_id];
@@ -2339,7 +2709,12 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     // Emit tarot state mới sau khi cooldown đã giảm
     emitTarotState(room_id);
     emitCharSkillState(room_id);
-    emitCharSkillState(room_id);
+
+    const destIdx = (Number(cur.index || 0) + dice) % TOTAL_CELLS;
+    gs._pendingMoveTarget = destIdx;
+    if (cur.is_bot_controlled || socket.is_bot) {
+      scheduleBotWalkAndMoveDone(room_id, cur, destIdx, dice);
+    }
   });
 
   // ── GAME MOVE DONE ───────────────────────────────────────────────
@@ -2391,6 +2766,10 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
         });
         // Chờ client gửi game:move_done lần 2 sau khi đi xong
         gs.phase = "MOVING";
+        gs._pendingMoveTarget = destIdx;
+        if (cur.is_bot_controlled || socket.is_bot) {
+          scheduleBotWalkAndMoveDone(room_id, cur, destIdx, extraSteps);
+        }
         return;
       }
     }
@@ -2529,13 +2908,18 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
             step: steps
           });
           // không end turn, chờ client gửi move_done tiếp
+          const nextDest = (Number(cur.index || 0) + steps) % TOTAL_CELLS;
+          gs._pendingMoveTarget = nextDest;
+          if (cur.is_bot_controlled || socket.is_bot) {
+            scheduleBotWalkAndMoveDone(room_id, cur, nextDest, steps);
+          }
           return;
         }
 
         // Extra roll
         if (picked.type === "extra_roll") {
           gs.phase = "IDLE";
-  gs._monsterAttackLock = false;
+          gs._monsterAttackLock = false;
           cur.has_extra_roll = true;
           io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:skill_event", {
             type: "extra_roll",
@@ -2543,6 +2927,9 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
             name: cur.name
           });
           // giữ nguyên lượt hiện tại
+          if (cur.is_bot_controlled || socket.is_bot) {
+            scheduleBotTurn(room_id);
+          }
           return;
         }
 
@@ -2649,6 +3036,10 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
             dest_index: targetIndex
           });
           // không end turn, chờ client gửi move_done sau khi đi xong
+          gs._pendingMoveTarget = targetIndex;
+          if (cur.is_bot_controlled || socket.is_bot) {
+            scheduleBotWalkAndMoveDone(room_id, cur, targetIndex, steps);
+          }
           return;
         }
 
@@ -2664,6 +3055,10 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
             dest_index: targetIndex
           });
           // không end turn, chờ client gửi move_done sau khi đi xong
+          gs._pendingMoveTarget = targetIndex;
+          if (cur.is_bot_controlled || socket.is_bot) {
+            scheduleBotWalkAndMoveDone(room_id, cur, targetIndex, steps);
+          }
           return;
         }
 
@@ -2936,7 +3331,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     if (!cell) {
       const promptCost = getPropertyActionCost(gs, cur, 1);
       const previewRent = computeCellRent(gs, idx, { level: 1, owner_user_id: cur.user_id }, 1, cur.user_id);
-      socket.emit("game:build_prompt", {
+      const buildPromptPayload = {
         mode: "build",
         cell_index: idx,
         build_cost: promptCost,
@@ -2949,7 +3344,9 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
         combo_bonus: previewRent.comboBonusPercent,
         can_afford: (cur.cash || 0) >= promptCost,
         time_limit: 15,
-      });
+      };
+      gs._pendingPrompt = { type: "build", user_id: cur.user_id, data: buildPromptPayload };
+      socket.emit("game:build_prompt", buildPromptPayload);
 
       if (gs._buildTimer) {
         clearTimeout(gs._buildTimer);
@@ -2972,7 +3369,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
         const curRentInfo = computeCellRent(gs, idx, cell, curLevel, cur.user_id);
         const nextRentInfo = computeCellRent(gs, idx, cell, nextLevel, cur.user_id);
 
-        socket.emit("game:build_prompt", {
+        const upgradePromptPayload = {
           mode: "upgrade",
           cell_index: idx,
           build_cost: upgradeCost,
@@ -2985,7 +3382,9 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
           combo_bonus: nextRentInfo.comboBonusPercent,
           can_afford: (cur.cash || 0) >= upgradeCost,
           time_limit: 15,
-        });
+        };
+        gs._pendingPrompt = { type: "build", user_id: cur.user_id, data: upgradePromptPayload };
+        socket.emit("game:build_prompt", upgradePromptPayload);
 
         if (gs._buildTimer) {
           clearTimeout(gs._buildTimer);
@@ -3064,7 +3463,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     // Check if payer can afford the rent
     if (payer && (payer.cash || 0) < actualRent) {
       // Cannot afford - trigger bankruptcy resolution
-      io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:rent_cannot_afford", {
+      const debtPayload = {
         payer_user_id: socket.user_id,
         payer_name: payer.name,
         owner_user_id: cell.owner_user_id,
@@ -3073,7 +3472,12 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
         required_rent: actualRent,
         current_cash: payer.cash || 0,
         planet_color: cell.planet_color,
-      });
+      };
+      gs._pendingPrompt = { type: "debt", user_id: payer.user_id, data: debtPayload };
+      io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:rent_cannot_afford", debtPayload);
+      if (payer.is_bot_controlled || socket.is_bot) {
+        scheduleBotDebtDecision(room_id, payer, debtPayload);
+      }
       return; // Don't end turn yet - wait for bankruptcy resolution
     }
 
@@ -3139,7 +3543,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
       }
       setTimeout(() => {
         if (!gameStates[room_id] || gs.phase !== "RESOLVING") return;
-        socket.emit("game:build_prompt", {
+        const buyoutPromptPayload = {
           mode: "buyout",
           cell_index: idx,
           build_cost: buyoutCost,
@@ -3154,7 +3558,9 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
           combo_bonus: myRentPreview.comboBonusPercent,
           can_afford: true,
           time_limit: 15,
-        });
+        };
+        gs._pendingPrompt = { type: "build", user_id: payer.user_id, data: buyoutPromptPayload };
+        socket.emit("game:build_prompt", buyoutPromptPayload);
       }, 900);
 
       gs._buildTimer = setTimeout(() => {
@@ -3178,6 +3584,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
 
     const cur = getCurrentTurnPlayer(room_id);
     if (!cur || cur.user_id !== socket.user_id) return;
+    gs._pendingPrompt = null;
 
     const idx = Number(cell_index);
 
@@ -3320,6 +3727,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     if (!gs || gs.phase !== "QUIZ") return;
     const cur = getCurrentTurnPlayer(room_id);
     if (!cur || cur.user_id !== socket.user_id) return;
+    gs._pendingPrompt = null;
 
     const quizData = gs.currentQuiz;
     if (!quizData || quizData.user_id !== cur.user_id) return;
@@ -3356,6 +3764,9 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
           planet_color: cur.planet_color,
           turn_number: gs.turn_number,
         });
+        if (cur.is_bot_controlled) {
+          scheduleBotTurn(room_id);
+        }
       }, 200);
       return;
     }
@@ -3398,6 +3809,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
   socket.on("game:sell_and_pay_rent", async ({ room_id, seller_user_id, buyer_user_id, cells_to_sell, total_sell_price, required_rent, cash_before }) => {
     const gs = gameStates[room_id];
     if (!gs) return;
+    gs._pendingPrompt = null;
 
     const seller = gs.players.find(p => p.user_id === seller_user_id);
     const buyer  = gs.players.find(p => p.user_id === buyer_user_id);
@@ -3532,6 +3944,9 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     // Continue with remaining players
     setTimeout(() => endTurn(room_id), 2000);
   });
+  } // end registerGameplayOnSocket
+  _registerGameplayOnSocket = registerGameplayOnSocket;
+  registerGameplayOnSocket(socket);
 
   // ── GAME SURRENDER (đầu hàng chủ động) ─────────────────────────
   socket.on("game:surrender", async ({ room_id, user_id }) => {
@@ -3616,6 +4031,9 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
         onlineUserSockets.delete(uid);
       }
     }
+
+    // Nếu đang trong ván đấu → kích hoạt đếm ngược Bot AI tiếp quản
+    handlePlayerDisconnectInActiveGame(socket);
   });
 
   // ── LAB ROOMS ────────────────────────────────────────────────────

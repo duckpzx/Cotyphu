@@ -95,6 +95,7 @@ export default class RoomScene extends Phaser.Scene {
     this.load.image("icon_setting",  "assets/ui/shared/setting.png");
     this.load.image("icon_sound",    "assets/ui/shared/sound.png");
     this.load.image("icon_music",    "assets/ui/shared/music.png");
+    this.load.image("icon_mic",      "assets/ui/shared/microphone.png");
     this.load.image("versus2",       "assets/ui/shared/versus3.png");
     this.load.image("author",        "assets/ui/shared/author.png");
     this.load.image("add_friend",    "assets/ui/shared/friend.png");
