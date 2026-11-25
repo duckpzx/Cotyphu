@@ -4377,15 +4377,17 @@ app.get("/api/payment/status/:orderCode", async (req, res) => {
 });
 
 // Webhook nhận thông tin thanh toán từ payOS (khai báo URL này trong kênh payOS)
-app.post("/api/payment/payos-webhook", async (req, res) => {
+const handlePayosWebhookRoute = async (req, res) => {
   try {
     const { httpStatus, payload } = await payosService.handleWebhook(req.body, { io, onlineUserSockets });
     res.status(httpStatus).json(payload);
   } catch (err) {
-    console.error("POST /api/payment/payos-webhook error:", err);
+    console.error("POST payos-webhook error:", err);
     res.status(500).json({ success: false, message: "Webhook error" });
   }
-});
+};
+app.post("/api/payment/payos-webhook", handlePayosWebhookRoute);
+app.post("/api/payment/webhook/payos", handlePayosWebhookRoute);
 
 // ── ADMIN DASHBOARD API & PAGE ─────────────────────────────────
 app.use("/api/admin", createAdminRouter({ io, gameStates, onlineUserSockets, clearRoomBotTimers }));

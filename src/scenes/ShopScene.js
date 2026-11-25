@@ -495,138 +495,27 @@ export default class ShopScene extends Phaser.Scene {
     }
 
     _showEcoinModal() {
-        const { width, height } = this.scale;
-
-        // Overlay mờ
-        const _modalObjs = [];
-        const push = o => { _modalObjs.push(o); return o; };
-
-        const overlay = push(this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.6)
-            .setDepth(500).setInteractive());
-
-        // Panel
-        const PW = 480, PH = 380;
-        const px = width / 2, py = height / 2;
-
-        const panelG = push(this.add.graphics().setDepth(501));
-        panelG.fillStyle(0xfff0d0, 1);
-        panelG.fillRoundedRect(px - PW / 2, py - PH / 2, PW, PH, 20);
-        panelG.fillStyle(0xffffff, 0.35);
-        panelG.fillRoundedRect(px - PW / 2 + 4, py - PH / 2 + 4, PW - 8, PH * 0.15, 18);
-        panelG.lineStyle(4, 0x8b5e1a, 1);
-        panelG.strokeRoundedRect(px - PW / 2, py - PH / 2, PW, PH, 20);
-
-        // Tiêu đề
-        const titleG = push(this.add.graphics().setDepth(502));
-        titleG.fillStyle(0xd4a030, 1);
-        titleG.fillRoundedRect(px - 85, py - PH / 2 + 12, 170, 34, 17);
-        titleG.fillStyle(0xfff5b0, 0.40);
-        titleG.fillRoundedRect(px - 83, py - PH / 2 + 13, 166, 14, 12);
-        titleG.lineStyle(2.5, 0x8b5e1a, 1);
-        titleG.strokeRoundedRect(px - 85, py - PH / 2 + 12, 170, 34, 17);
-
-        push(this.add.text(px, py - PH / 2 + 29, "💰 NẠP ECOIN", {
-            fontFamily: "Signika", fontSize: "16px",
-            color: "#4a2000", fontStyle: "bold",
-        }).setOrigin(0.5).setDepth(503));
-
-        // Các gói nạp tiền thật payOS (Mốc chuẩn: 50K = 350K Ecoin)
-        const packages = [
-            { id: "pkg_10k",  amountVnd: 10000,   ecoin: 65000,   label: "10K VND",  ecoinLabel: "65.000",    icon: "🪙",  color: 0x6a8ab0 },
-            { id: "pkg_50k",  amountVnd: 50000,   ecoin: 350000,  label: "50K VND",  ecoinLabel: "350.000",   icon: "💰",  color: 0x44aa44 },
-            { id: "pkg_200k", amountVnd: 200000,  ecoin: 1600000, label: "200K VND", ecoinLabel: "1.600.000", icon: "💎",  color: 0x8844cc },
-            { id: "pkg_1m",   amountVnd: 1000000, ecoin: 9000000, label: "1M VND",   ecoinLabel: "9.000.000", icon: "👑",  color: 0xd4a030 },
-        ];
-
-        const startY = py - PH / 2 + 75;
-        const cardW = 100, cardH = 130, gap = 12;
-        const totalCardsW = packages.length * cardW + (packages.length - 1) * gap;
-        const startX = px - totalCardsW / 2;
-
-        packages.forEach((pkg, i) => {
-            const cx = startX + i * (cardW + gap) + cardW / 2;
-            const cy = startY + cardH / 2;
-
-            const cg = push(this.add.graphics().setDepth(502));
-            const drawPkgCard = (hover = false) => {
-                cg.clear();
-                cg.fillStyle(0x000000, 0.18);
-                cg.fillRoundedRect(cx - cardW / 2 + 2, cy - cardH / 2 + 3, cardW, cardH, 12);
-                cg.fillStyle(pkg.color, hover ? 0.95 : 0.8);
-                cg.fillRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, 12);
-                cg.fillStyle(0xffffff, hover ? 0.25 : 0.15);
-                cg.fillRoundedRect(cx - cardW / 2 + 6, cy - cardH / 2 + 5, cardW - 12, cardH * 0.3, 8);
-                cg.lineStyle(2, 0xffffff, hover ? 0.6 : 0.3);
-                cg.strokeRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, 12);
-            };
-            drawPkgCard();
-
-            push(this.add.text(cx, cy - 34, pkg.icon, { fontSize: "28px" }).setOrigin(0.5).setDepth(503));
-            push(this.add.text(cx, cy - 4, pkg.label, {
-                fontFamily: "Signika", fontSize: "13px",
-                color: "#ffffff", fontStyle: "bold",
-                stroke: "#000000", strokeThickness: 2,
-            }).setOrigin(0.5).setDepth(503));
-            push(this.add.text(cx, cy + 18, `+${pkg.ecoinLabel}`, {
-                fontFamily: "Signika", fontSize: "12px", color: "#ffe066", fontStyle: "bold",
-            }).setOrigin(0.5).setDepth(503));
-            push(this.add.text(cx, cy + 32, "Ecoin", {
-                fontFamily: "Signika", fontSize: "10px", color: "#ffe066",
-            }).setOrigin(0.5).setDepth(503));
-
-            // Nút chọn
-            const btnY2 = cy + cardH / 2 - 14;
-            const btnG = push(this.add.graphics().setDepth(502));
-            btnG.fillStyle(0xffffff, 0.25);
-            btnG.fillRoundedRect(cx - 35, btnY2 - 10, 70, 20, 10);
-
-            push(this.add.text(cx, btnY2, "Nạp QR", {
-                fontFamily: "Signika", fontSize: "11px", color: "#ffffff", fontStyle: "bold",
-            }).setOrigin(0.5).setDepth(503));
-
-            const zone = push(this.add.zone(cx, cy, cardW, cardH)
-                .setInteractive({ useHandCursor: true }).setDepth(504));
-            zone.on("pointerover", () => drawPkgCard(true));
-            zone.on("pointerout",  () => drawPkgCard(false));
-            zone.on("pointerup", async () => {
-                _modalObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
-                const token = this.playerData?.token || localStorage.getItem("token");
-                await openPayosTopUpFlow({
-                    scene: this,
-                    token,
-                    amountVnd: pkg.amountVnd,
-                    packageId: pkg.id,
-                    onPaid: (newEcoin, added) => {
-                        this.playerEcoin = newEcoin;
-                        this._refreshEcoinUI();
-                        if (this.playerData?.user) {
-                            this.playerData.user.ecoin = newEcoin;
-                            localStorage.setItem("playerData", JSON.stringify(this.playerData));
-                        }
-                        this.showToast(`✅ Nạp thành công +${Number(added || pkg.ecoin).toLocaleString()} Ecoin!`);
-                        this.buildLeftPanel();
-                    },
-                    onError: (msg) => this.showToast(`❌ ${msg}`),
-                });
-            });
-        });
-
-        // Nút đóng
-        const closeY = py + PH / 2 - 40;
-        const closeG = push(this.add.graphics().setDepth(502));
-        closeG.fillStyle(0xcc4444, 0.9);
-        closeG.fillRoundedRect(px - 50, closeY - 16, 100, 32, 16);
-        closeG.lineStyle(2, 0xffffff, 0.3);
-        closeG.strokeRoundedRect(px - 50, closeY - 16, 100, 32, 16);
-
-        push(this.add.text(px, closeY, "✕ Đóng", {
-            fontFamily: "Signika", fontSize: "14px", color: "#ffffff", fontStyle: "bold",
-        }).setOrigin(0.5).setDepth(503));
-
-        const closeZone = push(this.add.zone(px, closeY, 100, 32)
-            .setInteractive({ useHandCursor: true }).setDepth(504));
-        closeZone.on("pointerup", () => {
-            _modalObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
+        const token = this.playerData?.token || localStorage.getItem("token");
+        if (!token) {
+            this.showToast("❌ Bạn chưa đăng nhập!");
+            return;
+        }
+        openPayosTopUpFlow({
+            scene: this,
+            token,
+            amountVnd: 50000,
+            packageId: "pkg_50k",
+            onPaid: (newEcoin, added) => {
+                this.playerEcoin = newEcoin;
+                this._refreshEcoinUI();
+                if (this.playerData?.user) {
+                    this.playerData.user.ecoin = newEcoin;
+                    localStorage.setItem("playerData", JSON.stringify(this.playerData));
+                }
+                this.showToast(`✅ Nạp thành công +${Number(added || 0).toLocaleString()} Ecoin!`);
+                this.buildLeftPanel();
+            },
+            onError: (msg) => this.showToast(`❌ ${msg}`),
         });
     }
 
