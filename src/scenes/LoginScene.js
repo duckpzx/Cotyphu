@@ -1,5 +1,5 @@
 import { SERVER_URL } from "../config.js";
-import { setupClickSound, isMusicEnabled } from "../utils/clickSound.js";
+import { setupClickSound, isMusicEnabled, getAudioTrackUrl, getAudioTrackVolume, isAudioTrackEnabled } from "../utils/clickSound.js";
 export default class LoginScene extends Phaser.Scene {
 
   constructor() {
@@ -9,7 +9,7 @@ export default class LoginScene extends Phaser.Scene {
   preload() {
     this.load.image("bg_account", "assets/nen_24.png");
     this.load.image("icon", "assets/ui/cotyphu.png");
-    this.load.audio("lobby_bgm", "assets/music/lobby/lobbyscene.mp3");
+    this.load.audio("lobby_bgm", getAudioTrackUrl("lobby_bgm", "assets/music/lobby/lobbyscene.mp3"));
   }
 
   create() {
@@ -192,9 +192,9 @@ export default class LoginScene extends Phaser.Scene {
     if (this.form) this.form.remove();
 
     // Play nhạc lobby ngay trong interaction context (user vừa click)
-    if (sceneName === "LobbyScene" && isMusicEnabled() && !this.sound.get("lobby_bgm")) {
+    if (sceneName === "LobbyScene" && isMusicEnabled() && isAudioTrackEnabled("lobby_bgm") && !this.sound.get("lobby_bgm")) {
       try {
-        const bgm = this.sound.add("lobby_bgm", { loop: true, volume: 0.56 });
+        const bgm = this.sound.add("lobby_bgm", { loop: true, volume: getAudioTrackVolume("lobby_bgm", 0.56) });
         bgm.play();
       } catch(e) {}
     }

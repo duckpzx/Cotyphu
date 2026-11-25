@@ -83,15 +83,15 @@ export default class FriendPanel {
     this._height = height;
     this._open   = true;
 
-    const W      = 600;
+    const W      = 640;
     const H      = 480;
-    const TAB_H  = 46; // chiều cao tab (giống BagScene)
+    const TAB_H  = 46; // chiều cao tab (giữ nguyên phong cách 3 tab)
     const TOTAL_H = H + TAB_H; // tổng chiều cao cả tab + panel
     const CX = width  / 2;
     const CY = height / 2;
     const L  = CX - W / 2;
     const T  = CY - TOTAL_H / 2 + TAB_H; // top của panel body, tab nằm phía trên
-    const R  = 14;
+    const R  = 22;
     const D  = this.depth;
 
     this._panelL = L; this._panelT = T;
@@ -101,41 +101,43 @@ export default class FriendPanel {
 
     // ── Overlay tối toàn màn hình ─────────────────────────────────
     const overlay = push(this.scene.add.graphics().setDepth(D - 1));
-    overlay.fillStyle(0x000000, 0.55);
+    overlay.fillStyle(0x0c0a08, 0.62);
     overlay.fillRect(0, 0, width, height);
     // Click ra ngoài để đóng
     const overlayZone = push(this.scene.add.zone(width / 2, height / 2, width, height)
       .setInteractive().setDepth(D - 1));
     overlayZone.on("pointerdown", () => this.destroy());
 
-    // ── Bóng đổ ──────────────────────────────────────────────────
+    // ── Bóng đổ mềm nhiều lớp (giống box-shadow CSS của Nạp Tiền) ──
     const shadow = push(this.scene.add.graphics().setDepth(D));
-    shadow.fillStyle(0x000000, 0.28);
-    shadow.fillRoundedRect(L + 7, T + 7, W, H, R);
+    [
+      { pad: 14, dy: 12, a: 0.08 },
+      { pad: 9,  dy: 9,  a: 0.12 },
+      { pad: 5,  dy: 6,  a: 0.16 },
+      { pad: 2,  dy: 3,  a: 0.22 },
+    ].forEach(({ pad, dy, a }) => {
+      shadow.fillStyle(0x000000, a);
+      shadow.fillRoundedRect(L - pad, T - pad + dy, W + pad * 2, H + pad * 2, R + pad * 0.5);
+    });
 
-    // ── Nền vàng kem (BagScene style) ────────────────────────────
+    // ── Nền giấy kem vàng (đồng bộ 100% .topup-panel Nạp Tiền) ──
     const bg = push(this.scene.add.graphics().setDepth(D + 1));
-    bg.fillGradientStyle(0xf6eac6, 0xf6eac6, 0xede0b0, 0xede0b0, 1);
+    bg.fillGradientStyle(0xfaf1d6, 0xfaf1d6, 0xedd9a3, 0xedd9a3, 1);
     bg.fillRoundedRect(L, T, W, H, R);
-    bg.lineStyle(3, 0xffffff, 1);
+    // Viền trắng sáng 3.8px ngoài cùng
+    bg.lineStyle(3.8, 0xffffff, 1);
     bg.strokeRoundedRect(L, T, W, H, R);
-    // Cạnh dưới màu trắng nhẹ (đè lên border dưới)
-    bg.lineStyle(3, 0xe9d5a8, 0.25);
-    bg.beginPath();
-    bg.moveTo(L + R, T + H);
-    bg.lineTo(L + W - R, T + H);
-    bg.strokePath();
-    // Gloss
-    bg.fillStyle(0xffffff, 0.18);
-    bg.fillRoundedRect(L + 6, T + 4, W - 12, 22, 8);
-    // Viền đứt nét vàng bên trong
+    // Vòng viền vàng nâu mảnh ôm sát mép ngoài viền trắng (giống 0 0 0 2px rgba(154,106,26,0.45))
+    bg.lineStyle(2, 0x9a6a1a, 0.48);
+    bg.strokeRoundedRect(L - 2.6, T - 2.6, W + 5.2, H + 5.2, R + 2.4);
+    // Viền đứt nét vàng bên trong (giống inset: 9px; border: 1.8px dashed)
     this._drawInnerDash(bg, L, T, W, H, R);
 
     // Zone chặn click lan xuống overlay
     push(this.scene.add.zone(L + W / 2, T + H / 2, W, H)
       .setInteractive().setDepth(D + 1));
 
-    // ── Tabs (BagScene style: tabW=160, tabH=46, gap=8) ──────────
+    // ── Tabs (giữ nguyên phong cách 3 tab phía trên) ─────────────
     const TAB_LABELS = ["D.S Bạn Bè", "Y.C Kết Bạn", "Tìm Kiếm"];
     const TAB_W = 160;
     const TAB_GAP = 8;
@@ -184,23 +186,44 @@ export default class FriendPanel {
     closeZone.on("pointerout",   () => closeBtn.setAlpha(1));
     closeZone.on("pointerdown",  () => this.destroy());
 
-    // ── Toolbar: Sắp xếp + Tìm kiếm ─────────────────────────────
-    const PAD   = 30; // padding cách viền đứt
-    const BAR_Y = T + PAD;
+    // ── 2 khung nội dung kem sáng (y phong cách Nạp Tiền) ────────
+    const BOX_X    = L + 22;
+    const BOX_W    = W - 44;
+    const TOP_BOX_Y = T + 22;
+    const TOP_BOX_H = 54;
+    const MAIN_BOX_Y = TOP_BOX_Y + TOP_BOX_H + 12;
+    const MAIN_BOX_H = H - (MAIN_BOX_Y - T) - 22;
+
+    const innerBoxG = push(this.scene.add.graphics().setDepth(D + 1));
+    // Khung trên (Sắp xếp + Tìm kiếm — giống .topup-amount-box)
+    innerBoxG.fillStyle(0xfffaea, 0.88);
+    innerBoxG.fillRoundedRect(BOX_X, TOP_BOX_Y, BOX_W, TOP_BOX_H, 14);
+    innerBoxG.lineStyle(1.5, 0xc49a3a, 0.48);
+    innerBoxG.strokeRoundedRect(BOX_X, TOP_BOX_Y, BOX_W, TOP_BOX_H, 14);
+
+    // Khung chính dưới (Danh sách — giống .topup-main-box)
+    innerBoxG.fillStyle(0xfffbee, 0.92);
+    innerBoxG.fillRoundedRect(BOX_X, MAIN_BOX_Y, BOX_W, MAIN_BOX_H, 14);
+    innerBoxG.lineStyle(1.5, 0xc49a3a, 0.52);
+    innerBoxG.strokeRoundedRect(BOX_X, MAIN_BOX_Y, BOX_W, MAIN_BOX_H, 14);
+
+    // ── Toolbar bên trong khung trên ─────────────────────────────
+    const PAD   = 36;
     const BAR_H = 34;
+    const BAR_Y = TOP_BOX_Y + (TOP_BOX_H - BAR_H) / 2;
     this._sortMode = "status"; // "status" | "alpha"
     this._buildToolbar(L, T, W, H, BAR_Y, BAR_H, PAD, D);
 
-    // ── Vùng danh sách (cách viền đứt PAD mỗi bên) ───────────────
-    this._listTop      = BAR_Y + BAR_H + 36;  // tăng gap để có chỗ cho nét đứt
-    this._listH        = H - (BAR_Y - T) - BAR_H - 36 - PAD - 20;
-    this._listL        = L + PAD;
-    this._listW        = W - PAD * 2;
-    this._listDashY    = BAR_Y + BAR_H + 18;  // giữa khoảng trống
+    // ── Vùng danh sách nằm gọn trong khung chính dưới ────────────
+    this._listTop      = MAIN_BOX_Y + 14;
+    this._listH        = MAIN_BOX_H - 42;
+    this._listL        = BOX_X + 14;
+    this._listW        = BOX_W - 28;
+    this._listDashY    = null;
 
-    // ── Footer đếm bạn ───────────────────────────────────────────
-    this._footerTxt = push(this.scene.add.text(L + W - PAD, T + H - 10, "", {
-      fontFamily: "Signika", fontSize: "13px", color: "#7a5a20"
+    // ── Footer đếm bạn nằm góc dưới phải khung chính ─────────────
+    this._footerTxt = push(this.scene.add.text(BOX_X + BOX_W - 14, MAIN_BOX_Y + MAIN_BOX_H - 10, "", {
+      fontFamily: "Signika", fontSize: "12.5px", color: "#7c4d14", fontStyle: "bold"
     }).setOrigin(1, 1).setDepth(D + 2));
 
     // ── Bind socket ──────────────────────────────────────────────
@@ -251,35 +274,39 @@ export default class FriendPanel {
   // ── PRIVATE: Panel style ────────────────────────────────────────
 
   _drawInnerDash(g, L, T, W, H, R) {
-    const ins = 10;
-    const cr  = R - 4;
-    g.lineStyle(1.5, 0xb8922e, 0.5);
+    // Khớp chuẩn CSS của bảng Nạp Tiền: inset 9px, border 1.8px dashed rgba(184,146,46,0.55), radius 15px
+    const ins = 9;
+    const cr  = Math.max(8, R - 7);
+    const dashLen = 5.5;
+    const step    = 10;
+    g.lineStyle(1.8, 0xb8922e, 0.58);
     const drawD = (x1, y1, x2, y2) => {
       const dist = Phaser.Math.Distance.Between(x1, y1, x2, y2);
       const ang  = Phaser.Math.Angle.Between(x1, y1, x2, y2);
-      for (let d = 0; d < dist; d += 14) {
+      for (let d = 0; d < dist; d += step) {
         g.beginPath();
         g.moveTo(x1 + Math.cos(ang) * d,                          y1 + Math.sin(ang) * d);
-        g.lineTo(x1 + Math.cos(ang) * Math.min(d + 8, dist),      y1 + Math.sin(ang) * Math.min(d + 8, dist));
+        g.lineTo(x1 + Math.cos(ang) * Math.min(d + dashLen, dist), y1 + Math.sin(ang) * Math.min(d + dashLen, dist));
         g.strokePath();
       }
     };
     const drawArc = (cx, cy, r, a1, a2) => {
-      const steps = Math.ceil(r * Math.abs(a2 - a1) / 14);
+      const arcLen = r * Math.abs(a2 - a1);
+      const steps  = Math.max(2, Math.round(arcLen / step));
       for (let i = 0; i < steps; i++) {
         const s = a1 + (a2 - a1) * (i / steps);
-        const e = a1 + (a2 - a1) * Math.min((i + 0.57) / steps, 1);
+        const e = a1 + (a2 - a1) * Math.min((i + dashLen / step) / steps, 1);
         g.beginPath(); g.arc(cx, cy, r, s, e); g.strokePath();
       }
     };
-    drawD(L+ins+cr, T+ins, L+W-ins-cr, T+ins);
-    drawD(L+W-ins, T+ins+cr, L+W-ins, T+H-ins-cr);
-    drawD(L+W-ins-cr, T+H-ins, L+ins+cr, T+H-ins);
-    drawD(L+ins, T+H-ins-cr, L+ins, T+ins+cr);
-    drawArc(L+ins+cr,   T+ins+cr,   cr, Math.PI,     Math.PI*1.5);
-    drawArc(L+W-ins-cr, T+ins+cr,   cr, Math.PI*1.5, Math.PI*2);
-    drawArc(L+W-ins-cr, T+H-ins-cr, cr, 0,           Math.PI*0.5);
-    drawArc(L+ins+cr,   T+H-ins-cr, cr, Math.PI*0.5, Math.PI);
+    drawD(L + ins + cr, T + ins, L + W - ins - cr, T + ins);
+    drawD(L + W - ins, T + ins + cr, L + W - ins, T + H - ins - cr);
+    drawD(L + W - ins - cr, T + H - ins, L + ins + cr, T + H - ins);
+    drawD(L + ins, T + H - ins - cr, L + ins, T + ins + cr);
+    drawArc(L + ins + cr,     T + ins + cr,     cr, Math.PI,       Math.PI * 1.5);
+    drawArc(L + W - ins - cr, T + ins + cr,     cr, Math.PI * 1.5, Math.PI * 2);
+    drawArc(L + W - ins - cr, T + H - ins - cr, cr, 0,             Math.PI * 0.5);
+    drawArc(L + ins + cr,     T + H - ins - cr, cr, Math.PI * 0.5, Math.PI);
   }
 
   _drawTabs(L, TAB_Y, TAB_W, TAB_H, GAP = 0) {
@@ -352,88 +379,80 @@ export default class FriendPanel {
 
     // ── Label "Sắp xếp" ──────────────────────────────────────────
     push(this.scene.add.text(L + PAD, BAR_Y + BAR_H / 2, "Sắp xếp", {
-      fontFamily: "Signika", fontSize: "14px", color: "#6b4a10", fontStyle: "bold"
+      fontFamily: "Signika", fontSize: "13.5px", color: "#6b3b09", fontStyle: "bold"
     }).setOrigin(0, 0.5).setDepth(D + 2));
 
-    // ── Nút sort toggle (TRẠNG THÁI ▶ / TÊN A-Z ▶) ───────────────
-    const SORT_BW = 130, SORT_BH = BAR_H;
-    const SORT_X  = L + PAD + 72;
-    const SORT_Y  = BAR_Y;
+    // ── Nút sort pill xanh bóng (giống pill đang chọn của Nạp Tiền) ──
+    const SORT_BW = 132, SORT_BH = 32;
+    const SORT_X  = L + PAD + 66;
+    const SORT_Y  = BAR_Y + (BAR_H - SORT_BH) / 2;
+    const SORT_R  = SORT_BH / 2;
 
     const sortG = push(this.scene.add.graphics().setDepth(D + 2));
-    const sortTxt = push(this.scene.add.text(SORT_X + SORT_BW / 2 - 8, SORT_Y + SORT_BH / 2, "", {
-      fontFamily: "Signika", fontSize: "14px",
-      color: "#5a3200", fontStyle: "bold",
-      stroke: "#f8e8b0", strokeThickness: 2
+    const sortTxt = push(this.scene.add.text(SORT_X + SORT_BW / 2 - 7, SORT_Y + SORT_BH / 2, "", {
+      fontFamily: "Signika", fontSize: "13px",
+      color: "#ffffff", fontStyle: "bold",
+      stroke: "#00375f", strokeThickness: 2.5
     }).setOrigin(0.5).setDepth(D + 3));
-    const arrowTxt = push(this.scene.add.text(SORT_X + SORT_BW - 14, SORT_Y + SORT_BH / 2, "▶", {
-      fontFamily: "Signika", fontSize: "16px",
-      color: "#5a3200",
-      stroke: "#f8e8b0", strokeThickness: 1.5
+    const arrowTxt = push(this.scene.add.text(SORT_X + SORT_BW - 15, SORT_Y + SORT_BH / 2, "▶", {
+      fontFamily: "Signika", fontSize: "12px",
+      color: "#ffffff",
+      stroke: "#00375f", strokeThickness: 2
     }).setOrigin(0.5).setDepth(D + 3));
 
-    const drawSort = () => {
-        sortG.clear();
-        // Bóng đổ
-        sortG.fillStyle(0x5a3a00, 0.28);
-        sortG.fillRoundedRect(SORT_X + 2, SORT_Y + 3, SORT_BW, SORT_BH, 10);
-        // Nền gradient vàng nâu
-        sortG.fillGradientStyle(0xf5d060, 0xf5d060, 0xc08820, 0xc08820, 1);
-        sortG.fillRoundedRect(SORT_X, SORT_Y, SORT_BW, SORT_BH, 10);
-        // Viền ngoài vàng nâu đậm
-        sortG.lineStyle(1.5, 0x9d7d30, 1);
-        sortG.strokeRoundedRect(SORT_X, SORT_Y, SORT_BW, SORT_BH, 10);
-        // Gloss trên
-        sortG.fillStyle(0xffffff, 0.32);
-        sortG.fillRoundedRect(SORT_X + 4, SORT_Y + 3, SORT_BW - 8, SORT_BH * 0.38, 6);
-        // Viền trong sáng
-        sortG.lineStyle(1, 0xfff0a0, 0.4);
-        sortG.strokeRoundedRect(SORT_X + 1, SORT_Y + 1, SORT_BW - 2, SORT_BH - 2, 9);
-        sortTxt.setText(this._sortMode === "status" ? "TRẠNG THÁI" : "TÊN A-Z");
-      };
-    drawSort();
+    const drawSort = (hover = false) => {
+      sortG.clear();
+      // Bóng xanh dịu
+      sortG.fillStyle(0x0284c7, 0.28);
+      sortG.fillRoundedRect(SORT_X + 1, SORT_Y + 3, SORT_BW, SORT_BH, SORT_R);
+      // Gradient xanh cyan bóng giống pill active Nạp Tiền
+      sortG.fillGradientStyle(hover ? 0x62dcff : 0x4bd5ff, hover ? 0x62dcff : 0x4bd5ff, 0x0284c7, 0x0284c7, 1);
+      sortG.fillRoundedRect(SORT_X, SORT_Y, SORT_BW, SORT_BH, SORT_R);
+      // Gloss trắng trên
+      sortG.fillStyle(0xffffff, 0.34);
+      sortG.fillRoundedRect(SORT_X + 8, SORT_Y + 3, SORT_BW - 16, SORT_BH * 0.38, SORT_R - 4);
+      // Viền xanh đậm
+      sortG.lineStyle(1.8, 0x0284c7, 1);
+      sortG.strokeRoundedRect(SORT_X, SORT_Y, SORT_BW, SORT_BH, SORT_R);
+      sortTxt.setText(this._sortMode === "status" ? "TRẠNG THÁI" : "TÊN A-Z");
+    };
+    drawSort(false);
 
     const sortZone = push(this.scene.add.zone(SORT_X + SORT_BW / 2, SORT_Y + SORT_BH / 2, SORT_BW, SORT_BH)
       .setInteractive({ cursor: "pointer" }).setDepth(D + 4));
+    sortZone.on("pointerover", () => drawSort(true));
+    sortZone.on("pointerout",  () => drawSort(false));
     sortZone.on("pointerdown", () => {
       this._sortMode = this._sortMode === "status" ? "alpha" : "status";
-      drawSort();
+      drawSort(true);
       this._rebuildList();
     });
 
-    // ── Ô tìm kiếm (nửa phải) ────────────────────────────────────
-    const SW = W * 0.40;
+    // ── Ô tìm kiếm dạng pill kem sáng (đồng bộ Nạp Tiền) ─────────
+    const SW = W * 0.42;
     const SX = L + W - PAD - SW;
-    const SY = BAR_Y;
-    const SH = BAR_H;
+    const SH = 32;
+    const SY = BAR_Y + (BAR_H - SH) / 2;
+    const SR = SH / 2;
 
     const sbg = push(this.scene.add.graphics().setDepth(D + 2));
-    // Bóng nhẹ
-    sbg.fillStyle(0x5a3a00, 0.18);
-    sbg.fillRoundedRect(SX + 2, SY + 3, SW, SH, 10);
-    // Nền kem sáng
-    sbg.fillGradientStyle(0xf5ead0, 0xf5ead0, 0xe8d4a8, 0xe8d4a8, 1);
-    sbg.fillRoundedRect(SX, SY, SW, SH, 10);
-    // Viền vàng nâu đồng bộ với nút sort
-    sbg.lineStyle(1.5, 0x9d7d48, 0.9);
-    sbg.strokeRoundedRect(SX, SY, SW, SH, 10);
-    // Gloss nhẹ trên
-    sbg.fillStyle(0xffffff, 0.30);
-    sbg.fillRoundedRect(SX + 4, SY + 3, SW - 8, SH * 0.35, 6);
-    // Viền trong sáng
-    sbg.lineStyle(1, 0xfff0c0, 0.35);
-    sbg.strokeRoundedRect(SX + 1, SY + 1, SW - 2, SH - 2, 9);
+    sbg.fillStyle(0x5a3200, 0.08);
+    sbg.fillRoundedRect(SX + 1, SY + 2, SW, SH, SR);
+    sbg.fillGradientStyle(0xfffdf5, 0xfffdf5, 0xf7ebd0, 0xf7ebd0, 1);
+    sbg.fillRoundedRect(SX, SY, SW, SH, SR);
+    sbg.lineStyle(1.6, 0xc9a76a, 0.9);
+    sbg.strokeRoundedRect(SX, SY, SW, SH, SR);
 
-    this._searchPh = push(this.scene.add.text(SX + 12, SY + SH / 2, "Tìm theo tên", {
-      fontFamily: "Signika", fontSize: "14px", color: "#b8922e"
+    this._searchPh = push(this.scene.add.text(SX + 14, SY + SH / 2, "Tìm theo tên", {
+      fontFamily: "Signika", fontSize: "13.5px", color: "#b08a42"
     }).setOrigin(0, 0.5).setDepth(D + 3));
 
-    this._searchTxt = push(this.scene.add.text(SX + 12, SY + SH / 2, "", {
-      fontFamily: "Signika", fontSize: "14px", color: "#502700"
+    this._searchTxt = push(this.scene.add.text(SX + 14, SY + SH / 2, "", {
+      fontFamily: "Signika", fontSize: "13.5px", color: "#3f1d00", fontStyle: "bold"
     }).setOrigin(0, 0.5).setDepth(D + 3));
 
-    push(this.scene.add.image(SX + SW - 16, SY + SH / 2, "icon_search")
-      .setDisplaySize(24, 24).setOrigin(0.9, 0.5).setDepth(D + 3));
+    push(this.scene.add.image(SX + SW - 14, SY + SH / 2, "icon_search")
+      .setDisplaySize(20, 20).setOrigin(0.9, 0.5).setDepth(D + 3));
 
     const zone = push(this.scene.add.zone(SX + SW / 2, SY + SH / 2, SW, SH)
       .setInteractive({ cursor: "text" }).setDepth(D + 4));
@@ -501,19 +520,8 @@ export default class FriendPanel {
     const ROW_GAP = 8;
     const q = (this._searchQuery || "").toLowerCase();
 
-    // ── Đường nét đứt phân cách toolbar / danh sách ──────────────
+    // ── Sentinel để cắt rowObjs khi scroll (đã có 2 khung kem riêng biệt nên không cần nét đứt giữa) ──
     const dashG = this.scene.add.graphics().setDepth(D + 2);
-    dashG.lineStyle(1.65, 0x9d7d48, 0.7);
-    const dashY      = this._listDashY ?? (T - 6);
-    const dashLen    = 9, dashGap = 6;
-    const dashTotalW = W * 0.69;
-    const dashStartX = L + (W - dashTotalW) / 2;
-    for (let x = dashStartX; x < dashStartX + dashTotalW; x += dashLen + dashGap) {
-      dashG.beginPath();
-      dashG.moveTo(x, dashY);
-      dashG.lineTo(Math.min(x + dashLen, dashStartX + dashTotalW), dashY);
-      dashG.strokePath();
-    }
     this._listObjs.push(dashG);
 
     // ── Lấy danh sách cần render ──────────────────────────────────
@@ -700,29 +708,16 @@ export default class FriendPanel {
     const midY = rowY + H / 2;
     const push = o => { this._listObjs.push(o); return o; };
 
-    // ── Nền row với chiều sâu ────────────────────────────────────
+    // ── Nền row kem sáng thanh lịch (giống .topup-row của Nạp Tiền) ──
     const rowBg = push(this.scene.add.graphics().setDepth(D + 1));
-    const bx = L, by = rowY + 2, bw = W, bh = H - 4, br = 10;
+    const bx = L, by = rowY + 2, bw = W, bh = H - 4, br = 12;
 
-    // Bóng đổ nhẹ phía dưới
-    rowBg.fillStyle(0x7a5a20, 0.18);
-    rowBg.fillRoundedRect(bx + 2, by + 3, bw, bh, br);
-
-    // Nền gradient: sáng trên, tối dưới
-    rowBg.fillGradientStyle(0xefd49a, 0xefd49a, 0xd4a85a, 0xd4a85a, 1);
+    rowBg.fillStyle(0xf7eac6, 0.65);
     rowBg.fillRoundedRect(bx, by, bw, bh, br);
-
-    // Viền ngoài vàng nâu đậm
-    rowBg.lineStyle(1.5, 0x9d7d48, 0.95);
-    rowBg.strokeRoundedRect(bx, by, bw, bh, br);
-
-    // Highlight trên (trắng nhẹ tạo chiều sâu)
     rowBg.fillStyle(0xffffff, 0.22);
-    rowBg.fillRoundedRect(bx + 4, by + 3, bw - 8, bh * 0.32, br - 2);
-
-    // Viền trong sáng hơn (inset effect)
-    rowBg.lineStyle(1, 0xfff0c0, 0.45);
-    rowBg.strokeRoundedRect(bx + 1, by + 1, bw - 2, bh - 2, br - 1);
+    rowBg.fillRoundedRect(bx + 3, by + 2, bw - 6, bh * 0.34, br - 2);
+    rowBg.lineStyle(1.2, 0xc9a76a, 0.65);
+    rowBg.strokeRoundedRect(bx, by, bw, bh, br);
 
     // ── Avatar tròn 96x96 + hào quang blur ánh xạ từ chính ảnh ──
     const avR = 22;
@@ -842,51 +837,15 @@ export default class FriendPanel {
     const midY = rowY + H / 2;
     const push = o => { this._listObjs.push(o); return o; };
 
-    // Nền row
+    // Nền row đồng bộ .topup-row của Nạp Tiền
     const rowBg = push(this.scene.add.graphics().setDepth(D + 1));
-    rowBg.fillStyle(0xe0c089, 1);
-    rowBg.fillRoundedRect(L, rowY + 2, W, H - 4, 8);
-
-    // Border thủ công gradient: trên đậm (0x9d7d48 alpha 1), dưới trắng nhẹ (0xffffff alpha 0.45)
-    const bx = L, by = rowY + 2, bw = W, bh = H - 4, br = 8;
-
-    // -- Cạnh trên + 2 góc trên: màu đậm
-    rowBg.lineStyle(2, 0x9d7d48, 1);
-    rowBg.beginPath();
-    rowBg.arc(bx + br,      by + br,      br, Math.PI,        Math.PI * 1.5, false); // góc trên trái
-    rowBg.lineTo(bx + bw - br, by);                                                   // cạnh trên
-    rowBg.arc(bx + bw - br, by + br,      br, Math.PI * 1.5,  0,             false); // góc trên phải
-    rowBg.strokePath();
-
-    rowBg.lineStyle(1, 0xffffff, 0.4); // mỏng + nhạt
-
-    // -- Cạnh dưới + 2 góc dưới: màu trắng nhẹ
-    rowBg.lineStyle(1.5, 0xffffff, 0.45);
-    rowBg.beginPath();
-    rowBg.arc(bx + bw - br, by + bh - br, br, 0,              Math.PI * 0.5, false); // góc dưới phải
-    rowBg.lineTo(bx + br,   by + bh);                                                 // cạnh dưới
-    rowBg.arc(bx + br,      by + bh - br, br, Math.PI * 0.5,  Math.PI,       false); // góc dưới trái
-    rowBg.strokePath();
-
-    const STEPS = 12;
-    const sideTop = by + br, sideBot = by + bh, sideH = sideBot - sideTop;
-    for (let i = 0; i < STEPS; i++) {
-      const t0 = i / STEPS, t1 = (i + 1) / STEPS;
-      const alpha = 1 - t0 * (1 - 0.0);
-      const color = t0 < 0.5 ? 0x9d7d48 : 0xcfa975;
-      const a     = t0 < 0.5 ? (1 - t0 * 2) * 1.0 + t0 * 2 * 0.45 : 0.45;
-      rowBg.lineStyle(1.5, color, Math.max(0, 1 - t0 * (1 - 0.45) * 2));
-      // cạnh trái
-      rowBg.beginPath();
-      rowBg.moveTo(bx, sideTop + t0 * sideH);
-      rowBg.lineTo(bx, sideTop + t1 * sideH);
-      rowBg.strokePath();
-      // cạnh phải
-      rowBg.beginPath();
-      rowBg.moveTo(bx + bw, sideTop + t0 * sideH);
-      rowBg.lineTo(bx + bw, sideTop + t1 * sideH);
-      rowBg.strokePath();
-    }
+    const bx = L, by = rowY + 2, bw = W, bh = H - 4, br = 12;
+    rowBg.fillStyle(0xf7eac6, 0.65);
+    rowBg.fillRoundedRect(bx, by, bw, bh, br);
+    rowBg.fillStyle(0xffffff, 0.22);
+    rowBg.fillRoundedRect(bx + 3, by + 2, bw - 6, bh * 0.34, br - 2);
+    rowBg.lineStyle(1.2, 0xc9a76a, 0.65);
+    rowBg.strokeRoundedRect(bx, by, bw, bh, br);
 
     // ── Avatar tròn 96x96 + hào quang blur ───────────────────────
     const avR = 22;
@@ -984,8 +943,13 @@ export default class FriendPanel {
     const push = o => { this._listObjs.push(o); return o; };
 
     const rowBg = push(this.scene.add.graphics().setDepth(D + 1));
-    rowBg.fillStyle(0x000000, 0.04);
-    rowBg.fillRoundedRect(L, rowY + 2, W, H - 4, 8);
+    const bx = L, by = rowY + 2, bw = W, bh = H - 4, br = 12;
+    rowBg.fillStyle(0xf7eac6, 0.65);
+    rowBg.fillRoundedRect(bx, by, bw, bh, br);
+    rowBg.fillStyle(0xffffff, 0.22);
+    rowBg.fillRoundedRect(bx + 3, by + 2, bw - 6, bh * 0.34, br - 2);
+    rowBg.lineStyle(1.2, 0xc9a76a, 0.65);
+    rowBg.strokeRoundedRect(bx, by, bw, bh, br);
 
     // ── Avatar tròn 96x96 + hào quang blur ───────────────────────
     const avR = 22;

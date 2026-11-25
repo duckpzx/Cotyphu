@@ -119,22 +119,22 @@ export default class TarotModalSystem {
     backdrop.on("pointerdown", () => this.close());
 
     // ── Bố cục căn giữa màn hình ──────────────────────────────────────────
-    const CARD_W   = Math.round(216 * S);
-    const CARD_H   = Math.round(316 * S);
-    const GAP      = Math.round(28 * S);
-    const BANNER_H = Math.round(44 * S);
+    const CARD_W   = Math.round(264 * S);
+    const CARD_H   = Math.round(384 * S);
+    const GAP      = Math.round(36 * S);
+    const BANNER_H = Math.round(62 * S);
     const BAR_H    = Math.round(8 * S);
-    const BTN_H    = Math.round(48 * S);
-    const TOTAL_H  = BANNER_H + 22 * S + CARD_H + 18 * S + BAR_H + 16 * S + BTN_H;
+    const BTN_H    = Math.round(50 * S);
+    const TOTAL_H  = BANNER_H + 26 * S + CARD_H + 20 * S + BAR_H + 16 * S + BTN_H;
 
-    const blockTop = Math.max(24 * S, height / 2 - TOTAL_H / 2);
+    const blockTop = Math.max(20 * S, height / 2 - TOTAL_H / 2);
     const bannerCY = blockTop + BANNER_H / 2;
-    const cardCY   = blockTop + BANNER_H + 22 * S + CARD_H / 2;
-    const barCY    = cardCY + CARD_H / 2 + 18 * S + BAR_H / 2;
+    const cardCY   = blockTop + BANNER_H + 26 * S + CARD_H / 2;
+    const barCY    = cardCY + CARD_H / 2 + 20 * S + BAR_H / 2;
     const closeBY  = barCY + BAR_H / 2 + 16 * S + BTN_H / 2;
 
     // ── Banner tiêu đề ngang mờ 2 đầu với đường viền sáng cyan ────────────
-    const bannerW = Math.round(560 * S);
+    const bannerW = Math.round(640 * S);
     const bannerKey = `tarot_modal_banner_${bannerW}x${BANNER_H}`;
     if (!sc.textures.exists(bannerKey)) {
       const cTex = sc.textures.createCanvas(bannerKey, bannerW, BANNER_H);

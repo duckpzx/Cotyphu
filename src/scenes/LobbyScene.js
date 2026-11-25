@@ -4,7 +4,7 @@ import ChatWidget from "./components/ChatWidget.js";
 import FriendPanel from "./components/FriendPanel.js";
 import { SERVER_URL } from "../config.js";
 import { tarotLevelKey, tarotImagePath } from "../utils/tarotLevel.js";
-import { setupClickSound, playTabSound, playOutSound, isMusicEnabled } from "../utils/clickSound.js";
+import { setupClickSound, playTabSound, playOutSound, isMusicEnabled, getAudioTrackUrl, getAudioTrackVolume, isAudioTrackEnabled } from "../utils/clickSound.js";
 import { openPayosTopUpFlow } from "../utils/payosModal.js";
 import { renderAvatarBadge } from "../utils/avatarBadge.js";
 
@@ -90,7 +90,7 @@ export default class LobbyScene extends Phaser.Scene {
 
     // Nhạc sảnh
     if (!this.cache.audio.exists("lobby_bgm")) {
-      this.load.audio("lobby_bgm", "assets/music/lobby/lobbyscene.mp3");
+      this.load.audio("lobby_bgm", getAudioTrackUrl("lobby_bgm", "assets/music/lobby/lobbyscene.mp3"));
     }
   }
 
@@ -109,9 +109,13 @@ export default class LobbyScene extends Phaser.Scene {
     // ── Nhạc nền sảnh ────────────────────────────────────────────
     // Lấy reference hoặc play lại nếu đã bị dừng (ví dụ sau khi thoát trận)
     this._bgm = this.sound.get("lobby_bgm") || null;
-    if (this._bgm && !this._bgm.isPlaying && isMusicEnabled()) {
+    if (!this._bgm && this.cache.audio.exists("lobby_bgm") && isMusicEnabled() && isAudioTrackEnabled("lobby_bgm")) {
+      this._bgm = this.sound.add("lobby_bgm", { loop: true, volume: getAudioTrackVolume("lobby_bgm", 0.56) });
+    }
+    if (this._bgm && !this._bgm.isPlaying && isMusicEnabled() && isAudioTrackEnabled("lobby_bgm")) {
+      this._bgm.setVolume?.(getAudioTrackVolume("lobby_bgm", 0.56));
       this._bgm.play();
-    } else if (this._bgm && this._bgm.isPlaying && !isMusicEnabled()) {
+    } else if (this._bgm && this._bgm.isPlaying && (!isMusicEnabled() || !isAudioTrackEnabled("lobby_bgm"))) {
       this._bgm.stop();
     }
     setupClickSound(this);

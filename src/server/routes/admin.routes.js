@@ -5,6 +5,8 @@ import securityService from "../services/security.service.js";
 import adminRepo from "../repositories/admin.repo.js";
 import assetUploadService from "../services/assetUpload.service.js";
 import systemConsoleService from "../services/systemConsole.service.js";
+import payosService from "../services/payos.service.js";
+import audioConfigService from "../services/audioConfig.service.js";
 
 /**
  * Tạo Express Router cho toàn bộ REST API của Admin Dashboard (/api/admin/*).
@@ -672,6 +674,124 @@ export function createAdminRouter(deps) {
       res.status(r.success ? 200 : 400).json(r);
     } catch (err) {
       res.status(500).json({ success: false, message: "Lỗi xóa giao diện" });
+    }
+  });
+
+  // ── PAYMENT / TOP-UP MANAGEMENT & CONFIGURATION ──────────────────
+  router.get("/payments/summary", async (req, res) => {
+    try {
+      const [overview, settingsRes] = await Promise.all([
+        payosService.getAdminOverviewAndOrders(req.query || {}),
+        payosService.getAdminSettings(),
+      ]);
+      res.json({
+        success: true,
+        ...overview,
+        settings: settingsRes.settings,
+        supported_banks: settingsRes.supported_banks,
+        default_packages: settingsRes.default_packages,
+      });
+    } catch (err) {
+      console.error("GET /api/admin/payments/summary error:", err);
+      res.status(500).json({ success: false, message: "Lỗi tải dữ liệu thanh toán" });
+    }
+  });
+
+  router.put("/payments/settings", async (req, res) => {
+    try {
+      const result = await payosService.saveAdminSettings(req.body || {});
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "UPDATE_PAYMENT_SETTINGS", "payment_settings", 1, {
+          bank_code: result.settings?.bank_code,
+          bank_account: result.settings?.bank_account,
+          maintenance_mode: result.settings?.maintenance_mode,
+        });
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("PUT /api/admin/payments/settings error:", err);
+      res.status(500).json({ success: false, message: "Lỗi lưu cấu hình thanh toán" });
+    }
+  });
+
+  router.post("/payments/orders/:orderCode/approve", async (req, res) => {
+    try {
+      const result = await payosService.adminApproveOrder(req.params.orderCode, req.adminUser.id, {
+        io: deps.io,
+        onlineUserSockets: deps.onlineUserSockets,
+      });
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "APPROVE_PAYMENT_ORDER", "payment_orders", req.params.orderCode, {
+          ecoin: result.ecoin,
+        });
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/payments/orders/:orderCode/approve error:", err);
+      res.status(500).json({ success: false, message: "Lỗi duyệt đơn nạp" });
+    }
+  });
+
+  router.post("/payments/orders/:orderCode/cancel", async (req, res) => {
+    try {
+      const result = await payosService.adminCancelOrder(req.params.orderCode);
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "CANCEL_PAYMENT_ORDER", "payment_orders", req.params.orderCode);
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/payments/orders/:orderCode/cancel error:", err);
+      res.status(500).json({ success: false, message: "Lỗi hủy đơn nạp" });
+    }
+  });
+
+  router.post("/payments/test-webhook", async (req, res) => {
+    try {
+      const result = await payosService.adminTestWebhookPing();
+      res.json(result);
+    } catch (err) {
+      console.error("POST /api/admin/payments/test-webhook error:", err);
+      res.status(500).json({ success: false, message: "Lỗi test webhook" });
+    }
+  });
+
+  // ── AUDIO STUDIO (QUẢN LÝ FILE NHẠC NỀN & ÂM THANH TRONG MYSQL) ──
+  router.get("/assets/audio", async (req, res) => {
+    try {
+      res.json(await audioConfigService.listTracks({ bypassCache: true }));
+    } catch (err) {
+      console.error("GET /api/admin/assets/audio error:", err);
+      res.status(500).json({ success: false, message: "Lỗi tải danh sách âm thanh" });
+    }
+  });
+
+  router.post("/assets/audio/:trackId", async (req, res) => {
+    try {
+      const r = await audioConfigService.updateTrack(req.params.trackId, req.body || {});
+      if (r.success) {
+        await adminRepo.logAudit(req.adminUser.id, "UPDATE_AUDIO_TRACK", "audio_settings", req.params.trackId, {
+          custom_name: r.track?.custom_name,
+          volume: r.track?.volume,
+          enabled: r.track?.enabled,
+        });
+      }
+      res.status(r.success ? 200 : 400).json(r);
+    } catch (err) {
+      console.error("POST /api/admin/assets/audio/:trackId error:", err);
+      res.status(500).json({ success: false, message: "Lỗi cập nhật file âm thanh" });
+    }
+  });
+
+  router.delete("/assets/audio/:trackId", async (req, res) => {
+    try {
+      const r = await audioConfigService.resetTrack(req.params.trackId);
+      if (r.success) {
+        await adminRepo.logAudit(req.adminUser.id, "RESET_AUDIO_TRACK", "audio_settings", req.params.trackId);
+      }
+      res.status(r.success ? 200 : 400).json(r);
+    } catch (err) {
+      console.error("DELETE /api/admin/assets/audio/:trackId error:", err);
+      res.status(500).json({ success: false, message: "Lỗi khôi phục âm thanh mặc định" });
     }
   });
 

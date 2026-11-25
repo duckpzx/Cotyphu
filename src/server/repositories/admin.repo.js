@@ -115,6 +115,40 @@ const adminRepo = {
       totalMatches = Number(mRow?.cnt || 0);
     } catch (_) {}
 
+    let payStats = { total_revenue_vnd: 0, today_revenue_vnd: 0, paid_orders: 0, pending_orders: 0 };
+    try {
+      const [[pRow]] = await db.query(`
+        SELECT
+          COALESCE(SUM(CASE WHEN status = 'PAID' THEN amount_vnd ELSE 0 END), 0) AS total_revenue_vnd,
+          COALESCE(SUM(CASE WHEN status = 'PAID' AND DATE(paid_at) = CURDATE() THEN amount_vnd ELSE 0 END), 0) AS today_revenue_vnd,
+          SUM(CASE WHEN status = 'PAID' THEN 1 ELSE 0 END) AS paid_orders,
+          SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) AS pending_orders
+        FROM payment_orders
+      `);
+      payStats = {
+        total_revenue_vnd: Number(pRow?.total_revenue_vnd || 0),
+        today_revenue_vnd: Number(pRow?.today_revenue_vnd || 0),
+        paid_orders: Number(pRow?.paid_orders || 0),
+        pending_orders: Number(pRow?.pending_orders || 0),
+      };
+    } catch (_) {}
+
+    let audioStats = { total_audio_tracks: 19, custom_audio_tracks: 0 };
+    try {
+      const [[aRow]] = await db.query(`
+        SELECT
+          COUNT(*) AS total_audio_tracks,
+          SUM(CASE WHEN custom_url IS NOT NULL AND custom_url <> '' THEN 1 ELSE 0 END) AS custom_audio_tracks
+        FROM audio_settings
+      `);
+      if (Number(aRow?.total_audio_tracks || 0) > 0) {
+        audioStats = {
+          total_audio_tracks: Number(aRow.total_audio_tracks),
+          custom_audio_tracks: Number(aRow.custom_audio_tracks || 0),
+        };
+      }
+    } catch (_) {}
+
     return {
       total_users: Number(uRow?.total_users || 0),
       total_admins: Number(uRow?.total_admins || 0),
@@ -127,6 +161,8 @@ const adminRepo = {
       waiting_rooms: Number(rRow?.waiting_rooms || 0),
       playing_rooms: Number(rRow?.playing_rooms || 0),
       total_matches: totalMatches,
+      ...payStats,
+      ...audioStats,
     };
   },
 

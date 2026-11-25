@@ -11,6 +11,7 @@ import ChatWidget         from "./components/ChatWidget.js";
 import PlayerProfilePanel from "./components/PlayerProfilePanel.js";
 import voiceChat          from "../utils/voiceChatManager.js";
 import { extractEmojiId, showCharacterEmojiBubble } from "../utils/emojiBubble.js";
+import { renderAvatarBadge } from "../utils/avatarBadge.js";
 import {
   playBoardBuySound, playBoardErrSound, playBoardHunterSound,
   playBoardIncreaseSound, playBoardTeacherSound, playBoardSkillSound,
@@ -4241,16 +4242,19 @@ this.input.keyboard.on("keydown-Y", () => {
       avaBg.lineStyle(1.5 * minRatio, 0xffffff, 0.25);
       avaBg.strokeCircle(avaCX, avaCY, AVA_R - 5 * minRatio);
 
-      const avaOrb = this.add.image(avaCX, avaCY, orbKey).setDepth(DEPTH + 3);
-      avaOrb.setDisplaySize(AVA_R * 1.72, AVA_R * 1.72);
-
-      this.tweens.add({
-        targets: avaOrb,
-        y: avaCY - 4 * minRatio,
-        duration: 1300 + idx * 200,
-        yoyo: true,
-        repeat: -1,
-        ease: "Sine.easeInOut"
+      // ===== Avatar người chơi đang trang bị (thay cho quả tinh cầu) =====
+      const myProfile = getActiveProfile?.();
+      const fallbackMyAvatar = (Number(gmPlayer?.user_id) === Number(this._myUserId?.()))
+        ? (myProfile?.active_avatar_id || getPlayerData?.()?.user?.active_avatar_id || 1)
+        : 1;
+      const avatarId = Number(gmPlayer?.active_avatar_id || fallbackMyAvatar || 1);
+      const avaOrb = renderAvatarBadge(this, {
+        x: avaCX,
+        y: avaCY,
+        size: Math.round(AVA_R * 1.92),
+        avatarId,
+        depth: DEPTH + 2,
+        glow: true,
       });
 
       // ===== Zone click vào icon/avatar người chơi để xem Profile & Kết bạn =====
@@ -4258,8 +4262,14 @@ this.input.keyboard.on("keydown-Y", () => {
       const avaZone = this.add.zone(avaCX, avaCY, avaZoneSize, avaZoneSize)
         .setInteractive({ useHandCursor: true })
         .setDepth(DEPTH + 6);
-      avaZone.on("pointerover", () => avaOrb.setScale(avaOrb.scaleX * 1.06));
-      avaZone.on("pointerout",  () => avaOrb.setScale(avaOrb.scaleX / 1.06));
+      avaZone.on("pointerover", () => {
+        const img = avaOrb?.getMainImage?.();
+        if (img?.active) img.setAlpha(0.88);
+      });
+      avaZone.on("pointerout", () => {
+        const img = avaOrb?.getMainImage?.();
+        if (img?.active) img.setAlpha(1);
+      });
       avaZone.on("pointerdown", () => {
         const target = this.gamePlayers?.[idx];
         if (!target?.user_id) return;
@@ -4272,6 +4282,7 @@ this.input.keyboard.on("keydown-Y", () => {
         this._profilePanel.open(width, height, {
           user_id:          target.user_id,
           name:             target.name,
+          active_avatar_id: target.active_avatar_id || avatarId,
           character_name:   target.characterName,
           skin_id:          target.skin,
           active_tarot_ids: target.active_tarot_ids || [],
@@ -6347,29 +6358,29 @@ this.input.keyboard.on("keydown-Y", () => {
     }
 
     const r = this.minRatio || 1;
-    const maxTextW = Math.round(210 * r);
-    const padX = Math.round(16 * r);
-    const padY = Math.round(10 * r);
-    const arrowW = Math.round(9 * r);
-    const arrowH = Math.round(12 * r);
+    const maxTextW = Math.round(280 * r);
+    const padX = Math.round(22 * r);
+    const padY = Math.round(13 * r);
+    const arrowW = Math.round(11 * r);
+    const arrowH = Math.round(16 * r);
 
     const displayMsg = String(text || "").trim().slice(0, 90);
     if (!displayMsg) return;
 
     const txt = this.add.text(0, 0, displayMsg, {
       fontFamily: "Signika",
-      fontSize: Math.max(13, Math.round(16 * r)) + "px",
+      fontSize: Math.max(17, Math.round(23 * r)) + "px",
       fontStyle: "bold",
       color: "#ffffff",
       stroke: "#061529",
-      strokeThickness: 2.5,
+      strokeThickness: 3,
       align: "center",
       wordWrap: { width: maxTextW, useAdvancedWrap: true },
     }).setOrigin(0.5);
 
-    const bw = Math.max(Math.round(96 * r), Math.ceil(txt.width) + padX * 2);
-    const bh = Math.max(Math.round(42 * r), Math.ceil(txt.height) + padY * 2);
-    const rad = Math.round(10 * r);
+    const bw = Math.max(Math.round(130 * r), Math.ceil(txt.width) + padX * 2);
+    const bh = Math.max(Math.round(54 * r), Math.ceil(txt.height) + padY * 2);
+    const rad = Math.round(12 * r);
 
     // Đặt tâm bong bóng bên phải (nếu player góc trái) hoặc bên trái (nếu player góc phải)
     const cx = anchor.isLeft ? (anchor.x + arrowW + bw / 2) : (anchor.x - arrowW - bw / 2);
@@ -6441,10 +6452,10 @@ this.input.keyboard.on("keydown-Y", () => {
       userId: uid,
       emojiId,
       targetSprite,
-      offsetX: Math.round(32 * (this.minRatio || 1)),
-      offsetY: -118 * (this.minRatio || 1),
+      offsetX: Math.round(34 * (this.minRatio || 1)),
+      offsetY: -126 * (this.minRatio || 1),
       depth: 240,
-      size: Math.round(40 * (this.minRatio || 1)),
+      size: Math.max(56, Math.round(70 * (this.minRatio || 1))),
     });
   }
 

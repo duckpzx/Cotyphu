@@ -458,12 +458,26 @@ export async function openPayosTopUpFlow({
   const existing = document.getElementById("payos-modal-overlay");
   if (existing) existing.remove();
 
+  // Tải danh sách gói nạp động từ Admin Dashboard (fallback DEFAULT_PACKAGES nếu lỗi)
+  let packages = DEFAULT_PACKAGES;
+  try {
+    const pkgRes = await fetch("/api/payment/packages");
+    const pkgJson = await pkgRes.json().catch(() => null);
+    if (pkgJson?.maintenance_mode) {
+      onError?.("Cổng nạp tiền đang tạm bảo trì. Vui lòng quay lại sau!");
+      return;
+    }
+    if (pkgJson?.success && Array.isArray(pkgJson.packages) && pkgJson.packages.length > 0) {
+      packages = pkgJson.packages;
+    }
+  } catch {}
+
   // Xác định gói mặc định
   let selectedPkg =
-    DEFAULT_PACKAGES.find(p => p.id === packageId) ||
-    DEFAULT_PACKAGES.find(p => p.amount_vnd === Number(amountVnd)) ||
-    DEFAULT_PACKAGES.find(p => p.id === "pkg_50k") ||
-    DEFAULT_PACKAGES[0];
+    packages.find(p => p.id === packageId) ||
+    packages.find(p => Number(p.amount_vnd) === Number(amountVnd)) ||
+    packages.find(p => p.id === "pkg_50k") ||
+    packages[0];
 
   let activeOrder = null;
   let pollTimer = null;
@@ -745,7 +759,7 @@ export async function openPayosTopUpFlow({
   };
 
   // Render các pill mệnh giá giống Tạo Phòng
-  DEFAULT_PACKAGES.forEach((pkg) => {
+  packages.forEach((pkg) => {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "topup-pill" + (pkg.id === selectedPkg.id ? " active" : "");

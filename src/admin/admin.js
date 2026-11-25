@@ -171,6 +171,7 @@ const TAB_TITLES = {
   blacklist: "[ IP BLACKLIST & PHIÊN ĐĂNG NHẬP ]",
   sprites: "[ ASSET & SPRITE STUDIO — NPC / SKIN / TAROT / PHÔNG NỀN / TINH CẦU ]",
   console: "[ SYSTEM CONSOLE — LIVE TAIL TOÀN HỆ THỐNG ]",
+  payments: "[ QUẢN LÝ NẠP TIỀN, TÀI KHOẢN GỐC & DOANH THU ]",
 };
 
 function setTabHtml(html, silent = _silentRender) {
@@ -207,6 +208,13 @@ async function loadTab(tab, { silent = false } = {}) {
   const secType    = keepFilters ? ($("secTypeSelect")?.value || "all") : "all";
   const secSearch  = keepFilters ? ($("secSearchInput")?.value || "") : "";
   const conSearch  = keepFilters ? ($("consoleSearchInput")?.value || "") : "";
+  const payStatus  = keepFilters ? ($("payStatusSelect")?.value || "all") : "all";
+  const paySearch  = keepFilters ? ($("paySearchInput")?.value || "") : "";
+
+  // Không tự ghi đè DOM khi admin đang chỉnh cấu hình ngân hàng / gói nạp
+  if (silent && tab === "payments" && paymentSubTab !== "history") {
+    return;
+  }
 
   if (!silent) {
     $("tabContent").innerHTML = `<div class="empty-state">&gt; đang tải telemetry...</div>`;
@@ -226,6 +234,7 @@ async function loadTab(tab, { silent = false } = {}) {
     else if (tab === "blacklist") await renderBlacklistAndSessions();
     else if (tab === "sprites") await renderSpriteStudio();
     else if (tab === "console") await renderSystemConsole(consoleCategory, conSearch);
+    else if (tab === "payments") await renderPayments(payStatus, paySearch);
     markSyncedNow();
   } catch (err) {
     if (!silent) {
@@ -249,36 +258,57 @@ async function renderOverview() {
 
   setTabHtml(`
     <div class="kpi-grid">
-      <div class="kpi-card">
+      <div class="kpi-card" data-jump-tab="users" style="cursor:pointer" title="Xem quản lý người chơi">
         <div class="kpi-label">TỔNG NGƯỜI CHƠI</div>
         <div class="kpi-value">${fmtMoney(s.total_users)}</div>
         <div class="kpi-sub">admin: <span class="cyan-val">${s.total_admins || 0}</span></div>
       </div>
-      <div class="kpi-card">
+      <div class="kpi-card" data-jump-tab="rooms" style="cursor:pointer" title="Xem phòng đấu">
         <div class="kpi-label">ĐANG ONLINE</div>
         <div class="kpi-value accent-green">${s.online_users || 0}</div>
         <div class="kpi-sub">socket kết nối (${onlinePct}%)</div>
         <div class="kpi-bar-track"><div class="kpi-bar-fill" style="width:${onlinePct}%"></div></div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-label">TRẬN ĐANG ĐẤU</div>
-        <div class="kpi-value cyan-val">${s.active_matches || 0}</div>
+      <div class="kpi-card" data-jump-tab="rooms" style="cursor:pointer" title="Xem phòng đấu">
+        <div class="kpi-label">TRẬN ĐANG ĐẤU / ĐÃ LƯU</div>
+        <div class="kpi-value cyan-val">${s.active_matches || 0} <span class="muted">/</span> ${fmtMoney(s.total_matches || 0)}</div>
         <div class="kpi-sub">bot ai tiếp quản: <span class="amber-val">${s.active_bots || 0}</span></div>
       </div>
-      <div class="kpi-card">
+      <div class="kpi-card" data-jump-tab="payments" style="cursor:pointer" title="Xem quản lý nạp tiền & doanh thu">
+        <div class="kpi-label">DOANH THU NẠP TIỀN</div>
+        <div class="kpi-value accent-green" style="font-size:22px">${fmtVnd(s.total_revenue_vnd || 0)}</div>
+        <div class="kpi-sub">hôm nay: <span class="cyan-val">${fmtVnd(s.today_revenue_vnd || 0)}</span> • ${s.paid_orders || 0} đơn</div>
+      </div>
+      <div class="kpi-card" data-jump-tab="security" style="cursor:pointer" title="Xem an ninh & ban/mute">
         <div class="kpi-label">BAN / MUTE</div>
         <div class="kpi-value red-val">${s.banned_users || 0} <span class="muted">/</span> <span class="amber-val">${s.muted_users || 0}</span></div>
         <div class="kpi-sub">đang khóa / cấm chat</div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-label">CÂU HỎI QUIZ</div>
-        <div class="kpi-value">${s.total_questions || 0}</div>
-        <div class="kpi-sub">ngân hàng ô 18</div>
+
+      <div class="kpi-card" data-jump-tab="characters" style="cursor:pointer" title="Xem nhân vật & trang phục">
+        <div class="kpi-label">NHÂN VẬT / TRANG PHỤC</div>
+        <div class="kpi-value">${s.total_characters || 0} <span class="muted">/</span> <span class="cyan-val">${s.total_skins || 0}</span></div>
+        <div class="kpi-sub">nhân vật &amp; skin ngoại trang</div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-label">THẺ / NHÂN VẬT</div>
-        <div class="kpi-value">${s.total_tarots || 0} <span class="muted">/</span> ${s.total_characters || 0}</div>
-        <div class="kpi-sub">trận đã lưu: <span class="cyan-val">${fmtMoney(s.total_matches)}</span></div>
+      <div class="kpi-card" data-jump-tab="sprites" data-jump-sub="maps" style="cursor:pointer" title="Xem bản đồ & sảnh chờ">
+        <div class="kpi-label">BẢN ĐỒ / SẢNH CHỜ</div>
+        <div class="kpi-value">${s.total_maps || 0} <span class="muted">/</span> <span class="cyan-val">${s.total_lobbies || 0}</span></div>
+        <div class="kpi-sub">giao diện BXH &amp; Lab: <span class="ok-txt">${s.total_scenes || 0}</span></div>
+      </div>
+      <div class="kpi-card" data-jump-tab="sprites" style="cursor:pointer" title="Kho ảnh đại diện & biểu cảm">
+        <div class="kpi-label">AVATAR / EMOJI</div>
+        <div class="kpi-value">${s.total_avatars || 0} <span class="muted">/</span> <span class="cyan-val">${s.total_emojis || 0}</span></div>
+        <div class="kpi-sub">khung đại diện &amp; biểu cảm chat</div>
+      </div>
+      <div class="kpi-card" data-jump-tab="tarots" style="cursor:pointer" title="Xem thẻ Tarot & câu hỏi Quiz">
+        <div class="kpi-label">TAROT / CÂU HỎI QUIZ</div>
+        <div class="kpi-value">${s.total_tarots || 0} <span class="muted">/</span> <span class="cyan-val">${s.total_questions || 0}</span></div>
+        <div class="kpi-sub">thẻ bài &amp; ngân hàng ô 18</div>
+      </div>
+      <div class="kpi-card" data-jump-tab="sprites" data-jump-sub="audio" style="cursor:pointer" title="Xem cấu hình âm thanh & NPC">
+        <div class="kpi-label">ÂM THANH / NPC</div>
+        <div class="kpi-value">${s.total_audio_tracks || 19} <span class="muted">/</span> <span class="cyan-val">${s.total_npcs || 0}</span></div>
+        <div class="kpi-sub">tùy chỉnh: <span class="ok-txt">${s.custom_audio_tracks || 0}</span> • NPC &amp; Rương</div>
       </div>
     </div>
 
@@ -290,6 +320,15 @@ async function renderOverview() {
       ${renderAuditTableHtml(logs)}
     </div>
   `);
+
+  document.querySelectorAll("[data-jump-tab]").forEach(card => {
+    card.addEventListener("click", () => {
+      const targetTab = card.dataset.jumpTab;
+      const targetSub = card.dataset.jumpSub;
+      if (targetTab === "sprites" && targetSub) studioSubTab = targetSub;
+      if (targetTab) loadTab(targetTab);
+    });
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1422,6 +1461,7 @@ function studioSubTabsHtml() {
     { key: "maps", label: "06. Bản đồ Game" },
     { key: "lobby", label: "07. Sảnh Chờ Ngày/Đêm" },
     { key: "scenes", label: "08. BXH & Nghiên Cứu" },
+    { key: "audio", label: "09. Âm Thanh & Nhạc Nền" },
   ];
   return `
     <div class="subtab-bar">
@@ -1444,6 +1484,7 @@ async function renderSpriteStudio() {
   if (studioSubTab === "maps") return renderStudioMaps();
   if (studioSubTab === "lobby") return renderStudioLobby();
   if (studioSubTab === "scenes") return renderStudioScenes();
+  if (studioSubTab === "audio") return renderStudioAudio();
 }
 
 // ── SUB-TAB 1: NPC (QUÁI VẬT & THẦY GIÁO) ───────────────────────
@@ -3519,6 +3560,831 @@ document.addEventListener("keydown", (e) => {
     performMapRedo();
   }
 });
+
+// ── SUB-TAB 9: ÂM THANH & NHẠC NỀN (AUDIO STUDIO) ────────────────
+let audioCategoryFilter = "all"; // all | bgm | shared | board
+
+function fmtFileSize(bytes) {
+  const b = Number(bytes || 0);
+  if (!b) return "—";
+  if (b >= 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(2)} MB`;
+  return `${Math.round(b / 1024)} KB`;
+}
+
+async function renderStudioAudio() {
+  const res = await api("/assets/audio");
+  const tracks = res.tracks || [];
+  const filtered = audioCategoryFilter === "all"
+    ? tracks
+    : tracks.filter(t => t.category === audioCategoryFilter);
+
+  const countBgm = tracks.filter(t => t.category === "bgm").length;
+  const countShared = tracks.filter(t => t.category === "shared").length;
+  const countBoard = tracks.filter(t => t.category === "board").length;
+  const customCount = tracks.filter(t => t.is_custom).length;
+
+  const catLabel = {
+    bgm: "NHẠC NỀN (BGM)",
+    shared: "GIAO DIỆN",
+    board: "TRONG TRẬN",
+  };
+
+  setTabHtml(`
+    ${studioSubTabsHtml()}
+    <div class="panel hud-box" style="margin-top:12px">
+      <div class="panel-head" style="flex-wrap:wrap;gap:10px">
+        <h3>[ QUẢN LÝ FILE ÂM THANH &amp; NHẠC NỀN GAME ]</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button class="btn ${audioCategoryFilter === "all" ? "btn-primary" : "btn-ghost"} btn-sm" data-audio-cat="all">Tất cả (${tracks.length})</button>
+          <button class="btn ${audioCategoryFilter === "bgm" ? "btn-primary" : "btn-ghost"} btn-sm" data-audio-cat="bgm">Nhạc nền (${countBgm})</button>
+          <button class="btn ${audioCategoryFilter === "shared" ? "btn-primary" : "btn-ghost"} btn-sm" data-audio-cat="shared">Giao diện (${countShared})</button>
+          <button class="btn ${audioCategoryFilter === "board" ? "btn-primary" : "btn-ghost"} btn-sm" data-audio-cat="board">Trong trận (${countBoard})</button>
+          <span class="badge ${customCount > 0 ? "badge-ok" : "badge-warn"}">ĐÃ TÙY CHỈNH: ${customCount}/${tracks.length}</span>
+        </div>
+      </div>
+      <p class="muted" style="font-size:12px;margin:0 0 14px">
+        &gt; Tải file <code>.mp3</code> / <code>.wav</code> / <code>.ogg</code> / <code>.m4a</code> (≤ 12MB) để thay thế trực tiếp nhạc nền hoặc hiệu ứng âm thanh trong game. Có thể chỉnh âm lượng mặc định, tắt riêng từng âm thanh và khôi phục bản gốc bất cứ lúc nào.
+      </p>
+
+      <div class="audio-studio-grid">
+        ${filtered.map(t => {
+          const volPct = Math.round((t.volume ?? 1) * 100);
+          const audioSrc = `/${t.active_url}?v=${t.version || 1}`;
+          return `
+            <div class="audio-track-card ${t.is_custom ? "selected" : ""}" data-track-card="${esc(t.id)}">
+              <div class="audio-card-head">
+                <div>
+                  <div class="audio-card-title">${esc(t.label)}</div>
+                  <div class="muted" style="font-size:11px">
+                    <code class="cyan-val">${esc(t.id)}</code> • ${catLabel[t.category] || t.category} • ${fmtFileSize(t.file_size)}
+                  </div>
+                </div>
+                <span class="badge ${t.is_custom ? "badge-ok" : "badge-warn"}">
+                  ${t.is_custom ? "TÙY CHỈNH" : "MẶC ĐỊNH"}
+                </span>
+              </div>
+
+              <div class="muted" style="font-size:11.5px;line-height:1.4">${esc(t.desc)}</div>
+              ${t.custom_name ? `<div style="font-size:11px"><span class="muted">File đang dùng:</span> <span class="ok-txt">${esc(t.custom_name)}</span></div>` : ""}
+
+              <audio class="audio-preview-player" controls preload="none" src="${esc(audioSrc)}"></audio>
+
+              <div class="audio-controls-row">
+                <label class="audio-vol-wrap">
+                  <span class="muted" style="font-size:11px">Âm lượng: <b class="cyan-val audio-vol-val">${volPct}%</b></span>
+                  <input type="range" class="audio-vol-slider" min="0" max="100" value="${volPct}" />
+                </label>
+                <label class="audio-enable-wrap">
+                  <input type="checkbox" class="audio-enable-chk" ${t.enabled ? "checked" : ""} />
+                  <span>Bật</span>
+                </label>
+                <button type="button" class="btn btn-primary btn-sm audio-save-cfg-btn">LƯU</button>
+              </div>
+
+              <div class="audio-upload-row">
+                <input type="file" class="audio-file-input" accept="audio/*,.mp3,.wav,.ogg,.m4a" />
+                <button type="button" class="btn btn-ghost btn-sm audio-upload-btn">TẢI LÊN &amp; ÁP DỤNG</button>
+                ${t.is_custom ? `<button type="button" class="btn btn-danger btn-sm audio-reset-btn">KHÔI PHỤC GỐC</button>` : ""}
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `);
+
+  // Filter category buttons
+  document.querySelectorAll("[data-audio-cat]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      audioCategoryFilter = btn.dataset.audioCat || "all";
+      renderStudioAudio();
+    });
+  });
+
+  // Bind từng thẻ âm thanh
+  document.querySelectorAll("[data-track-card]").forEach(card => {
+    const trackId = card.dataset.trackCard;
+    const slider = card.querySelector(".audio-vol-slider");
+    const volVal = card.querySelector(".audio-vol-val");
+    const chk = card.querySelector(".audio-enable-chk");
+    const player = card.querySelector(".audio-preview-player");
+    const fileInput = card.querySelector(".audio-file-input");
+
+    if (player && slider) {
+      player.volume = Number(slider.value) / 100;
+      slider.addEventListener("input", () => {
+        if (volVal) volVal.textContent = `${slider.value}%`;
+        player.volume = Number(slider.value) / 100;
+      });
+    }
+
+    card.querySelector(".audio-save-cfg-btn")?.addEventListener("click", async () => {
+      try {
+        const r = await api(`/assets/audio/${encodeURIComponent(trackId)}`, {
+          method: "POST",
+          body: JSON.stringify({
+            volume: Number(slider?.value || 100) / 100,
+            enabled: Boolean(chk?.checked),
+          }),
+        });
+        showToast(r.message || "Đã lưu cấu hình âm thanh!");
+      } catch (err) {
+        showToast(err.message || "Lỗi lưu cấu hình âm thanh", "error");
+      }
+    });
+
+    card.querySelector(".audio-upload-btn")?.addEventListener("click", async () => {
+      const file = fileInput?.files?.[0];
+      if (!file) {
+        showToast("Vui lòng chọn file âm thanh (.mp3, .wav, .ogg, .m4a) trước!", "error");
+        return;
+      }
+      if (file.size > 12 * 1024 * 1024) {
+        showToast("File âm thanh vượt quá giới hạn 12MB!", "error");
+        return;
+      }
+      try {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(fr.result);
+          fr.onerror = () => reject(new Error("Không đọc được file"));
+          fr.readAsDataURL(file);
+        });
+        const r = await api(`/assets/audio/${encodeURIComponent(trackId)}`, {
+          method: "POST",
+          body: JSON.stringify({
+            data_url: dataUrl,
+            file_name: file.name,
+            volume: Number(slider?.value || 100) / 100,
+            enabled: Boolean(chk?.checked),
+          }),
+        });
+        showToast(r.message || "Đã thay file âm thanh thành công!");
+        renderStudioAudio();
+      } catch (err) {
+        showToast(err.message || "Lỗi tải file âm thanh", "error");
+      }
+    });
+
+    card.querySelector(".audio-reset-btn")?.addEventListener("click", async () => {
+      if (!confirm("Khôi phục âm thanh này về bản gốc mặc định?")) return;
+      try {
+        const r = await api(`/assets/audio/${encodeURIComponent(trackId)}`, { method: "DELETE" });
+        showToast(r.message || "Đã khôi phục âm thanh gốc!");
+        renderStudioAudio();
+      } catch (err) {
+        showToast(err.message || "Lỗi khôi phục âm thanh", "error");
+      }
+    });
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  12. PAYMENT, BANK CONFIG, PACKAGES & REVENUE MANAGEMENT
+// ═══════════════════════════════════════════════════════════════
+let paymentSubTab = "history"; // "history" | "config" | "packages"
+let _lastPaymentSummary = null;
+
+function fmtVnd(n) {
+  return `${Number(n || 0).toLocaleString("vi-VN")} đ`;
+}
+
+function buildAdminQrPreviewUrl({ bankCode, bankAccount, accountName, amount = 50000 }) {
+  const qs = new URLSearchParams({
+    amount: String(amount),
+    addInfo: "CTPTEST01",
+    accountName: String(accountName || ""),
+  });
+  return `https://img.vietqr.io/image/${encodeURIComponent(bankCode || "MB")}-${encodeURIComponent(bankAccount || "")}-qr_only.png?${qs.toString()}`;
+}
+
+async function renderPayments(statusFilter = "all", searchQuery = "") {
+  const qs = new URLSearchParams();
+  if (statusFilter && statusFilter !== "all") qs.set("status", statusFilter);
+  if (searchQuery && searchQuery.trim()) qs.set("search", searchQuery.trim());
+
+  const res = await api(`/payments/summary?${qs.toString()}`);
+  _lastPaymentSummary = res;
+
+  const s = res.stats || {};
+  const settings = res.settings || {};
+  const banks = res.supported_banks || [];
+  const orders = res.orders || [];
+  const exceptions = res.exceptions || [];
+  const dailyChart = res.daily_chart || [];
+  const topSpenders = res.top_spenders || [];
+
+  const EX_LABELS = {
+    UNDERPAID: "CHUYỂN THIẾU TIỀN",
+    EXPIRED_PAID: "CHUYỂN SAU HẾT HẠN QR",
+    UNMATCHED_CONTENT: "SAI NỘI DUNG CK",
+  };
+
+  const subtabBar = `
+    <div class="subtab-bar" style="margin-bottom:14px">
+      <button class="btn ${paymentSubTab === "history" ? "btn-primary" : "btn-ghost"} btn-sm" data-pay-sub="history">
+        01. Doanh Thu &amp; Lịch Sử (${s.total_orders || 0})
+      </button>
+      <button class="btn ${paymentSubTab === "config" ? "btn-primary" : "btn-ghost"} btn-sm" data-pay-sub="config">
+        02. Tài Khoản Gốc &amp; Webhook payOS
+      </button>
+      <button class="btn ${paymentSubTab === "packages" ? "btn-primary" : "btn-ghost"} btn-sm" data-pay-sub="packages">
+        03. Gói Nạp &amp; Tỷ Giá (${(settings.packages || []).length})
+      </button>
+      <span style="margin-left:auto;display:inline-flex;align-items:center;gap:8px;font-size:12px">
+        <span class="badge ${settings.maintenance_mode ? "badge-danger" : "badge-ok"}">
+          ${settings.maintenance_mode ? "CỔNG NẠP: BẢO TRÌ" : "CỔNG NẠP: HOẠT ĐỘNG"}
+        </span>
+        <span class="badge ${settings.payos_configured ? "badge-ok" : "badge-warn"}">
+          ${settings.payos_configured ? "PAYOS: ĐÃ KẾT NỐI" : "VIETQR TRỰC TIẾP"}
+        </span>
+      </span>
+    </div>
+  `;
+
+  let bodyHtml = "";
+
+  if (paymentSubTab === "history") {
+    // Xây dựng 7 ngày gần nhất cho biểu đồ cột
+    const days7 = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const iso = d.toISOString().slice(0, 10);
+      const found = dailyChart.find(r => r.day === iso);
+      days7.push({
+        day: iso.slice(5),
+        revenue_vnd: Number(found?.revenue_vnd || 0),
+        orders: Number(found?.orders || 0),
+      });
+    }
+    const maxDayRev = Math.max(1, ...days7.map(d => d.revenue_vnd));
+
+    bodyHtml = `
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">TỔNG DOANH THU (PAID)</div>
+          <div class="kpi-value accent-green">${fmtVnd(s.total_revenue_vnd)}</div>
+          <div class="kpi-sub">tháng này: <span class="cyan-val">${fmtVnd(s.month_revenue_vnd)}</span></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">DOANH THU HÔM NAY</div>
+          <div class="kpi-value cyan-val">${fmtVnd(s.today_revenue_vnd)}</div>
+          <div class="kpi-sub">tài khoản nhận: <b>${esc(settings.bank_code)} ${esc(settings.bank_account)}</b></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">ĐƠN THÀNH CÔNG / CHỜ</div>
+          <div class="kpi-value">${s.paid_count || 0} <span class="muted">/ ${s.pending_count || 0}</span></div>
+          <div class="kpi-sub">tỷ lệ hoàn tất: <span class="ok-txt">${s.conversion_rate || 0}%</span> (${s.total_orders || 0} đơn)</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">TỔNG ECOIN ĐÃ PHÁT HÀNH</div>
+          <div class="kpi-value">${fmtMoney(s.total_ecoin_issued || 0)}</div>
+          <div class="kpi-sub">tự động qua payOS &amp; đối soát</div>
+        </div>
+      </div>
+
+      <div class="pay-split-grid" style="margin-top:14px">
+        <div class="panel hud-box">
+          <div class="panel-head">
+            <h3>[ BIỂU ĐỒ DOANH THU 7 NGÀY GẦN NHẤT ]</h3>
+            <span class="muted">đơn vị: VNĐ (chỉ tính đơn PAID)</span>
+          </div>
+          <div class="pay-chart-bars">
+            ${days7.map(d => {
+              const pct = d.revenue_vnd > 0 ? Math.max(8, Math.round((d.revenue_vnd / maxDayRev) * 100)) : 2;
+              const shortVal = d.revenue_vnd >= 1000000
+                ? `${(d.revenue_vnd / 1000000).toFixed(1)}M`
+                : d.revenue_vnd >= 1000
+                  ? `${Math.round(d.revenue_vnd / 1000)}K`
+                  : "0";
+              return `
+                <div class="pay-chart-col" title="${d.day}: ${fmtVnd(d.revenue_vnd)} (${d.orders} đơn)">
+                  <div class="pay-chart-val">${shortVal}</div>
+                  <div class="pay-chart-bar" style="height:${pct}%"></div>
+                  <div class="pay-chart-day">${d.day}</div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        </div>
+
+        <div class="panel hud-box">
+          <div class="panel-head">
+            <h3>[ TOP 5 NGƯỜI CHƠI NẠP NHIỀU NHẤT ]</h3>
+          </div>
+          ${topSpenders.length ? `
+            <table class="data-table">
+              <thead>
+                <tr><th>#</th><th>Người chơi</th><th>Đơn</th><th>Tổng VNĐ</th></tr>
+              </thead>
+              <tbody>
+                ${topSpenders.map((u, idx) => `
+                  <tr>
+                    <td><span class="cyan-val">#${idx + 1}</span></td>
+                    <td><b>${esc(u.display_name || u.username || `User #${u.user_id}`)}</b></td>
+                    <td>${u.paid_orders}</td>
+                    <td class="accent-green"><b>${fmtVnd(u.total_vnd)}</b></td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          ` : `<div class="empty-state">&gt; chưa có giao dịch thành công nào</div>`}
+        </div>
+      </div>
+
+      <div class="panel hud-box" style="margin-top:14px;border-color:${exceptions.length ? "var(--amber)" : "var(--border)"}">
+        <div class="panel-head" style="flex-wrap:wrap;gap:10px">
+          <h3>[ NGOẠI LỆ CẦN ĐỐI SOÁT THỦ CÔNG (${exceptions.length}) ]</h3>
+          <span class="muted" style="font-size:11.5px">
+            &gt; Hệ thống nạp tự động 100% qua Webhook payOS — CHỈ liệt kê &amp; cho phép duyệt các đơn đã có tiền vào ngân hàng nhưng gặp ngoại lệ (chuyển thiếu, quá hạn QR, sai nội dung).
+          </span>
+        </div>
+        ${exceptions.length ? `
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Mã đơn</th>
+                  <th>Người chơi</th>
+                  <th>Loại ngoại lệ &amp; Lý do</th>
+                  <th>Thực nhận / Yêu cầu</th>
+                  <th>Mã GD Ngân hàng</th>
+                  <th>Xử lý ngoại lệ</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${exceptions.map(ex => {
+                  const reasonLabel = EX_LABELS[ex.exception_reason] || ex.exception_reason;
+                  const canResolve = Number(ex.user_id) > 0;
+                  const estEcoin = ex.exception_reason === "UNDERPAID" && Number(ex.paid_amount_vnd) > 0
+                    ? Math.round(Number(ex.paid_amount_vnd) * 7)
+                    : Number(ex.ecoin_amount || 0);
+                  return `
+                    <tr>
+                      <td>
+                        <span class="cyan-val">#${esc(ex.order_code)}</span>
+                        <div class="muted" style="font-size:11px"><code class="ok-txt">${esc(ex.transfer_code || "-")}</code></div>
+                      </td>
+                      <td>
+                        <b>${esc(ex.display_name || ex.username || (ex.user_id ? `UID ${ex.user_id}` : "Chưa xác định"))}</b>
+                        ${ex.user_id ? `<div class="muted" style="font-size:11px">@${esc(ex.username || "-")} (ID: ${ex.user_id})</div>` : ""}
+                      </td>
+                      <td>
+                        <span class="badge badge-warn">${esc(reasonLabel)}</span>
+                        <div class="muted" style="font-size:11.5px;margin-top:3px">${esc(ex.exception_detail || "Cần kiểm tra sao kê")}</div>
+                      </td>
+                      <td>
+                        <b class="accent-green">${fmtVnd(ex.paid_amount_vnd || 0)}</b>
+                        <span class="muted"> / ${fmtVnd(ex.amount_vnd)}</span>
+                      </td>
+                      <td class="muted" style="font-size:11.5px">${esc(ex.payos_reference || "—")}</td>
+                      <td>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap">
+                          ${canResolve ? `<button class="btn btn-primary btn-sm" data-pay-approve="${esc(ex.order_code)}" data-pay-ecoin="${estEcoin}" data-pay-reason="${esc(reasonLabel)}">✓ Cộng +${fmtMoney(estEcoin)}</button>` : `<span class="muted" style="font-size:11px">Chưa khớp UID</span>`}
+                          <button class="btn btn-danger btn-sm" data-pay-cancel="${esc(ex.order_code)}">✕ Đóng</button>
+                        </div>
+                      </td>
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        ` : `<div class="empty-state">&gt; không có giao dịch ngoại lệ nào — toàn bộ giao dịch đang vận hành tự động 100%</div>`}
+      </div>
+
+      <div class="panel hud-box" style="margin-top:14px">
+        <div class="panel-head" style="flex-wrap:wrap;gap:10px">
+          <h3>[ LỊCH SỬ GIAO DỊCH NẠP TỰ ĐỘNG ]</h3>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <input id="paySearchInput" type="text" placeholder="Mã đơn, mã CTP, username..." value="${esc(searchQuery)}" style="min-width:210px" />
+            <select id="payStatusSelect">
+              <option value="all" ${statusFilter === "all" ? "selected" : ""}>Tất cả trạng thái</option>
+              <option value="PAID" ${statusFilter === "PAID" ? "selected" : ""}>PAID (Tự động thành công)</option>
+              <option value="EXCEPTION" ${statusFilter === "EXCEPTION" ? "selected" : ""}>NGOẠI LỆ (Cần đối soát)</option>
+              <option value="PENDING" ${statusFilter === "PENDING" ? "selected" : ""}>PENDING (Đang chờ CK)</option>
+              <option value="EXPIRED" ${statusFilter === "EXPIRED" ? "selected" : ""}>EXPIRED (Hết hạn QR)</option>
+              <option value="CANCELLED" ${statusFilter === "CANCELLED" ? "selected" : ""}>CANCELLED (Đã đóng)</option>
+            </select>
+            <button id="payFilterBtn" class="btn btn-primary btn-sm">LỌC</button>
+            <button id="payExportCsvBtn" class="btn btn-ghost btn-sm">⬇ XUẤT CSV</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Mã đơn</th>
+                <th>Người chơi</th>
+                <th>Nội dung CK</th>
+                <th>Số tiền</th>
+                <th>Ecoin</th>
+                <th>Trạng thái</th>
+                <th>Tham chiếu</th>
+                <th>Thời gian</th>
+                <th>Cơ chế xử lý</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${orders.length ? orders.map(o => {
+                const isEx = Boolean(o.exception_reason && o.status !== "PAID");
+                const stBadge = isEx
+                  ? `<span class="badge badge-warn">NGOẠI LỆ</span>`
+                  : o.status === "PAID"
+                    ? `<span class="badge badge-ok">PAID</span>`
+                    : o.status === "PENDING"
+                      ? `<span class="badge badge-warn">PENDING</span>`
+                      : `<span class="badge badge-danger">${esc(o.status)}</span>`;
+                const noteCell = isEx
+                  ? `<span class="amber-val" style="font-size:11.5px">${esc(EX_LABELS[o.exception_reason] || o.exception_reason)}</span>`
+                  : o.status === "PAID"
+                    ? (String(o.payos_reference || "").includes("ADMIN")
+                        ? `<span class="cyan-val" style="font-size:11.5px">Đã đối soát ngoại lệ</span>`
+                        : `<span class="ok-txt" style="font-size:11.5px">Tự động (payOS)</span>`)
+                    : o.status === "PENDING"
+                      ? `<span class="muted" style="font-size:11.5px">Chờ Webhook...</span>`
+                      : `<span class="muted" style="font-size:11.5px">Hết hạn tự động</span>`;
+                return `
+                  <tr>
+                    <td><span class="cyan-val">#${esc(o.order_code)}</span></td>
+                    <td>
+                      <b>${esc(o.display_name || o.username || (o.user_id ? `UID ${o.user_id}` : "Chưa khớp"))}</b>
+                      ${o.user_id ? `<div class="muted" style="font-size:11px">@${esc(o.username || "-")} (ID: ${o.user_id})</div>` : ""}
+                    </td>
+                    <td><code class="ok-txt">${esc(o.transfer_code || "-")}</code></td>
+                    <td><b>${fmtVnd(o.amount_vnd)}</b></td>
+                    <td class="cyan-val">+${fmtMoney(o.ecoin_amount)}</td>
+                    <td>${stBadge}</td>
+                    <td class="muted" style="font-size:11px">${esc(o.payos_reference || "—")}</td>
+                    <td class="muted" style="font-size:11px">
+                      Tạo: ${fmtDate(o.created_at)}
+                      ${o.paid_at ? `<br/>TT: <span class="ok-txt">${fmtDate(o.paid_at)}</span>` : ""}
+                    </td>
+                    <td>${noteCell}</td>
+                  </tr>
+                `;
+              }).join("") : `<tr><td colspan="9" class="empty-state">&gt; không tìm thấy giao dịch nào</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  } else if (paymentSubTab === "config") {
+    const webhookUrl = `${window.location.origin}/api/payment/payos-webhook`;
+    const previewQrUrl = buildAdminQrPreviewUrl({
+      bankCode: settings.bank_code,
+      bankAccount: settings.bank_account,
+      accountName: settings.account_name,
+    });
+
+    bodyHtml = `
+      <form id="paymentSettingsForm" autocomplete="off">
+        <div class="pay-split-grid">
+          <div class="panel hud-box">
+            <div class="panel-head">
+              <h3>[ 01. TÀI KHOẢN NGÂN HÀNG GỐC NHẬN TIỀN (VIETQR) ]</h3>
+            </div>
+            <div class="form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div class="field">
+                <label>NGÂN HÀNG NHẬN TIỀN</label>
+                <select id="cfgBankCode" name="cfg_bank_code" autocomplete="off">
+                  ${banks.map(b => `<option value="${esc(b.code)}" data-name="${esc(b.name)}" ${b.code === settings.bank_code ? "selected" : ""}>${esc(b.code)} — ${esc(b.name)}</option>`).join("")}
+                </select>
+              </div>
+              <div class="field">
+                <label>SỐ TÀI KHOẢN GỐC</label>
+                <input id="cfgBankAccount" name="cfg_bank_account" type="text" autocomplete="off" value="${esc(settings.bank_account || "")}" required />
+              </div>
+              <div class="field">
+                <label>TÊN CHỦ TÀI KHOẢN (IN HOA KHÔNG DẤU)</label>
+                <input id="cfgAccountName" name="cfg_account_name" type="text" autocomplete="off" value="${esc(settings.account_name || "")}" required />
+              </div>
+              <div class="field">
+                <label>THỜI HẠN MÃ QR (PHÚT)</label>
+                <input id="cfgQrExpire" name="cfg_qr_expire" type="number" min="3" max="60" value="${Number(settings.qr_expire_minutes || 15)}" />
+              </div>
+            </div>
+
+            <div style="margin-top:12px;display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg);border:1px solid var(--border)">
+              <input id="cfgMaintenance" name="cfg_maintenance" type="checkbox" ${settings.maintenance_mode ? "checked" : ""} style="width:18px;height:18px;cursor:pointer" />
+              <label for="cfgMaintenance" style="margin:0;cursor:pointer">
+                <b>Bật chế độ bảo trì cổng nạp tiền</b>
+                <span class="muted" style="display:block;font-size:11px">Khi bật, người chơi trong game sẽ tạm không tạo được đơn nạp mới.</span>
+              </label>
+            </div>
+
+            <div class="panel-head" style="margin-top:18px">
+              <h3>[ 02. CẤU HÌNH KẾT NỐI PAYOS WEBHOOK TỰ ĐỘNG ]</h3>
+            </div>
+            <div class="pay-webhook-box" style="margin-bottom:12px">
+              <span class="muted">WEBHOOK URL:</span>
+              <code id="payWebhookUrlText" class="cyan-val" style="flex:1">${esc(webhookUrl)}</code>
+              <button type="button" id="copyWebhookUrlBtn" class="btn btn-ghost btn-sm">COPY</button>
+              <button type="button" id="testWebhookPingBtn" class="btn btn-primary btn-sm">🧪 TEST PING HMAC</button>
+            </div>
+            <div id="testWebhookResult" class="muted" style="font-size:12px;margin-bottom:10px"></div>
+
+            <div class="form-grid" style="display:grid;grid-template-columns:1fr;gap:10px">
+              <div class="field">
+                <label>PAYOS CLIENT ID ${settings.has_client_id ? `<span class="ok-txt">(đã lưu: ${esc(settings.client_id_masked)})</span>` : `<span class="muted">(chưa cấu hình)</span>`}</label>
+                <input id="cfgClientId" name="cfg_payos_cid" type="text" class="secret-input" placeholder="Để trống nếu giữ nguyên key cũ..." autocomplete="off" spellcheck="false" />
+              </div>
+              <div class="field">
+                <label>PAYOS API KEY ${settings.has_api_key ? `<span class="ok-txt">(đã lưu: ${esc(settings.api_key_masked)})</span>` : `<span class="muted">(chưa cấu hình)</span>`}</label>
+                <input id="cfgApiKey" name="cfg_payos_akey" type="text" class="secret-input" placeholder="Để trống nếu giữ nguyên key cũ..." autocomplete="off" spellcheck="false" />
+              </div>
+              <div class="field">
+                <label>PAYOS CHECKSUM KEY ${settings.has_checksum_key ? `<span class="ok-txt">(đã lưu: ${esc(settings.checksum_key_masked)})</span>` : `<span class="muted">(chưa cấu hình)</span>`}</label>
+                <input id="cfgChecksumKey" name="cfg_payos_ckey" type="text" class="secret-input" placeholder="Để trống nếu giữ nguyên key cũ..." autocomplete="off" spellcheck="false" />
+              </div>
+            </div>
+
+            <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+              <button type="submit" class="btn btn-primary">💾 LƯU CẤU HÌNH THANH TOÁN</button>
+              ${settings.payos_configured ? `<button type="button" id="clearPayosKeysBtn" class="btn btn-danger btn-sm">XÓA KEY PAYOS</button>` : ""}
+            </div>
+          </div>
+
+          <div class="panel hud-box">
+            <div class="panel-head">
+              <h3>[ XEM TRƯỚC MÃ VIETQR THỰC TẾ ]</h3>
+            </div>
+            <div class="pay-qr-preview-box">
+              <img id="adminQrPreviewImg" class="pay-qr-preview-img" src="${esc(previewQrUrl)}" alt="VietQR Preview" />
+              <div style="width:100%;font-size:12px;display:flex;flex-direction:column;gap:5px">
+                <div><span class="muted">Ngân hàng:</span> <b id="prevBankLabel" class="cyan-val">${esc(settings.bank_name)}</b></div>
+                <div><span class="muted">Số TK:</span> <b id="prevAccLabel">${esc(settings.bank_account)}</b></div>
+                <div><span class="muted">Chủ TK:</span> <b id="prevNameLabel">${esc(settings.account_name)}</b></div>
+                <div><span class="muted">Mẫu test:</span> <b class="accent-green">50.000 đ</b> • Nội dung: <code class="ok-txt">CTPTEST01</code></div>
+              </div>
+              <div class="muted" style="font-size:11px;text-align:center">
+                &gt; Quét thử bằng app ngân hàng để kiểm tra đúng STK và tên chủ tài khoản trước khi lưu.
+              </div>
+            </div>
+          </div>
+        </div>
+      </form>
+    `;
+  } else if (paymentSubTab === "packages") {
+    const pkgs = settings.packages || [];
+    bodyHtml = `
+      <div class="panel hud-box">
+        <div class="panel-head" style="flex-wrap:wrap;gap:10px">
+          <h3>[ CẤU HÌNH BẢNG GÓI NẠP &amp; TỶ GIÁ QUY ĐỔI ]</h3>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" id="addPkgRowBtn" class="btn btn-ghost btn-sm">+ THÊM GÓI</button>
+            <button type="button" id="resetPkgBtn" class="btn btn-danger btn-sm">KHÔI PHỤC MẶC ĐỊNH</button>
+            <button type="button" id="savePkgBtn" class="btn btn-primary btn-sm">💾 LƯU BẢNG GIÁ</button>
+          </div>
+        </div>
+        <p class="muted" style="font-size:12px;margin:0 0 12px">
+          &gt; Thay đổi tại đây sẽ áp dụng ngay lập tức cho bảng Nạp Tiền trong game (không cần khởi động lại server).
+        </p>
+        <div class="table-wrap">
+          <table class="data-table" id="pkgConfigTable">
+            <thead>
+              <tr>
+                <th>Mã gói (ID)</th>
+                <th>Nhãn hiển thị</th>
+                <th>Số tiền (VNĐ)</th>
+                <th>Ecoin nhận</th>
+                <th>Tỷ giá (Ecoin/1đ)</th>
+                <th>Ghi chú / Bonus</th>
+                <th>Xóa</th>
+              </tr>
+            </thead>
+            <tbody id="pkgTableBody">
+              ${pkgs.map((p, idx) => {
+                const ratio = p.amount_vnd > 0 ? (p.ecoin / p.amount_vnd).toFixed(2) : "0";
+                return `
+                  <tr data-pkg-row="${idx}">
+                    <td><input class="pkg-id" type="text" value="${esc(p.id)}" style="width:110px" /></td>
+                    <td><input class="pkg-label" type="text" value="${esc(p.label)}" style="width:85px" /></td>
+                    <td><input class="pkg-vnd" type="number" min="1000" step="1000" value="${Number(p.amount_vnd)}" style="width:125px" /></td>
+                    <td><input class="pkg-ecoin" type="number" min="1000" step="1000" value="${Number(p.ecoin)}" style="width:135px" /></td>
+                    <td class="cyan-val pkg-ratio">${ratio}x</td>
+                    <td><input class="pkg-bonus" type="text" value="${esc(p.bonus || "")}" placeholder="VD: +15%" style="width:100px" /></td>
+                    <td><button type="button" class="btn btn-danger btn-sm pkg-del-btn">✕</button></td>
+                  </tr>
+                `;
+              }).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  setTabHtml(subtabBar + bodyHtml);
+
+  // Chuyển sub-tab
+  document.querySelectorAll("[data-pay-sub]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      paymentSubTab = btn.dataset.paySub;
+      renderPayments(statusFilter, searchQuery);
+    });
+  });
+
+  if (paymentSubTab === "history") {
+    const doFilter = () => renderPayments($("payStatusSelect")?.value || "all", $("paySearchInput")?.value || "");
+    $("payFilterBtn")?.addEventListener("click", doFilter);
+    $("payStatusSelect")?.addEventListener("change", doFilter);
+    $("paySearchInput")?.addEventListener("keydown", e => { if (e.key === "Enter") doFilter(); });
+
+    // Duyệt thủ công đơn PENDING / EXPIRED
+    document.querySelectorAll("[data-pay-approve]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const code = btn.dataset.payApprove;
+        const ecoin = Number(btn.dataset.payEcoin || 0).toLocaleString("vi-VN");
+        if (!confirm(`Xác nhận đã nhận tiền và cộng +${ecoin} Ecoin cho đơn #${code}?`)) return;
+        try {
+          const r = await api(`/payments/orders/${code}/approve`, { method: "POST" });
+          showToast(r.message || "Đã duyệt đơn thành công!");
+          renderPayments(statusFilter, searchQuery);
+        } catch (err) {
+          showToast(err.message || "Lỗi duyệt đơn", "error");
+        }
+      });
+    });
+
+    // Hủy đơn PENDING
+    document.querySelectorAll("[data-pay-cancel]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const code = btn.dataset.payCancel;
+        if (!confirm(`Hủy đơn nạp #${code}?`)) return;
+        try {
+          const r = await api(`/payments/orders/${code}/cancel`, { method: "POST" });
+          showToast(r.message || "Đã hủy đơn!");
+          renderPayments(statusFilter, searchQuery);
+        } catch (err) {
+          showToast(err.message || "Lỗi hủy đơn", "error");
+        }
+      });
+    });
+
+    // Xuất CSV (UTF-8 BOM mở chuẩn Excel tiếng Việt)
+    $("payExportCsvBtn")?.addEventListener("click", () => {
+      const rows = [
+        ["OrderCode", "TransferCode", "UserID", "Username", "DisplayName", "AmountVND", "Ecoin", "Status", "PayOSRef", "CreatedAt", "PaidAt"],
+        ...orders.map(o => [
+          o.order_code, o.transfer_code || "", o.user_id, o.username || "", o.display_name || "",
+          o.amount_vnd, o.ecoin_amount, o.status, o.payos_reference || "",
+          o.created_at || "", o.paid_at || "",
+        ]),
+      ];
+      const csv = "\uFEFF" + rows.map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `lich_su_nap_tien_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("Đã xuất báo cáo CSV!");
+    });
+  } else if (paymentSubTab === "config") {
+    const updateQrPreview = () => {
+      const sel = $("cfgBankCode");
+      const code = sel?.value || "MB";
+      const bankName = sel?.selectedOptions?.[0]?.dataset?.name || code;
+      const acc = ($("cfgBankAccount")?.value || "").trim();
+      const name = ($("cfgAccountName")?.value || "").trim().toUpperCase();
+      if ($("prevBankLabel")) $("prevBankLabel").textContent = bankName;
+      if ($("prevAccLabel")) $("prevAccLabel").textContent = acc || "—";
+      if ($("prevNameLabel")) $("prevNameLabel").textContent = name || "—";
+      if ($("adminQrPreviewImg") && acc) {
+        $("adminQrPreviewImg").src = buildAdminQrPreviewUrl({ bankCode: code, bankAccount: acc, accountName: name });
+      }
+    };
+    $("cfgBankCode")?.addEventListener("change", updateQrPreview);
+    $("cfgBankAccount")?.addEventListener("input", updateQrPreview);
+    $("cfgAccountName")?.addEventListener("input", updateQrPreview);
+
+    $("copyWebhookUrlBtn")?.addEventListener("click", async () => {
+      const url = $("payWebhookUrlText")?.textContent || "";
+      try { await navigator.clipboard.writeText(url); showToast("Đã copy Webhook URL!"); } catch {}
+    });
+
+    $("testWebhookPingBtn")?.addEventListener("click", async () => {
+      const box = $("testWebhookResult");
+      if (box) box.textContent = "> đang gửi ping test ký HMAC-SHA256...";
+      try {
+        const r = await api("/payments/test-webhook", { method: "POST" });
+        if (box) {
+          box.innerHTML = r.success
+            ? `<span class="ok-txt">✓ Webhook OK! HMAC-SHA256 hợp lệ (${esc(r.signature_preview)}) • ${r.using_live_checksum ? "dùng Checksum Key thật" : "dùng key test mẫu"}</span>`
+            : `<span class="err-txt">✕ Test thất bại</span>`;
+        }
+        showToast(r.success ? "Webhook & chữ ký HMAC-SHA256 hoạt động chuẩn!" : "Test webhook lỗi", r.success ? "success" : "error");
+      } catch (err) {
+        if (box) box.innerHTML = `<span class="err-txt">✕ ${esc(err.message)}</span>`;
+      }
+    });
+
+    $("clearPayosKeysBtn")?.addEventListener("click", async () => {
+      if (!confirm("Xóa Client ID, API Key, Checksum Key khỏi DB và chuyển về chế độ VietQR trực tiếp?")) return;
+      try {
+        await api("/payments/settings", { method: "PUT", body: JSON.stringify({ clear_payos_keys: true }) });
+        showToast("Đã xóa key payOS!");
+        renderPayments(statusFilter, searchQuery);
+      } catch (err) {
+        showToast(err.message || "Lỗi xóa key", "error");
+      }
+    });
+
+    $("paymentSettingsForm")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const sel = $("cfgBankCode");
+      const payload = {
+        bank_code: sel?.value || "MB",
+        bank_name: sel?.selectedOptions?.[0]?.dataset?.name || "MB BANK",
+        bank_account: $("cfgBankAccount")?.value || "",
+        account_name: $("cfgAccountName")?.value || "",
+        qr_expire_minutes: Number($("cfgQrExpire")?.value || 15),
+        maintenance_mode: Boolean($("cfgMaintenance")?.checked),
+        payos_client_id: $("cfgClientId")?.value || "",
+        payos_api_key: $("cfgApiKey")?.value || "",
+        payos_checksum_key: $("cfgChecksumKey")?.value || "",
+      };
+      try {
+        const r = await api("/payments/settings", { method: "PUT", body: JSON.stringify(payload) });
+        if (r.success) {
+          showToast("Đã lưu cấu hình tài khoản gốc & payOS!");
+          renderPayments(statusFilter, searchQuery);
+        }
+      } catch (err) {
+        showToast(err.message || "Lỗi lưu cấu hình", "error");
+      }
+    });
+  } else if (paymentSubTab === "packages") {
+    const bindRowEvents = (tr) => {
+      const updateRatio = () => {
+        const vnd = Number(tr.querySelector(".pkg-vnd")?.value || 0);
+        const eco = Number(tr.querySelector(".pkg-ecoin")?.value || 0);
+        const cell = tr.querySelector(".pkg-ratio");
+        if (cell) cell.textContent = vnd > 0 ? `${(eco / vnd).toFixed(2)}x` : "0x";
+      };
+      tr.querySelector(".pkg-vnd")?.addEventListener("input", updateRatio);
+      tr.querySelector(".pkg-ecoin")?.addEventListener("input", updateRatio);
+      tr.querySelector(".pkg-del-btn")?.addEventListener("click", () => tr.remove());
+    };
+    document.querySelectorAll("#pkgTableBody tr").forEach(bindRowEvents);
+
+    $("addPkgRowBtn")?.addEventListener("click", () => {
+      const tbody = $("pkgTableBody");
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><input class="pkg-id" type="text" value="pkg_new_${Date.now().toString().slice(-3)}" style="width:110px" /></td>
+        <td><input class="pkg-label" type="text" value="300K" style="width:85px" /></td>
+        <td><input class="pkg-vnd" type="number" min="1000" step="1000" value="300000" style="width:125px" /></td>
+        <td><input class="pkg-ecoin" type="number" min="1000" step="1000" value="2500000" style="width:135px" /></td>
+        <td class="cyan-val pkg-ratio">8.33x</td>
+        <td><input class="pkg-bonus" type="text" value="+18%" style="width:100px" /></td>
+        <td><button type="button" class="btn btn-danger btn-sm pkg-del-btn">✕</button></td>
+      `;
+      tbody.appendChild(tr);
+      bindRowEvents(tr);
+    });
+
+    $("resetPkgBtn")?.addEventListener("click", async () => {
+      if (!confirm("Khôi phục bảng gói nạp về mặc định chuẩn (10K → 1M)?")) return;
+      try {
+        await api("/payments/settings", { method: "PUT", body: JSON.stringify({ reset_packages: true }) });
+        showToast("Đã khôi phục bảng giá mặc định!");
+        renderPayments(statusFilter, searchQuery);
+      } catch (err) {
+        showToast(err.message || "Lỗi khôi phục", "error");
+      }
+    });
+
+    $("savePkgBtn")?.addEventListener("click", async () => {
+      const list = [];
+      document.querySelectorAll("#pkgTableBody tr").forEach(tr => {
+        const id = (tr.querySelector(".pkg-id")?.value || "").trim();
+        const label = (tr.querySelector(".pkg-label")?.value || "").trim();
+        const amount_vnd = Number(tr.querySelector(".pkg-vnd")?.value || 0);
+        const ecoin = Number(tr.querySelector(".pkg-ecoin")?.value || 0);
+        const bonus = (tr.querySelector(".pkg-bonus")?.value || "").trim();
+        if (amount_vnd >= 1000 && ecoin >= 1000) {
+          list.push({ id, label, amount_vnd, ecoin, bonus });
+        }
+      });
+      if (!list.length) {
+        showToast("Cần ít nhất 1 gói nạp hợp lệ!", "error");
+        return;
+      }
+      try {
+        await api("/payments/settings", { method: "PUT", body: JSON.stringify({ packages: list }) });
+        showToast(`Đã lưu ${list.length} gói nạp thành công!`);
+        renderPayments(statusFilter, searchQuery);
+      } catch (err) {
+        showToast(err.message || "Lỗi lưu bảng gói nạp", "error");
+      }
+    });
+  }
+}
 
 // Khởi động đồng hồ HUD & khôi phục phiên đăng nhập
 startHudClock();

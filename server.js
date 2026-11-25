@@ -33,6 +33,7 @@ import { createAdminRouter } from "./src/server/routes/admin.routes.js";
 import securityService, { extractClientIp, extractUserAgent } from "./src/server/services/security.service.js";
 import assetUploadService from "./src/server/services/assetUpload.service.js";
 import payosService, { TOPUP_PACKAGES } from "./src/server/services/payos.service.js";
+import audioConfigService from "./src/server/services/audioConfig.service.js";
 import systemConsoleService from "./src/server/services/systemConsole.service.js";
 
 const SECRET = process.env.JWT_SECRET;
@@ -934,10 +935,17 @@ async function initGameState(room_id, sockets, bet_ecoin = 5000, match_mode = "s
       const slotIndex = typeof s.slot_index === "number" ? s.slot_index : i;
       const teamId    = resolveTeamId(match_mode, slotIndex);
 
+      let activeAvatarId = 1;
+      try {
+        const [[uAv]] = await db.query("SELECT active_avatar_id FROM users WHERE id = ? LIMIT 1", [s.user_id]);
+        activeAvatarId = Number(uAv?.active_avatar_id || 1);
+      } catch (_) {}
+
       return {
         socket_id: s.id,
         user_id: s.user_id,
         name: s.player_name || "Player",
+        active_avatar_id: activeAvatarId,
         turn_order: i + 1,
         planet_color: colorPool[i % colorPool.length],
         cash: bet_ecoin * 20,
@@ -4344,9 +4352,28 @@ app.get("/api/assets/scene-config/:sceneType", (req, res) => {
   res.json({ success: true, scene: cfg });
 });
 
+// ── PUBLIC AUDIO CONFIG (Cấu hình nhạc nền & SFX từ MySQL audio_settings) ─
+app.get("/api/audio-config", async (req, res) => {
+  try {
+    res.json(await audioConfigService.listTracks());
+  } catch (err) {
+    res.status(500).json({ success: false, tracks: [] });
+  }
+});
+
 // ── PAYOS REAL-MONEY TOP-UP & WEBHOOK ──────────────────────────
-app.get("/api/payment/packages", (req, res) => {
-  res.json({ success: true, packages: TOPUP_PACKAGES });
+app.get("/api/payment/packages", async (req, res) => {
+  try {
+    const cfg = await payosService.getEffectiveConfig();
+    res.json({
+      success: true,
+      packages: cfg.packages,
+      maintenance_mode: cfg.maintenanceMode,
+      qr_expire_minutes: cfg.qrExpireMinutes,
+    });
+  } catch (err) {
+    res.json({ success: true, packages: TOPUP_PACKAGES, maintenance_mode: false, qr_expire_minutes: 15 });
+  }
 });
 
 app.post("/api/payment/create", async (req, res) => {
@@ -4401,6 +4428,7 @@ server.listen(3000, "0.0.0.0", () => {
   adminRepo.ensureAdminSchema();
   securityService.init();
   payosService.ensurePaymentSchema();
+  audioConfigService.ensureAudioSchema();
 
   // ── Dọn dẹp các phòng bị kẹt khi server restart ──────────────
   db.query(

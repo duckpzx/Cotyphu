@@ -16,9 +16,9 @@ export function showCharacterEmojiBubble(scene, {
   y,
   targetSprite = null,
   offsetX = 34,
-  offsetY = -95,
+  offsetY = -98,
   depth = 260,
-  size = 42,
+  size = 64,
 }) {
   if (!scene || !emojiId) return;
   const id = Number(emojiId);
@@ -42,30 +42,28 @@ export function showCharacterEmojiBubble(scene, {
 
     const container = scene.add.container(startX, startY).setDepth(depth).setScale(0.2).setAlpha(0);
 
-    const bw = size + 20;
-    const bh = size + 14;
+    const bw = size + 10;
+    const bh = size + 8;
+    const rad = Math.min(16, Math.round(bh * 0.24));
     const g = scene.add.graphics();
-    // Bóng đổ mềm tạo chiều sâu kính mờ
-    g.fillStyle(0x000000, 0.22);
-    g.fillRoundedRect(-bw / 2 + 1.5, -bh / 2 + 2.5, bw, bh, 14);
-    // Lớp nền trong suốt mờ (frosted glass)
-    g.fillStyle(0x081526, 0.42);
-    g.fillRoundedRect(-bw / 2, -bh / 2, bw, bh, 14);
-    // Lớp ánh kính sáng mờ phía trên
-    g.fillStyle(0xffffff, 0.14);
-    g.fillRoundedRect(-bw / 2 + 2, -bh / 2 + 2, bw - 4, bh * 0.45, 11);
-    // Viền mỏng tinh tế
-    g.lineStyle(1.2, 0xbfeaff, 0.72);
-    g.strokeRoundedRect(-bw / 2, -bh / 2, bw, bh, 14);
+    // Bóng đổ nhẹ
+    g.fillStyle(0x000000, 0.18);
+    g.fillRoundedRect(-bw / 2 + 1.5, -bh / 2 + 2.5, bw, bh, rad);
+    // Lớp nền kính mờ gọn sát emoji
+    g.fillStyle(0x081526, 0.30);
+    g.fillRoundedRect(-bw / 2, -bh / 2, bw, bh, rad);
+    // Viền mảnh tinh tế
+    g.lineStyle(1, 0xbfeaff, 0.48);
+    g.strokeRoundedRect(-bw / 2, -bh / 2, bw, bh, rad);
     // Đuôi nhỏ góc dưới-trái chỉ về phía đầu nhân vật
-    const tx = -bw * 0.24;
-    g.fillStyle(0x081526, 0.42);
-    g.fillTriangle(tx, bh / 2 - 1, tx + 11, bh / 2 - 1, tx - 4, bh / 2 + 8);
-    g.lineStyle(1.2, 0xbfeaff, 0.72);
+    const tx = -bw * 0.22;
+    g.fillStyle(0x081526, 0.30);
+    g.fillTriangle(tx, bh / 2 - 1, tx + 10, bh / 2 - 1, tx - 4, bh / 2 + 7);
+    g.lineStyle(1, 0xbfeaff, 0.48);
     g.beginPath();
     g.moveTo(tx, bh / 2);
-    g.lineTo(tx - 4, bh / 2 + 8);
-    g.lineTo(tx + 11, bh / 2);
+    g.lineTo(tx - 4, bh / 2 + 7);
+    g.lineTo(tx + 10, bh / 2);
     g.strokePath();
 
     const img = scene.add.image(0, 0, key).setDisplaySize(size, size);

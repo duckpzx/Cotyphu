@@ -1,6 +1,24 @@
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import jwt from "jsonwebtoken";
 import adminRepo from "../repositories/admin.repo.js";
 import userRepo from "../repositories/user.repo.js";
+import assetUploadService from "./assetUpload.service.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PROJECT_ROOT = path.resolve(__dirname, "../../..");
+
+function countPngFiles(relDir) {
+  try {
+    const abs = path.join(PROJECT_ROOT, relDir);
+    if (!fs.existsSync(abs)) return 0;
+    return fs.readdirSync(abs).filter(f => /\.png$/i.test(f)).length;
+  } catch {
+    return 0;
+  }
+}
 import roomRepo from "../repositories/room.repo.js";
 
 /**
@@ -92,6 +110,24 @@ export function createAdminService({ io, gameStates, onlineUserSockets, clearRoo
 
       const recentLogs = await adminRepo.getAuditLogs(15);
 
+      // Thống kê kho tài nguyên (Trang phục, Bản đồ, Sảnh, Giao diện BXH/Lab, Avatar, Emoji, NPC)
+      let totalSkins = 0, totalMaps = 0, totalLobbies = 0, totalScenes = 0, totalNpcs = 0;
+      try { totalSkins = ((await assetUploadService.listCharacterSkins?.()) || []).length; } catch {}
+      try { totalMaps = (assetUploadService.listMaps?.()?.maps || []).length; } catch {}
+      try { totalLobbies = (assetUploadService.listLobbyPresets?.()?.presets || []).length; } catch {}
+      try {
+        const rPresets = assetUploadService.listScenePresets?.("rating")?.presets || [];
+        const lPresets = assetUploadService.listScenePresets?.("lab")?.presets || [];
+        totalScenes = rPresets.length + lPresets.length;
+      } catch {}
+      try {
+        const npcCfg = assetUploadService.getNpcConfig?.() || {};
+        totalNpcs = Array.isArray(npcCfg) ? npcCfg.length : Object.keys(npcCfg).length;
+      } catch {}
+
+      const totalAvatars = countPngFiles("assets/resources/Avatar/PNG/thumbs_96");
+      const totalEmojis = countPngFiles("assets/resources/Emoji/PNG/thumbs_40");
+
       return {
         success: true,
         stats: {
@@ -99,6 +135,13 @@ export function createAdminService({ io, gameStates, onlineUserSockets, clearRoo
           online_users: onlineUserSockets ? onlineUserSockets.size : 0,
           active_matches: activeGameIds.length,
           active_bots: activeBotCount,
+          total_skins: totalSkins,
+          total_maps: totalMaps,
+          total_lobbies: totalLobbies,
+          total_scenes: totalScenes,
+          total_npcs: totalNpcs,
+          total_avatars: totalAvatars,
+          total_emojis: totalEmojis,
         },
         recent_logs: recentLogs,
       };
