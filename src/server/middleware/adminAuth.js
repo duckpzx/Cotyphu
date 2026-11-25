@@ -1,16 +1,26 @@
 import jwt from "jsonwebtoken";
 import db from "../config/db.js";
+import securityService, { extractClientIp, extractUserAgent } from "../services/security.service.js";
 
 /**
  * Middleware xác thực JWT và kiểm tra quyền Admin (RBAC).
  * Yêu cầu header: Authorization: Bearer <token>
  */
 export async function requireAdmin(req, res, next) {
+  const ip = extractClientIp(req);
+  const ua = extractUserAgent(req);
   try {
     const authHeader = req.headers.authorization || "";
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
 
     if (!token) {
+      securityService.recordEvent({
+        ip_address: ip,
+        user_agent: ua,
+        event_type: "ADMIN_AUTH_FAIL",
+        endpoint: `${req.method} ${req.originalUrl}`,
+        payload: { reason: "missing_token" },
+      });
       return res.status(401).json({ success: false, message: "Thiếu token xác thực quản trị viên" });
     }
 
@@ -31,6 +41,15 @@ export async function requireAdmin(req, res, next) {
     }
 
     if (user.role !== "admin") {
+      securityService.recordEvent({
+        user_id: user.id,
+        username: user.username,
+        ip_address: ip,
+        user_agent: ua,
+        event_type: "ADMIN_AUTH_FAIL",
+        endpoint: `${req.method} ${req.originalUrl}`,
+        payload: { reason: "non_admin_role", role: user.role },
+      });
       return res.status(403).json({ success: false, message: "Bạn không có quyền truy cập trang quản trị" });
     }
 

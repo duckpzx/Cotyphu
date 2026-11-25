@@ -1,6 +1,9 @@
 import express from "express";
 import requireAdmin from "../middleware/adminAuth.js";
 import { createAdminService } from "../services/admin.service.js";
+import securityService from "../services/security.service.js";
+import adminRepo from "../repositories/admin.repo.js";
+import assetUploadService from "../services/assetUpload.service.js";
 
 /**
  * Tạo Express Router cho toàn bộ REST API của Admin Dashboard (/api/admin/*).
@@ -232,6 +235,219 @@ export function createAdminRouter(deps) {
     } catch (err) {
       console.error("GET /api/admin/audit-logs error:", err);
       res.status(500).json({ success: false, message: "Lỗi tải nhật ký quản trị" });
+    }
+  });
+
+  // ── SECURITY TELEMETRY & SOC ─────────────────────────────────────
+  router.get("/security/summary", async (req, res) => {
+    try {
+      res.json(await securityService.getSummary());
+    } catch (err) {
+      console.error("GET /api/admin/security/summary error:", err);
+      res.status(500).json({ success: false, message: "Lỗi tải tổng quan an ninh" });
+    }
+  });
+
+  router.get("/security/events", async (req, res) => {
+    try {
+      res.json(await securityService.listEvents(req.query));
+    } catch (err) {
+      console.error("GET /api/admin/security/events error:", err);
+      res.status(500).json({ success: false, message: "Lỗi tải nhật ký an ninh" });
+    }
+  });
+
+  router.get("/security/events/export", async (req, res) => {
+    try {
+      const { events } = await securityService.listEvents({ ...req.query, limit: 500 });
+      const header = ["id", "created_at", "user_id", "username", "ip_address", "event_type", "severity", "risk_score", "endpoint", "user_agent", "payload_summary"];
+      const csvCell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+      const lines = [
+        header.join(","),
+        ...events.map(ev => header.map(k => csvCell(ev[k])).join(",")),
+      ];
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="security_events_${Date.now()}.csv"`);
+      res.send("\uFEFF" + lines.join("\n"));
+    } catch (err) {
+      console.error("GET /api/admin/security/events/export error:", err);
+      res.status(500).json({ success: false, message: "Lỗi xuất CSV" });
+    }
+  });
+
+  router.get("/security/blacklist", async (req, res) => {
+    try {
+      res.json(await securityService.listBlacklist());
+    } catch (err) {
+      console.error("GET /api/admin/security/blacklist error:", err);
+      res.status(500).json({ success: false, message: "Lỗi tải danh sách IP bị chặn" });
+    }
+  });
+
+  router.post("/security/blacklist", async (req, res) => {
+    try {
+      const result = await securityService.addBlacklist(req.adminUser.id, req.body || {});
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "BLOCK_IP", "ip", req.body?.ip_address, req.body);
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/security/blacklist error:", err);
+      res.status(500).json({ success: false, message: "Lỗi chặn IP" });
+    }
+  });
+
+  router.delete("/security/blacklist/:id", async (req, res) => {
+    try {
+      const result = await securityService.removeBlacklist(req.params.id);
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "UNBLOCK_IP", "ip", req.params.id);
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("DELETE /api/admin/security/blacklist/:id error:", err);
+      res.status(500).json({ success: false, message: "Lỗi gỡ chặn IP" });
+    }
+  });
+
+  router.get("/security/sessions", async (req, res) => {
+    try {
+      res.json(await securityService.listSessions(req.query.limit));
+    } catch (err) {
+      console.error("GET /api/admin/security/sessions error:", err);
+      res.status(500).json({ success: false, message: "Lỗi tải nhật ký phiên IP" });
+    }
+  });
+
+  // ── NPC / SPRITE STUDIO (UPLOAD TRỰC TIẾP VÀO Ổ CỨNG DỰ ÁN) ──────
+  router.get("/assets/npcs", (req, res) => {
+    res.json({ success: true, npcs: assetUploadService.getNpcConfig() });
+  });
+
+  router.post("/assets/npcs/:slot/upload", async (req, res) => {
+    try {
+      const slot = req.params.slot;
+      const result = assetUploadService.saveNpcSprites(slot, req.body || {});
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "UPLOAD_NPC_SPRITE", "asset", slot, {
+          name: req.body?.name,
+          fps: req.body?.fps,
+          scale: req.body?.scale,
+          idle_count: req.body?.idle_frames?.length || 0,
+          attack_count: req.body?.attack_frames?.length || 0,
+        });
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/assets/npcs/:slot/upload error:", err);
+      res.status(500).json({ success: false, message: "Lỗi lưu ảnh vào ổ cứng dự án" });
+    }
+  });
+
+  router.post("/assets/npcs/:slot/reset", async (req, res) => {
+    try {
+      const slot = req.params.slot;
+      const result = assetUploadService.resetNpcSlot(slot);
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "RESET_NPC_SPRITE", "asset", slot);
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/assets/npcs/:slot/reset error:", err);
+      res.status(500).json({ success: false, message: "Lỗi khôi phục sprite mặc định" });
+    }
+  });
+
+  // ── CHARACTER SKINS STUDIO ───────────────────────────────────────
+  router.get("/assets/skins", async (req, res) => {
+    try {
+      const skins = await assetUploadService.listCharacterSkins();
+      res.json({ success: true, skins });
+    } catch (err) {
+      console.error("GET /api/admin/assets/skins error:", err);
+      res.status(500).json({ success: false, message: "Lỗi tải danh sách trang phục" });
+    }
+  });
+
+  router.post("/assets/skins/:skinId/upload", async (req, res) => {
+    try {
+      const result = await assetUploadService.saveCharacterSkinSprites(req.params.skinId, req.body || {});
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "UPLOAD_SKIN_SPRITE", "skin", req.params.skinId, {
+          price: req.body?.price,
+          idle: req.body?.idle_frames?.length || 0,
+          run: req.body?.run_frames?.length || 0,
+          hurt: req.body?.hurt_frames?.length || 0,
+        });
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/assets/skins/:skinId/upload error:", err);
+      res.status(500).json({ success: false, message: "Lỗi lưu trang phục vào ổ cứng" });
+    }
+  });
+
+  router.post("/assets/skins/:skinId/reset", async (req, res) => {
+    try {
+      const result = await assetUploadService.resetCharacterSkinSprites(req.params.skinId);
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "RESET_SKIN_SPRITE", "skin", req.params.skinId);
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/assets/skins/:skinId/reset error:", err);
+      res.status(500).json({ success: false, message: "Lỗi khôi phục trang phục gốc" });
+    }
+  });
+
+  // ── TAROT IMAGE UPLOAD ───────────────────────────────────────────
+  router.post("/assets/tarots/:id/upload", async (req, res) => {
+    try {
+      const result = await assetUploadService.uploadTarotImage(req.params.id, req.body || {});
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "UPLOAD_TAROT_IMAGE", "tarot", req.params.id, { icon: result.icon });
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/assets/tarots/:id/upload error:", err);
+      res.status(500).json({ success: false, message: "Lỗi lưu ảnh thẻ Tarot" });
+    }
+  });
+
+  // ── BACKGROUNDS STUDIO ───────────────────────────────────────────
+  router.get("/assets/backgrounds", async (req, res) => {
+    try {
+      const backgrounds = await assetUploadService.listBackgrounds();
+      res.json({ success: true, backgrounds });
+    } catch (err) {
+      console.error("GET /api/admin/assets/backgrounds error:", err);
+      res.status(500).json({ success: false, message: "Lỗi tải danh sách phông nền" });
+    }
+  });
+
+  router.post("/assets/backgrounds", async (req, res) => {
+    try {
+      const result = await assetUploadService.saveBackground(null, req.body || {});
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "CREATE_BACKGROUND", "background", result.id, { name: req.body?.name });
+      }
+      res.status(result.success ? 201 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/assets/backgrounds error:", err);
+      res.status(500).json({ success: false, message: "Lỗi thêm phông nền" });
+    }
+  });
+
+  router.post("/assets/backgrounds/:id/upload", async (req, res) => {
+    try {
+      const result = await assetUploadService.saveBackground(req.params.id, req.body || {});
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "UPDATE_BACKGROUND", "background", req.params.id, { name: req.body?.name });
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/assets/backgrounds/:id/upload error:", err);
+      res.status(500).json({ success: false, message: "Lỗi cập nhật phông nền" });
     }
   });
 

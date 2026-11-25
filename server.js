@@ -30,6 +30,9 @@ import { registerVoiceHandlers } from "./src/server/handlers/voiceHandler.js";
 import botAI from "./src/server/ai/botAI.js";
 import adminRepo from "./src/server/repositories/admin.repo.js";
 import { createAdminRouter } from "./src/server/routes/admin.routes.js";
+import securityService, { extractClientIp, extractUserAgent } from "./src/server/services/security.service.js";
+import assetUploadService from "./src/server/services/assetUpload.service.js";
+import payosService, { TOPUP_PACKAGES } from "./src/server/services/payos.service.js";
 
 const SECRET = process.env.JWT_SECRET;
 const app    = express();
@@ -39,7 +42,8 @@ const __dirname  = path.dirname(__filename);
 
 app.use(cors());
 app.use(compression()); // gzip tất cả response
-app.use(express.json());
+app.use(express.json({ limit: "40mb" }));
+app.use((req, res, next) => securityService.ipGuardMiddleware(req, res, next));
 
 // Static files với cache dài hạn cho assets (ảnh, âm thanh, font)
 // Browser sẽ cache lại sau lần đầu load — không cần download lại
@@ -61,6 +65,24 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 io.use(async (socket, next) => {
   try {
+    const ip = extractClientIp(socket.handshake);
+    const ua = extractUserAgent(socket.handshake);
+    socket.client_ip = ip;
+    socket.user_agent = ua;
+
+    // Chặn IP nằm trong Blacklist
+    const blockedIp = securityService.isIpBlocked(ip);
+    if (blockedIp) {
+      securityService.recordEvent({
+        ip_address: ip,
+        user_agent: ua,
+        event_type: "IP_BLOCKED",
+        endpoint: "socket:handshake",
+        payload: { reason: blockedIp.reason },
+      });
+      return next(new Error(`IP bị chặn: ${blockedIp.reason}`));
+    }
+
     const token = socket.handshake.auth?.token;
     if (!token) return next(new Error("No token"));
     const decoded = jwt.verify(token, SECRET);
@@ -1922,6 +1944,34 @@ io.on("connection", (socket) => {
   }
   onlineUserSockets.get(userId).add(socket.id);
 
+  // Ghi nhận phiên socket & chống flood event gameplay
+  securityService.recordSession({
+    user_id: userId,
+    ip_address: socket.client_ip || "unknown",
+    user_agent: socket.user_agent || null,
+  });
+  let lastFloodLog = 0;
+  socket.use(([eventName, payload], next) => {
+    if (typeof eventName === "string" && eventName.startsWith("game:")) {
+      if (securityService.checkSocketFlood(socket)) {
+        const now = Date.now();
+        if (now - lastFloodLog > 5000) {
+          lastFloodLog = now;
+          securityService.recordEvent({
+            user_id: userId,
+            ip_address: socket.client_ip || "unknown",
+            user_agent: socket.user_agent || null,
+            event_type: "SOCKET_FLOOD",
+            endpoint: eventName,
+            payload: { sample: payload },
+          });
+        }
+        return; // Drop flooded packet
+      }
+    }
+    next();
+  });
+
   // ── CHAT ─────────────────────────────────────────────────────────────
   registerChatHandlers(socket, io);
 
@@ -2637,7 +2687,19 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     if (!gs) return socket.emit("game:error", { message: "Không tìm thấy game" });
     if (gs.phase !== "IDLE") return socket.emit("game:error", { message: "Đang xử lý, chờ hoàn tất lượt!" });
     const cur = getCurrentTurnPlayer(room_id);
-    if (!cur || cur.user_id !== socket.user_id) return socket.emit("game:error", { message: "Chưa tới lượt của bạn!" });
+    if (!cur || cur.user_id !== socket.user_id) {
+      if (!socket.is_bot) {
+        securityService.recordEvent({
+          user_id: socket.user_id,
+          ip_address: socket.client_ip || "unknown",
+          user_agent: socket.user_agent || null,
+          event_type: "CHEAT_TURN_SPOOF",
+          endpoint: "game:roll",
+          payload: { room_id, expected_user: cur?.user_id },
+        });
+      }
+      return socket.emit("game:error", { message: "Chưa tới lượt của bạn!" });
+    }
 
     const targetIdx = Number(target_cell);
     if (!Number.isInteger(targetIdx) || targetIdx < 0 || targetIdx >= TOTAL_CELLS) {
@@ -2685,7 +2747,19 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     if (!gs) return socket.emit("game:error", { message: "Không tìm thấy game" });
     if (gs.phase !== "IDLE") return socket.emit("game:error", { message: "Đang xử lý, chờ tí" });
     const cur = getCurrentTurnPlayer(room_id);
-    if (!cur || cur.user_id !== socket.user_id) return socket.emit("game:error", { message: "Chưa tới lượt của bạn!" });
+    if (!cur || cur.user_id !== socket.user_id) {
+      if (!socket.is_bot) {
+        securityService.recordEvent({
+          user_id: socket.user_id,
+          ip_address: socket.client_ip || "unknown",
+          user_agent: socket.user_agent || null,
+          event_type: "CHEAT_TURN_SPOOF",
+          endpoint: "game:roll",
+          payload: { room_id, expected_user: cur?.user_id },
+        });
+      }
+      return socket.emit("game:error", { message: "Chưa tới lượt của bạn!" });
+    }
 
     // ── Giảm cooldown_turns_left của tất cả thẻ khi người chơi tung xúc xắc ──
     Object.values(cur.tarot_runtime || {}).forEach(rt => {
@@ -4039,6 +4113,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     io.emit("playerDisconnected", socket.id);
 
     const uid = Number(socket.user_id);
+    securityService.clearSocketRate(socket.id);
     if (onlineUserSockets.has(uid)) {
       onlineUserSockets.get(uid).delete(socket.id);
       if (onlineUserSockets.get(uid).size === 0) {
@@ -4110,7 +4185,37 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
 // ===== ROUTES =====
 app.get("/",           (req, res) => res.sendFile(path.join(__dirname, "index.html")));
 app.post("/register",  async (req, res) => res.json(await userService.register(req.body.username, req.body.email, req.body.password)));
-app.post("/login",     async (req, res) => res.json(await userService.login(req.body.username, req.body.password)));
+app.post("/login", async (req, res) => {
+  const ip = extractClientIp(req);
+  const ua = extractUserAgent(req);
+  const result = await userService.login(req.body.username, req.body.password);
+  if (result?.success && result.user) {
+    securityService.recordSession({
+      user_id: result.user.id,
+      username: result.user.username,
+      ip_address: ip,
+      user_agent: ua,
+    });
+    securityService.recordEvent({
+      user_id: result.user.id,
+      username: result.user.username,
+      ip_address: ip,
+      user_agent: ua,
+      event_type: "LOGIN_SUCCESS",
+      endpoint: "POST /login",
+    });
+  } else {
+    securityService.recordEvent({
+      username: req.body?.username || null,
+      ip_address: ip,
+      user_agent: ua,
+      event_type: "LOGIN_FAIL",
+      endpoint: "POST /login",
+      payload: { username: req.body?.username, reason: result?.message },
+    });
+  }
+  res.json(result);
+});
 
 // Verify token — dùng để auto-login khi reload game
 app.get("/auth/me", async (req, res) => {
@@ -4209,6 +4314,56 @@ app.post("/rooms/:id/verify-password", async (req, res) => {
   } catch { res.status(500).json({ success: false, message: "Server error" }); }
 });
 
+// ── CLIENT SECURITY TELEMETRY & DYNAMIC NPC CONFIG ─────────────
+app.post("/api/security/report", (req, res) => securityService.handleClientReport(req, res));
+app.get("/api/assets/npc-config", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ success: true, npcs: assetUploadService.getNpcConfig() });
+});
+
+// ── PAYOS REAL-MONEY TOP-UP & WEBHOOK ──────────────────────────
+app.get("/api/payment/packages", (req, res) => {
+  res.json({ success: true, packages: TOPUP_PACKAGES });
+});
+
+app.post("/api/payment/create", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || "";
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+    if (!token) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+    const decoded = jwt.verify(token, SECRET);
+    const result = await payosService.createPaymentOrder(decoded.id, req.body || {});
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (err) {
+    console.error("POST /api/payment/create error:", err.message);
+    res.status(401).json({ success: false, message: "Phiên đăng nhập không hợp lệ hoặc lỗi tạo đơn" });
+  }
+});
+
+app.get("/api/payment/status/:orderCode", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || "";
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+    if (!token) return res.status(401).json({ success: false, message: "Thiếu token" });
+    const decoded = jwt.verify(token, SECRET);
+    const result = await payosService.getOrderStatus(decoded.id, req.params.orderCode);
+    res.json(result);
+  } catch (err) {
+    res.status(401).json({ success: false, message: "Token không hợp lệ" });
+  }
+});
+
+// Webhook nhận thông tin thanh toán từ payOS (khai báo URL này trong kênh payOS)
+app.post("/api/payment/payos-webhook", async (req, res) => {
+  try {
+    const { httpStatus, payload } = await payosService.handleWebhook(req.body, { io, onlineUserSockets });
+    res.status(httpStatus).json(payload);
+  } catch (err) {
+    console.error("POST /api/payment/payos-webhook error:", err);
+    res.status(500).json({ success: false, message: "Webhook error" });
+  }
+});
+
 // ── ADMIN DASHBOARD API & PAGE ─────────────────────────────────
 app.use("/api/admin", createAdminRouter({ io, gameStates, onlineUserSockets, clearRoomBotTimers }));
 app.get("/admin", (req, res) => {
@@ -4219,6 +4374,8 @@ server.listen(3000, "0.0.0.0", () => {
   console.log("✅ Server ready at (tất cả interface)");
   startChatCleanupJob();
   adminRepo.ensureAdminSchema();
+  securityService.init();
+  payosService.ensurePaymentSchema();
 
   // ── Dọn dẹp các phòng bị kẹt khi server restart ──────────────
   db.query(

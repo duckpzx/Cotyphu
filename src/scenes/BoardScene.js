@@ -2973,6 +2973,42 @@ this.socket.on("game:tarot_denied", (data) => {
       this.load.image(`dice_blur_${i}`, `./assets/resources/Dice_Blur/dice_blur_${i}.png`);
     }
 
+    // Nạp cấu hình NPC tùy biến từ Admin Sprite Studio (nếu có)
+    this._npcConfig = null;
+    this.load.json("npc_config_live", `/api/assets/npc-config?t=${Date.now()}`);
+    this.load.once("filecomplete-json-npc_config_live", (_key, _type, payload) => {
+      const npcs = payload?.npcs || {};
+      this._npcConfig = npcs;
+
+      const tCfg = npcs.teacher;
+      if (tCfg?.is_custom && Array.isArray(tCfg.idle_frames) && tCfg.idle_frames.length > 0) {
+        const ver = tCfg.version || 0;
+        tCfg.idle_frames.forEach((url, i) => {
+          const num = String(i).padStart(3, "0");
+          const k = `Fantasy_Teacher_custom_${ver}_idle_${num}`;
+          if (!this.textures.exists(k)) this.load.image(k, `${url}?v=${ver}`);
+        });
+      }
+
+      const mCfg = npcs.monster;
+      if (mCfg?.is_custom && Array.isArray(mCfg.idle_frames) && mCfg.idle_frames.length > 0) {
+        const ver = mCfg.version || 0;
+        mCfg.idle_frames.forEach((url, i) => {
+          const num = String(i).padStart(3, "0");
+          const k = `Fantasy_Monster_custom_${ver}_idle_${num}`;
+          if (!this.textures.exists(k)) this.load.image(k, `${url}?v=${ver}`);
+        });
+        const atkFrames = (Array.isArray(mCfg.attack_frames) && mCfg.attack_frames.length > 0)
+          ? mCfg.attack_frames
+          : mCfg.idle_frames;
+        atkFrames.forEach((url, i) => {
+          const num = String(i).padStart(3, "0");
+          const k = `Hunter_Greeting_custom_${ver}_${num}`;
+          if (!this.textures.exists(k)) this.load.image(k, `${url}?v=${ver}`);
+        });
+      }
+    });
+
     for (let i = 0; i < 18; i++) {
       const num = String(i).padStart(3, "0");
       this.load.image(`Fantasy_Teacher_idle_${num}`,
@@ -3076,14 +3112,34 @@ this.socket.on("game:tarot_denied", (data) => {
   // ANIMATIONS
   // =====================
   createBloodyAnimation() {
-    if (!this.anims.exists("Bloody_Alchemist_1_idle")) {
+    const mCfg = this._npcConfig?.monster;
+    if (mCfg?.is_custom && Array.isArray(mCfg.idle_frames) && mCfg.idle_frames.length > 0) {
+      const ver = mCfg.version || 0;
+      const idleFrames = mCfg.idle_frames
+        .map((_, i) => ({ key: `Fantasy_Monster_custom_${ver}_idle_${String(i).padStart(3, "0")}` }))
+        .filter(f => this.textures.exists(f.key));
+      if (idleFrames.length > 0) {
+        if (this.anims.exists("Bloody_Alchemist_1_idle")) this.anims.remove("Bloody_Alchemist_1_idle");
+        this.anims.create({ key: "Bloody_Alchemist_1_idle", frames: idleFrames, frameRate: Number(mCfg.fps) || 12, repeat: -1 });
+      }
+    } else if (!this.anims.exists("Bloody_Alchemist_1_idle")) {
       const idleFrames = [];
       for (let i = 0; i < 16; i++)
         idleFrames.push({ key: `Fantasy_Monster_1_idle_${String(i).padStart(3,"0")}` });
       this.anims.create({ key:"Bloody_Alchemist_1_idle", frames:idleFrames, frameRate:12, repeat:-1 });
     }
 
-    if (!this.anims.exists("Fantasy_Teacher_idle")) {
+    const tCfg = this._npcConfig?.teacher;
+    if (tCfg?.is_custom && Array.isArray(tCfg.idle_frames) && tCfg.idle_frames.length > 0) {
+      const ver = tCfg.version || 0;
+      const teacherFrames = tCfg.idle_frames
+        .map((_, i) => ({ key: `Fantasy_Teacher_custom_${ver}_idle_${String(i).padStart(3, "0")}` }))
+        .filter(f => this.textures.exists(f.key));
+      if (teacherFrames.length > 0) {
+        if (this.anims.exists("Fantasy_Teacher_idle")) this.anims.remove("Fantasy_Teacher_idle");
+        this.anims.create({ key: "Fantasy_Teacher_idle", frames: teacherFrames, frameRate: Number(tCfg.fps) || 12, repeat: -1 });
+      }
+    } else if (!this.anims.exists("Fantasy_Teacher_idle")) {
       const teacherFrames = [];
       for (let i = 0; i < 18; i++)
         teacherFrames.push({ key: `Fantasy_Teacher_idle_${String(i).padStart(3,"0")}` });
@@ -3137,8 +3193,24 @@ this.socket.on("game:tarot_denied", (data) => {
       this.anims.create({ key: "water_ball", frames: waterBallFrames, frameRate: 20, repeat: -1 });
     }
 
-    // Hunter greeting animation for cell 28 event
-    if (!this.anims.exists("Hunter_Greeting")) {
+    // Hunter greeting animation for cell 28 event (hỗ trợ custom attack frames từ Admin)
+    const mCfg = this._npcConfig?.monster;
+    if (mCfg?.is_custom && Array.isArray(mCfg.idle_frames) && mCfg.idle_frames.length > 0) {
+      const ver = mCfg.version || 0;
+      const atkList = (Array.isArray(mCfg.attack_frames) && mCfg.attack_frames.length > 0)
+        ? mCfg.attack_frames
+        : mCfg.idle_frames;
+      const customGreet = atkList
+        .map((_, i) => ({ key: `Hunter_Greeting_custom_${ver}_${String(i).padStart(3, "0")}` }))
+        .filter(f => this.textures.exists(f.key));
+      if (customGreet.length > 0) {
+        if (this.anims.exists("Hunter_Greeting")) this.anims.remove("Hunter_Greeting");
+        if (this.anims.exists("Hunter_Greeting_2")) this.anims.remove("Hunter_Greeting_2");
+        const fps = Number(mCfg.fps) || 12;
+        this.anims.create({ key: "Hunter_Greeting", frames: customGreet, frameRate: fps, repeat: 0 });
+        this.anims.create({ key: "Hunter_Greeting_2", frames: customGreet, frameRate: fps, repeat: 0 });
+      }
+    } else if (!this.anims.exists("Hunter_Greeting")) {
       const greetingFrames = [];
       for (let i = 0; i < 10; i++) {
         greetingFrames.push({ key: `Hunter_Greeting_${String(i).padStart(3,"0")}` });
@@ -3812,25 +3884,35 @@ this.input.keyboard.on("keydown-Y", () => {
 });
 
 
-    // NPC: Devil Leader tại ô 28
+    // NPC: Quái vật tại ô 28 (hỗ trợ custom sprite & scale từ Admin Sprite Studio)
+    const mCfgSpawn = this._npcConfig?.monster;
+    const mKey0 = (mCfgSpawn?.is_custom && this.textures.exists(`Fantasy_Monster_custom_${mCfgSpawn.version || 0}_idle_000`))
+      ? `Fantasy_Monster_custom_${mCfgSpawn.version || 0}_idle_000`
+      : "Fantasy_Monster_1_idle_000";
+    const mScaleMult = Number(mCfgSpawn?.scale) || 1;
     const c28 = this.boardPath[28];
     const hx = c28.x * width;
     const tileY = c28.y * height + 2 * minRatio;
     const hy = tileY + 25 * minRatio;
-    this.bloody = this.add.sprite(hx, hy, "Fantasy_Monster_1_idle_000")
-      .setScale(0.315 * minRatio).setOrigin(0.5, 0.85).setDepth(6);
-    this.bloodyBaseScale = 0.315 * minRatio;
+    this.bloody = this.add.sprite(hx, hy, mKey0)
+      .setScale(0.315 * mScaleMult * minRatio).setOrigin(0.5, 0.85).setDepth(6);
+    this.bloodyBaseScale = 0.315 * mScaleMult * minRatio;
     this.bloodyBaseDepth = 6;
     this.bloody.play("Bloody_Alchemist_1_idle");
     this.createCharacterAura(hx, tileY - 10 * minRatio, minRatio,[0x4a6cff,0x4a6cff,0x2f4fd1,0x4a6cff,0x6688ff,0x1b2f75],0x050816);
     this.createLightningAura(hx, tileY, minRatio);
     this.add.ellipse(hx, tileY, 44*minRatio, 18*minRatio, 0x000000, 0.35).setDepth(5);
 
-    // NPC: Teacher tại ô 18
+    // NPC: Teacher tại ô 18 (hỗ trợ custom sprite & scale từ Admin Sprite Studio)
+    const tCfgSpawn = this._npcConfig?.teacher;
+    const tKey0 = (tCfgSpawn?.is_custom && this.textures.exists(`Fantasy_Teacher_custom_${tCfgSpawn.version || 0}_idle_000`))
+      ? `Fantasy_Teacher_custom_${tCfgSpawn.version || 0}_idle_000`
+      : "Fantasy_Teacher_idle_000";
+    const tScaleMult = Number(tCfgSpawn?.scale) || 1;
     const c18 = this.boardPath[18];
     const tx=c18.x*(width-4), ty=c18.y*(height-17);
-    this.teacher = this.add.sprite(tx, ty, "Fantasy_Teacher_idle_000")
-      .setScale(0.22*minRatio).setOrigin(0.5,0.8).setDepth(6);
+    this.teacher = this.add.sprite(tx, ty, tKey0)
+      .setScale(0.22 * tScaleMult * minRatio).setOrigin(0.5,0.8).setDepth(6);
     this.teacher.play("Fantasy_Teacher_idle");
     this.createCharacterAura(tx,ty,minRatio,[0xffdd00,0xffdd00,0xffaa00,0xffdd00,0xffee55,0xcc8800],0x1a0e00);
     this.createLightningAura(tx, ty+18*minRatio, minRatio);

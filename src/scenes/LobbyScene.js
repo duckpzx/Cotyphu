@@ -5,6 +5,7 @@ import FriendPanel from "./components/FriendPanel.js";
 import { SERVER_URL } from "../config.js";
 import { tarotLevelKey, tarotImagePath } from "../utils/tarotLevel.js";
 import { setupClickSound, playTabSound, playOutSound, isMusicEnabled } from "../utils/clickSound.js";
+import { openPayosTopUpFlow } from "../utils/payosModal.js";
 
 // ── Helper: chọn background theo giờ trong ngày ──────────────────
 // 5:00 → 19:00 = ban ngày (light), còn lại = ban đêm (dark)
@@ -1508,8 +1509,8 @@ createTopBar() {
     }).setOrigin(0.5).setDepth(D + 3));
 
     const rates = [
-      "10.000đ = 100 Ecoin",  "50.000đ = 550 Ecoin",
-      "100.000đ = 1.200 Ecoin", "200.000đ = 2.600 Ecoin",
+      "10.000đ = 65.000 Ecoin",   "50.000đ = 350.000 Ecoin",
+      "100.000đ = 750.000 Ecoin", "200.000đ = 1.600.000 Ecoin",
     ];
     rates.forEach((r, i) => {
       const col = i % 2, row = Math.floor(i / 2);
@@ -1521,14 +1522,14 @@ createTopBar() {
       ).setDepth(D + 3));
     });
 
-    // ── Các gói nạp ──────────────────────────────────────────────
+    // ── Các gói nạp (Mốc chuẩn: 50K = 350K Ecoin) ────────────────
     const packages = [
-      { amount: 10000,   ecoin: 100,   label: "10K",   icon: "🪙", color: 0x6a9fd4 },
-      { amount: 50000,   ecoin: 550,   label: "50K",   icon: "💰", color: 0x44aa66 },
-      { amount: 100000,  ecoin: 1200,  label: "100K",  icon: "💎", color: 0x9966cc },
-      { amount: 200000,  ecoin: 2600,  label: "200K",  icon: "👑", color: 0xd4a030 },
-      { amount: 500000,  ecoin: 7000,  label: "500K",  icon: "🔥", color: 0xcc4422 },
-      { amount: 1000000, ecoin: 15000, label: "1M",    icon: "⭐", color: 0xaa2288 },
+      { id: "pkg_10k",  amount: 10000,   ecoin: 65000,   label: "10K",  icon: "🪙", color: 0x6a9fd4 },
+      { id: "pkg_50k",  amount: 50000,   ecoin: 350000,  label: "50K",  icon: "💰", color: 0x44aa66 },
+      { id: "pkg_100k", amount: 100000,  ecoin: 750000,  label: "100K", icon: "💎", color: 0x9966cc },
+      { id: "pkg_200k", amount: 200000,  ecoin: 1600000, label: "200K", icon: "👑", color: 0xd4a030 },
+      { id: "pkg_500k", amount: 500000,  ecoin: 4250000, label: "500K", icon: "🔥", color: 0xcc4422 },
+      { id: "pkg_1m",   amount: 1000000, ecoin: 9000000, label: "1M",   icon: "⭐", color: 0xaa2288 },
     ];
 
     const cols = 3, cardW = 156, cardH = 100, gapX = 14, gapY = 10;
@@ -1592,7 +1593,7 @@ createTopBar() {
       zone.on("pointerout",   () => drawCard(false));
       zone.on("pointerdown",  () => {
         this.tweens.add({ targets: cg, alpha: 0.7, duration: 80, yoyo: true });
-        this._doTopUp(pkg.amount, pkg.ecoin, closeAll);
+        this._doTopUp(pkg.amount, pkg.ecoin, closeAll, pkg.id);
       });
     });
 
@@ -1605,37 +1606,33 @@ createTopBar() {
     });
   }
 
-  async _doTopUp(amount, ecoin, onDone) {
+  async _doTopUp(amount, ecoin, onDone, packageId = null) {
     const playerData = this.registry.get("playerData")
       || JSON.parse(localStorage.getItem("playerData") || "null");
-    if (!playerData?.token) {
+    const token = playerData?.token || localStorage.getItem("token");
+    if (!token) {
       this._showToast("❌ Bạn chưa đăng nhập!");
       return;
     }
-    const userId = playerData?.user?.id || playerData?.user_id;
-    if (!userId) { this._showToast("❌ Không tìm thấy tài khoản!"); return; }
 
-    try {
-      const res  = await fetch(`${SERVER_URL}/shop/add-ecoin`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, amount: ecoin }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        EcoinManager.set(this, data.ecoin);
+    onDone?.();
+    await openPayosTopUpFlow({
+      scene: this,
+      token,
+      amountVnd: amount,
+      packageId,
+      onPaid: (newEcoin, added) => {
+        EcoinManager.set(this, newEcoin);
         if (playerData?.user) {
-          playerData.user.ecoin = data.ecoin;
+          playerData.user.ecoin = newEcoin;
           localStorage.setItem("playerData", JSON.stringify(playerData));
         }
-        this._showToast(`✅ Nạp thành công +${ecoin.toLocaleString()} Ecoin!`);
-        onDone?.();
-      } else {
-        this._showToast(`❌ ${data.message || "Nạp thất bại!"}`);
-      }
-    } catch(e) {
-      this._showToast("❌ Lỗi kết nối server!");
-    }
+        this._showToast(`✅ Nạp thành công +${Number(added || ecoin).toLocaleString()} Ecoin!`);
+      },
+      onError: (msg) => {
+        this._showToast(`❌ ${msg}`);
+      },
+    });
   }
 
   _showToast(msg) {

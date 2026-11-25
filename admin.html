@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>COTYPHU.NOC // Admin Terminal HUD</title>
+  <title>CỜ TỶ PHÚ // Admin Dashboard</title>
+  <link rel="icon" type="image/png" href="/assets/icon_admin.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -17,7 +18,10 @@
         <span class="brand-badge">[ ADMIN TERMINAL ]</span>
         <span class="live-pill"><span class="pulse-dot"></span>AUTH READY</span>
       </div>
-      <h1>COTYPHU<span class="accent-green">NOC</span></h1>
+      <div class="login-brand-row">
+        <img src="/assets/icon_admin.png" alt="Admin Icon" class="admin-brand-icon admin-brand-icon-lg" />
+        <h1>COTYPHU<span class="accent-green">ADMIN</span></h1>
+      </div>
       <p class="subtitle">&gt; yêu cầu xác thực tài khoản quản trị viên (role = admin)</p>
       <form id="loginForm">
         <div class="field">
@@ -43,7 +47,8 @@
     <header class="noc-header">
       <div class="noc-header-left">
         <div class="noc-brand">
-          <span class="noc-brand-main">COTYPHU<span class="accent-green">NOC</span></span>
+          <img src="/assets/icon_admin.png" alt="Admin Icon" class="admin-brand-icon" />
+          <span class="noc-brand-main">COTYPHU<span class="accent-green">ADMIN</span></span>
           <span class="noc-brand-sub">// quản trị hệ thống &amp; giám sát thời gian thực</span>
         </div>
         <div class="noc-clock-box">
@@ -53,17 +58,16 @@
 
       <div class="noc-header-right">
         <span id="adminProfile" class="noc-chip">ADMIN</span>
-        <button id="refreshBtn" class="btn btn-secondary btn-sm">LÀM MỚI</button>
         <a href="/" class="btn btn-ghost btn-sm">MỞ GAME</a>
         <button id="logoutBtn" class="btn btn-danger btn-sm">ĐĂNG XUẤT</button>
-        <span class="live-pill live-pill-red"><span class="pulse-dot pulse-dot-red"></span>LIVE</span>
+        <button id="liveToggleBtn" class="live-pill live-pill-red" title="Bấm để tạm dừng/bật tự động cập nhật" style="cursor:pointer"><span class="pulse-dot pulse-dot-red"></span><span id="liveToggleLabel">LIVE 3s</span></button>
       </div>
     </header>
 
     <!-- TERMINAL TELEMETRY STATUS STRIP -->
     <div class="telemetry-strip">
       <span>&gt; services: auth <b class="ok-txt">[ok]</b> rooms <b class="ok-txt">[ok]</b> quiz <b class="ok-txt">[ok]</b> bot-ai <b class="ok-txt">[ready]</b></span>
-      <span>&gt; guard: ban/mute <b class="ok-txt">[enforced]</b></span>
+      <span>&gt; soc-guard: anti-cheat <b class="ok-txt">[active]</b> ip-blacklist <b class="ok-txt">[enforced]</b></span>
       <span>&gt; rbac: <b class="cyan-val">[admin-session]</b></span>
     </div>
 
@@ -99,6 +103,18 @@
             <span class="nav-code">07</span>
             <span>Nhật ký quản trị</span>
           </button>
+          <button class="nav-item" data-tab="security">
+            <span class="nav-code">08</span>
+            <span>Giám sát An ninh (SOC)</span>
+          </button>
+          <button class="nav-item" data-tab="blacklist">
+            <span class="nav-code">09</span>
+            <span>IP Blacklist &amp; Phiên IP</span>
+          </button>
+          <button class="nav-item" data-tab="sprites">
+            <span class="nav-code">10</span>
+            <span>Asset &amp; Sprite Studio</span>
+          </button>
         </nav>
 
         <div class="sidebar-meta">
@@ -110,7 +126,7 @@
       <main class="main-content">
         <div class="view-header">
           <h2 id="pageTitle" class="section-bracket">[ TỔNG QUAN HỆ THỐNG ]</h2>
-          <span class="muted">tabular-telemetry • real-time sync</span>
+          <span id="syncStatusText" class="muted">auto-sync: 3s • synced --:--:--</span>
         </div>
 
         <section id="tabContent" class="content-body">
