@@ -18,8 +18,15 @@ export const RARITY_THEMES = {
     glowCenter:"rgba(255, 193, 7, 0.26)",
     baseShade: "rgba(217, 138, 43, 0.24)",
     border:    "#c27a22",
-    badgeBg:   "#d97706",
-    badgeText: "#fffbeb",
+    badgeTop:  "#ffe066",
+    badgeMid:  "#f59e0b",
+    badgeBot:  "#b45309",
+    badgeLip:  "#6b2600",
+    badgeRim:  "#fff7cc",
+    txtTop:    "#ffffff",
+    txtMid:    "#ffe66d",
+    txtBot:    "#ffb703",
+    txtStroke: "#5c1900",
   },
   "S": {
     label: "S",
@@ -34,8 +41,15 @@ export const RARITY_THEMES = {
     glowCenter:"rgba(192, 84, 255, 0.24)",
     baseShade: "rgba(148, 62, 204, 0.20)",
     border:    "#9539c4",
-    badgeBg:   "#9333ea",
-    badgeText: "#faf5ff",
+    badgeTop:  "#f5a3ff",
+    badgeMid:  "#a855f7",
+    badgeBot:  "#6b21a8",
+    badgeLip:  "#3b0764",
+    badgeRim:  "#fae8ff",
+    txtTop:    "#ffffff",
+    txtMid:    "#f5d0fe",
+    txtBot:    "#e879f9",
+    txtStroke: "#3b0764",
   },
   "A": {
     label: "A",
@@ -50,8 +64,15 @@ export const RARITY_THEMES = {
     glowCenter:"rgba(56, 189, 248, 0.24)",
     baseShade: "rgba(2, 132, 199, 0.18)",
     border:    "#1e80b8",
-    badgeBg:   "#0284c7",
-    badgeText: "#f0f9ff",
+    badgeTop:  "#7dd3fc",
+    badgeMid:  "#0284c7",
+    badgeBot:  "#075985",
+    badgeLip:  "#082f49",
+    badgeRim:  "#e0f2fe",
+    txtTop:    "#ffffff",
+    txtMid:    "#bae6fd",
+    txtBot:    "#38bdf8",
+    txtStroke: "#082f49",
   },
   "B": {
     label: "B",
@@ -66,8 +87,15 @@ export const RARITY_THEMES = {
     glowCenter:"rgba(132, 204, 22, 0.22)",
     baseShade: "rgba(77, 136, 6, 0.18)",
     border:    "#5c911a",
-    badgeBg:   "#4d7c0f",
-    badgeText: "#f7fee7",
+    badgeTop:  "#bef264",
+    badgeMid:  "#65a30d",
+    badgeBot:  "#3f6212",
+    badgeLip:  "#1a2e05",
+    badgeRim:  "#ecfccb",
+    txtTop:    "#ffffff",
+    txtMid:    "#d9f99d",
+    txtBot:    "#a3e635",
+    txtStroke: "#1a2e05",
   },
 };
 
@@ -236,22 +264,79 @@ export function ensureRarityCardTexture(scene, tier, w, h) {
   ctx.fillStyle = theme.hdrLine;
   ctx.fillRect(x, y + hdrH - 1.5, bw, 1.5);
 
-  // 2f. Huy hiệu cấp độ nhỏ góc trên phải phần body (không đè giá tiền hay ribbon)
-  const pillW = safeTier.length > 1 ? 26 : 20;
-  const pillH = 15;
+  // 2f. Huy hiệu cấp độ nổi 3D (S+, S, A, B) góc trên phải phần body — font kiểu in nghiêng + chữ gradient kim loại
+  const pillW = safeTier.length > 1 ? 34 : 26;
+  const pillH = 20;
   const px = x + bw - pillW - 5;
-  const py = y + hdrH + 4;
-  roundRectPath(ctx, px, py, pillW, pillH, 5);
-  ctx.fillStyle = theme.badgeBg;
+  const py = y + hdrH + 5;
+  const pr = 7;
+
+  // Bóng đổ mềm dưới huy hiệu 3D
+  ctx.save();
+  ctx.shadowColor = "rgba(0, 0, 0, 0.38)";
+  ctx.shadowBlur = 4;
+  ctx.shadowOffsetY = 2.5;
+  roundRectPath(ctx, px, py + 2, pillW, pillH, pr);
+  ctx.fillStyle = theme.badgeLip;
   ctx.fill();
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = "rgba(255,255,255,0.7)";
+  ctx.restore();
+
+  // Phần đế dày 3D (extrusion) phía dưới
+  roundRectPath(ctx, px, py + 2, pillW, pillH, pr);
+  ctx.fillStyle = theme.badgeLip;
+  ctx.fill();
+
+  // Mặt trên huy hiệu với gradient bóng kim loại
+  const badgeGrad = ctx.createLinearGradient(px, py, px, py + pillH);
+  badgeGrad.addColorStop(0, theme.badgeTop);
+  badgeGrad.addColorStop(0.52, theme.badgeMid);
+  badgeGrad.addColorStop(1, theme.badgeBot);
+  roundRectPath(ctx, px, py, pillW, pillH, pr);
+  ctx.fillStyle = badgeGrad;
+  ctx.fill();
+
+  // Vệt sáng bóng kính nửa trên huy hiệu
+  ctx.save();
+  roundRectPath(ctx, px, py, pillW, pillH, pr);
+  ctx.clip();
+  const bGloss = ctx.createLinearGradient(px, py, px, py + pillH * 0.52);
+  bGloss.addColorStop(0, "rgba(255,255,255,0.62)");
+  bGloss.addColorStop(1, "rgba(255,255,255,0.05)");
+  ctx.fillStyle = bGloss;
+  ctx.fillRect(px + 1.5, py + 1, pillW - 3, pillH * 0.48);
+  ctx.restore();
+
+  // Viền sáng nổi 3D
+  roundRectPath(ctx, px, py, pillW, pillH, pr);
+  ctx.lineWidth = 1.3;
+  ctx.strokeStyle = theme.badgeRim;
   ctx.stroke();
-  ctx.fillStyle = theme.badgeText;
-  ctx.font = "bold 10px Signika, Arial, sans-serif";
+
+  // Chữ hạng (S+, S, A, B): font display in nghiêng đậm + đổ khối 3D + màu gradient
+  const tcx = px + pillW / 2 - 0.5;
+  const tcy = py + pillH / 2 + 0.5;
+  ctx.font = `italic 900 ${safeTier.length > 1 ? 12.5 : 13.5}px "Arial Black", Impact, Signika, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(theme.label, px + pillW / 2, py + pillH / 2 + 0.5);
+  ctx.lineJoin = "round";
+
+  // Lớp bóng đổ 3D lệch xuống dưới
+  ctx.lineWidth = 3.2;
+  ctx.strokeStyle = theme.txtStroke;
+  ctx.strokeText(theme.label, tcx + 0.6, tcy + 1.3);
+
+  // Lớp viền đậm quanh chữ
+  ctx.lineWidth = 2.6;
+  ctx.strokeStyle = theme.txtStroke;
+  ctx.strokeText(theme.label, tcx, tcy);
+
+  // Lớp chữ fill gradient ánh kim
+  const txtGrad = ctx.createLinearGradient(tcx, py + 3, tcx, py + pillH - 3);
+  txtGrad.addColorStop(0, theme.txtTop);
+  txtGrad.addColorStop(0.55, theme.txtMid);
+  txtGrad.addColorStop(1, theme.txtBot);
+  ctx.fillStyle = txtGrad;
+  ctx.fillText(theme.label, tcx, tcy);
 
   ctx.restore();
 

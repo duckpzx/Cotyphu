@@ -1,7 +1,36 @@
 {
   "rating": {
-    "active_id": "default",
-    "presets": []
+    "active_id": "rating_1795617016617",
+    "presets": [
+      {
+        "id": "rating_1795617016617",
+        "name": "Giáng sinh",
+        "is_custom": true,
+        "image_url": "/assets/custom_scenes/rating_1795617016617.png",
+        "version": 1795617042066,
+        "spots": [
+          {
+            "id": 1,
+            "x": 0.5031,
+            "y": 0.5223,
+            "label": "Hạng 1 (Quán Quân)"
+          },
+          {
+            "id": 2,
+            "x": 0.215,
+            "y": 0.5831,
+            "label": "Hạng 2 (Trái)"
+          },
+          {
+            "id": 3,
+            "x": 0.7939,
+            "y": 0.5854,
+            "label": "Hạng 3 (Phải)"
+          }
+        ],
+        "updated_at": "2026-11-25T14:30:42.066Z"
+      }
+    ]
   },
   "lab": {
     "active_id": "lab_1795612151545",
@@ -11,7 +40,7 @@
         "name": "Giáng sinh",
         "is_custom": true,
         "image_url": "/assets/custom_scenes/lab_1795612151545.png",
-        "version": 1795612223097,
+        "version": 1795616652659,
         "spots": [
           {
             "id": 1,
@@ -29,8 +58,8 @@
           },
           {
             "id": 3,
-            "x": 0.5084,
-            "y": 0.3987,
+            "x": 0.5071,
+            "y": 0.38,
             "label": "Spot 3 (Phù Thủy)",
             "flipX": false
           },
@@ -56,7 +85,7 @@
             "flipX": true
           }
         ],
-        "updated_at": "2026-11-25T13:10:23.097Z"
+        "updated_at": "2026-11-25T14:24:12.659Z"
       }
     ]
   }

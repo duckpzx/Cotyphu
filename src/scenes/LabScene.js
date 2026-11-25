@@ -149,17 +149,8 @@ export default class LabScene extends Phaser.Scene {
 
         if (this.anims.exists("wizard_idle")) wizard.play("wizard_idle");
 
-        // Nhãn — đẩy lên cao hơn đầu nhân vật
-        this.add.text(sx, sy - 120 * minR, "Phù Thủy", {
-            fontFamily: "Signika", fontSize: Math.floor(22 * minR) + "px",
-            color: "#cc88ff", fontStyle: "bold",
-            stroke: "#000000", strokeThickness: 5,
-        }).setOrigin(0.5).setDepth(12);
-
-        // Hiệu ứng glow tím nhẹ xung quanh
-        const glow = this.add.graphics().setDepth(8);
-        glow.fillStyle(0x9933ff, 0.08);
-        glow.fillCircle(sx, sy - 20 * minR, 52 * minR);
+        // Hiệu ứng Magic Buff màu tím đa lớp (vòng ma pháp dưới chân + dải xoáy 3D trước/sau + tia sáng bay lên + hạt mana)
+        this._buildWizardMagicAura(sx, sy, minR);
 
         // Lưu để dùng lại nếu cần
         this._wizardSprite = wizard;
@@ -171,33 +162,330 @@ export default class LabScene extends Phaser.Scene {
         wizard.on("pointerover", () => wizard.setTint(0xe0c0ff));
         wizard.on("pointerout",  () => wizard.clearTint());
 
-        const bw = Math.round(190 * minR), bh = Math.round(40 * minR);
-        const bx = sx, by0 = sy - 158 * minR;
-        const bg = this.add.graphics().setDepth(13);
-        const drawBtn = (hover) => {
-            bg.clear();
-            bg.fillStyle(0x000000, 0.3);
-            bg.fillRoundedRect(bx - bw / 2 + 3, by0 - bh / 2 + 5, bw, bh, bh / 2);
-            bg.fillGradientStyle(0xffd452, 0xffd452, 0xd48a10, 0xd48a10, 1);
-            bg.fillRoundedRect(bx - bw / 2, by0 - bh / 2, bw, bh, bh / 2);
-            bg.fillStyle(0xffffff, hover ? 0.4 : 0.25);
-            bg.fillRoundedRect(bx - bw / 2 + 8, by0 - bh / 2 + 4, bw - 16, bh * 0.38, bh / 2 - 3);
-            bg.lineStyle(2.5, 0x8b5e1a, 1);
-            bg.strokeRoundedRect(bx - bw / 2, by0 - bh / 2, bw, bh, bh / 2);
-        };
-        drawBtn(false);
-        const btnTxt = this.add.text(bx, by0, "NÂNG CẤP THẺ BÀI", {
-            fontFamily: "Signika", fontSize: Math.floor(17 * minR) + "px",
-            color: "#4a2000", fontStyle: "bold",
-        }).setOrigin(0.5).setDepth(14);
-        const btnZone = this.add.zone(bx, by0, bw, bh).setDepth(15).setInteractive({ cursor: "pointer" });
-        btnZone.on("pointerover", () => drawBtn(true));
-        btnZone.on("pointerout",  () => drawBtn(false));
-        btnZone.on("pointerup", () => {
-            this.tweens.add({ targets: [bg, btnTxt], scaleX: 0.95, scaleY: 0.95, duration: 60, yoyo: true,
-                onComplete: openUpgrade });
+        // Nhãn "NÂNG CẤP THẺ BÀI" không khung nền: chữ gradient tím-hồng + quầng sáng blur đồng bộ hiệu ứng ma pháp bên dưới
+        const bx = sx, by0 = sy - 126 * minR;
+        const btnWrap = this.add.container(bx, by0).setDepth(14);
+
+        const lblW = Math.round(250 * minR);
+        const lblH = Math.round(64 * minR);
+        const lblKey = `lab_upgrade_label_${lblW}x${lblH}`;
+        if (!this.textures.exists(lblKey)) {
+            const DPR = 2;
+            const cTex = this.textures.createCanvas(lblKey, lblW * DPR, lblH * DPR);
+            const ctx = cTex.getContext();
+            ctx.scale(DPR, DPR);
+            const cx = lblW / 2, cy = lblH / 2;
+
+            // Quầng sáng tím-hồng blur mềm phía sau chữ (trùng màu magic buff bên dưới)
+            ctx.save();
+            ctx.filter = "blur(10px)";
+            const halo = ctx.createRadialGradient(cx, cy, 4, cx, cy, lblW * 0.45);
+            halo.addColorStop(0,    "rgba(232, 121, 249, 0.72)");
+            halo.addColorStop(0.45, "rgba(168, 85, 247, 0.42)");
+            halo.addColorStop(1,    "rgba(126, 34, 206, 0)");
+            ctx.fillStyle = halo;
+            ctx.fillRect(0, 0, lblW, lblH);
+            ctx.restore();
+
+            // Chữ "NÂNG CẤP THẺ BÀI" gradient trắng → hồng tím sáng + viền tím đậm sắc nét
+            const fz = Math.max(15, Math.round(18 * minR));
+            ctx.font = `900 ${fz}px Signika, Arial, sans-serif`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.lineJoin = "round";
+
+            ctx.save();
+            ctx.shadowColor = "rgba(192, 38, 211, 0.9)";
+            ctx.shadowBlur = 10;
+            ctx.lineWidth = 4.5;
+            ctx.strokeStyle = "#2e0659";
+            ctx.strokeText("NÂNG CẤP THẺ BÀI", cx, cy);
+            ctx.restore();
+
+            const tGrad = ctx.createLinearGradient(cx, cy - fz * 0.6, cx, cy + fz * 0.6);
+            tGrad.addColorStop(0,    "#ffffff");
+            tGrad.addColorStop(0.55, "#f5d0fe");
+            tGrad.addColorStop(1,    "#e879f9");
+            ctx.fillStyle = tGrad;
+            ctx.fillText("NÂNG CẤP THẺ BÀI", cx, cy);
+            cTex.refresh();
+        }
+
+        const lblImg = this.add.image(0, 0, lblKey)
+            .setDisplaySize(lblW, lblH)
+            .setInteractive({ cursor: "pointer" });
+        btnWrap.add(lblImg);
+
+        lblImg.on("pointerover", () => {
+            this.tweens.add({ targets: btnWrap, scaleX: 1.07, scaleY: 1.07, duration: 110, ease: "Sine.easeOut" });
         });
-        this.tweens.add({ targets: [bg, btnTxt, btnZone], y: "-=5", duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+        lblImg.on("pointerout", () => {
+            this.tweens.add({ targets: btnWrap, scaleX: 1, scaleY: 1, duration: 110, ease: "Sine.easeOut" });
+        });
+        lblImg.on("pointerup", () => {
+            this.tweens.add({
+                targets: btnWrap, scaleX: 0.93, scaleY: 0.93, duration: 60, yoyo: true,
+                onComplete: openUpgrade,
+            });
+        });
+
+        this.tweens.add({ targets: btnWrap, y: by0 - 5 * minR, duration: 950, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    //  Hiệu ứng Magic Buff màu tím 3D xung quanh Phù Thủy (ADD blend)
+    // ────────────────────────────────────────────────────────────────
+    _buildWizardMagicAura(sx, sy, minR) {
+        const footY = sy + 14 * minR;
+
+        // 1. Tạo CanvasTexture vòng tròn ma pháp tím phát sáng (cache 1 lần)
+        const runeKey = "wizard_arcane_rune_256";
+        if (!this.textures.exists(runeKey)) {
+            const sz = 256;
+            const cTex = this.textures.createCanvas(runeKey, sz, sz);
+            const ctx = cTex.getContext();
+            const cx = sz / 2, cy = sz / 2;
+
+            // Quầng plasma hồng-tím rực dưới chân
+            const coreGrad = ctx.createRadialGradient(cx, cy, 8, cx, cy, sz * 0.48);
+            coreGrad.addColorStop(0,    "rgba(255, 220, 255, 0.95)");
+            coreGrad.addColorStop(0.28, "rgba(232, 74, 255, 0.78)");
+            coreGrad.addColorStop(0.60, "rgba(155, 38, 255, 0.35)");
+            coreGrad.addColorStop(1,    "rgba(120, 20, 220, 0)");
+            ctx.fillStyle = coreGrad;
+            ctx.fillRect(0, 0, sz, sz);
+
+            // Vòng tròn ma pháp đồng tâm + 12 vạch rune
+            ctx.strokeStyle = "rgba(255, 190, 255, 0.92)";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(cx, cy, sz * 0.37, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.strokeStyle = "rgba(216, 110, 255, 0.75)";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(cx, cy, sz * 0.28, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // 12 ký tự / vạch sáng quanh vòng ma pháp
+            for (let i = 0; i < 12; i++) {
+                const a = (i / 12) * Math.PI * 2;
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(a);
+                ctx.strokeStyle = i % 2 === 0 ? "rgba(255, 240, 255, 0.95)" : "rgba(236, 72, 255, 0.85)";
+                ctx.lineWidth = i % 2 === 0 ? 3 : 2;
+                ctx.beginPath();
+                ctx.moveTo(sz * 0.29, 0);
+                ctx.lineTo(sz * 0.36, 0);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            // 3 vệt xoáy năng lượng mềm
+            for (let k = 0; k < 3; k++) {
+                const startA = (k / 3) * Math.PI * 2;
+                ctx.strokeStyle = "rgba(244, 114, 255, 0.65)";
+                ctx.lineWidth = 5;
+                ctx.lineCap = "round";
+                ctx.beginPath();
+                ctx.arc(cx, cy, sz * 0.42, startA, startA + 1.15);
+                ctx.stroke();
+            }
+            cTex.refresh();
+        }
+
+        // 2. Tạo CanvasTexture tia năng lượng dọc (beam) & đốm sao sáng (spark)
+        const beamKey = "wizard_arcane_beam_32x128";
+        if (!this.textures.exists(beamKey)) {
+            const bw = 32, bh = 128;
+            const bTex = this.textures.createCanvas(beamKey, bw, bh);
+            const ctx = bTex.getContext();
+            const gV = ctx.createLinearGradient(0, 0, 0, bh);
+            gV.addColorStop(0,   "rgba(255, 255, 255, 0)");
+            gV.addColorStop(0.35,"rgba(245, 160, 255, 0.92)");
+            gV.addColorStop(0.7, "rgba(217, 70, 239, 0.95)");
+            gV.addColorStop(1,   "rgba(168, 85, 247, 0)");
+            ctx.fillStyle = gV;
+            ctx.fillRect(bw / 2 - 4, 0, 8, bh);
+
+            // Lõi trắng rực mảnh ở giữa tia
+            const gCore = ctx.createLinearGradient(0, 0, 0, bh);
+            gCore.addColorStop(0,   "rgba(255, 255, 255, 0)");
+            gCore.addColorStop(0.45,"rgba(255, 255, 255, 1)");
+            gCore.addColorStop(0.75,"rgba(255, 220, 255, 0.9)");
+            gCore.addColorStop(1,   "rgba(255, 255, 255, 0)");
+            ctx.fillStyle = gCore;
+            ctx.fillRect(bw / 2 - 1.5, bh * 0.1, 3, bh * 0.8);
+            bTex.refresh();
+        }
+
+        const sparkKey = "wizard_arcane_spark_24";
+        if (!this.textures.exists(sparkKey)) {
+            const s = 24;
+            const sTex = this.textures.createCanvas(sparkKey, s, s);
+            const ctx = sTex.getContext();
+            const g = ctx.createRadialGradient(s / 2, s / 2, 1, s / 2, s / 2, s / 2);
+            g.addColorStop(0,   "rgba(255, 255, 255, 1)");
+            g.addColorStop(0.35,"rgba(244, 140, 255, 0.9)");
+            g.addColorStop(0.7, "rgba(192, 38, 211, 0.35)");
+            g.addColorStop(1,   "rgba(168, 85, 247, 0)");
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, s, s);
+            sTex.refresh();
+        }
+
+        // 3. Đặt 2 lớp vòng ma pháp nằm phẳng hoàn toàn trên mặt đất như bóng (Container scaleY = 0.42)
+        // Khi xoay runeOuter/runeInner bên trong Container dẹt, vòng tròn xoay mượt trên mặt phẳng đất không bị lật đứng!
+        const groundContainer = this.add.container(sx, footY + 4 * minR)
+            .setDepth(8)
+            .setScale(1, 0.42);
+
+        const runeOuter = this.add.image(0, 0, runeKey)
+            .setBlendMode(Phaser.BlendModes.ADD)
+            .setScale(0.92 * minR)
+            .setAlpha(0.86);
+        const runeInner = this.add.image(0, 0, runeKey)
+            .setBlendMode(Phaser.BlendModes.ADD)
+            .setScale(0.62 * minR)
+            .setAlpha(0.76);
+        groundContainer.add([runeOuter, runeInner]);
+
+        // Nhịp thở phát sáng mềm cho vòng ma pháp dưới chân
+        this.tweens.add({
+            targets: runeOuter,
+            alpha: { from: 0.70, to: 0.96 },
+            duration: 1300,
+            yoyo: true,
+            repeat: -1,
+            ease: "Sine.easeInOut",
+        });
+
+        // 4. Dải năng lượng xoáy 3D ôm rộng quanh thân Phù Thủy (tách lớp Back depth 9 & Front depth 11)
+        const vortexBack  = this.add.graphics().setDepth(9).setBlendMode(Phaser.BlendModes.ADD);
+        const vortexFront = this.add.graphics().setDepth(11).setBlendMode(Phaser.BlendModes.ADD);
+
+        let phase = 0;
+        const drawSwirlRibbons = () => {
+            if (!vortexBack?.active || !vortexFront?.active) return;
+            phase += 0.042;
+            runeOuter.rotation += 0.012;
+            runeInner.rotation -= 0.020;
+
+            vortexBack.clear();
+            vortexFront.clear();
+
+            // 2 vòng ribbon nghiêng xoáy rộng quanh người Phù Thủy
+            const ribbons = [
+                { rx: 68 * minR, ry: 23 * minR, cy: sy - 14 * minR, tilt: 0.14, speed: 1,     color: 0xe879f9, width: 3.2 * minR },
+                { rx: 56 * minR, ry: 18 * minR, cy: sy - 38 * minR, tilt: -0.18, speed: -1.35, color: 0xc026d3, width: 2.5 * minR },
+            ];
+
+            ribbons.forEach((rb, ri) => {
+                const segs = 36;
+                const arcLen = Math.PI * 1.45;
+                const startA = phase * rb.speed + ri * 2.1;
+                for (let i = 0; i < segs; i++) {
+                    const t0 = i / segs;
+                    const t1 = (i + 1) / segs;
+                    const a0 = startA + t0 * arcLen;
+                    const a1 = startA + t1 * arcLen;
+                    const env = Math.sin(t0 * Math.PI); // mờ 2 đầu dải năng lượng
+
+                    const x0 = sx + Math.cos(a0) * rb.rx;
+                    const y0 = rb.cy + Math.sin(a0) * rb.ry + Math.cos(a0) * rb.rx * rb.tilt;
+                    const x1 = sx + Math.cos(a1) * rb.rx;
+                    const y1 = rb.cy + Math.sin(a1) * rb.ry + Math.cos(a1) * rb.rx * rb.tilt;
+
+                    // sin(a) >= 0 nằm phía TRƯỚC Phù Thủy, < 0 nằm phía SAU
+                    const targetG = Math.sin((a0 + a1) * 0.5) >= 0 ? vortexFront : vortexBack;
+                    targetG.lineStyle(rb.width * (0.55 + 0.6 * env), rb.color, 0.72 * env);
+                    targetG.beginPath();
+                    targetG.moveTo(x0, y0);
+                    targetG.lineTo(x1, y1);
+                    targetG.strokePath();
+
+                    // Lõi trắng hồng mỏng sáng rực bên trong dải xoáy
+                    targetG.lineStyle(rb.width * 0.35 * env, 0xffffff, 0.65 * env);
+                    targetG.beginPath();
+                    targetG.moveTo(x0, y0);
+                    targetG.lineTo(x1, y1);
+                    targetG.strokePath();
+                }
+            });
+        };
+        drawSwirlRibbons();
+        this._wizardAuraTimer = this.time.addEvent({ delay: 20, loop: true, callback: drawSwirlRibbons });
+
+        // 5. Các tia ánh sáng tím bay thẳng lên (giống mẫu buff tím)
+        const beamCount = 8;
+        for (let i = 0; i < beamCount; i++) {
+            const isFront = i % 2 === 0;
+            const beam = this.add.image(sx, footY, beamKey)
+                .setDepth(isFront ? 11 : 9)
+                .setBlendMode(Phaser.BlendModes.ADD)
+                .setOrigin(0.5, 1)
+                .setAlpha(0);
+
+            const launchBeam = () => {
+                if (!beam?.active) return;
+                const offsetX = Phaser.Math.FloatBetween(-48, 48) * minR;
+                const startY  = footY + Phaser.Math.FloatBetween(-8, 6) * minR;
+                const scaleX  = Phaser.Math.FloatBetween(0.32, 0.75) * minR;
+                const scaleY  = Phaser.Math.FloatBetween(0.55, 1.15) * minR;
+                beam.setPosition(sx + offsetX, startY).setScale(scaleX, scaleY * 0.4).setAlpha(0);
+
+                this.tweens.add({
+                    targets: beam,
+                    y: startY - Phaser.Math.FloatBetween(68, 125) * minR,
+                    scaleY: scaleY,
+                    alpha: { from: 0, to: 0.9 },
+                    duration: Phaser.Math.Between(650, 1050),
+                    ease: "Cubic.easeOut",
+                    onComplete: () => {
+                        if (!beam?.active) return;
+                        this.tweens.add({
+                            targets: beam,
+                            y: beam.y - 32 * minR,
+                            alpha: 0,
+                            duration: Phaser.Math.Between(350, 550),
+                            ease: "Quad.easeIn",
+                            onComplete: () => this.time.delayedCall(Phaser.Math.Between(120, 650), launchBeam),
+                        });
+                    },
+                });
+            };
+            this.time.delayedCall(i * 190, launchBeam);
+        }
+
+        // 6. Các hạt mana tím-trắng lơ lửng bay xoáy lên quanh Phù Thủy
+        for (let i = 0; i < 12; i++) {
+            const sp = this.add.image(sx, footY, sparkKey)
+                .setDepth(11)
+                .setBlendMode(Phaser.BlendModes.ADD)
+                .setAlpha(0);
+
+            const launchSpark = () => {
+                if (!sp?.active) return;
+                const ox = Phaser.Math.FloatBetween(-50, 50) * minR;
+                const oy = footY + Phaser.Math.FloatBetween(-10, 8) * minR;
+                const sc = Phaser.Math.FloatBetween(0.32, 0.78) * minR;
+                sp.setPosition(sx + ox, oy).setScale(sc).setAlpha(0);
+
+                this.tweens.add({
+                    targets: sp,
+                    x: sx + ox + Phaser.Math.FloatBetween(-22, 22) * minR,
+                    y: oy - Phaser.Math.FloatBetween(75, 138) * minR,
+                    alpha: { from: 0.95, to: 0 },
+                    scale: sc * 0.25,
+                    duration: Phaser.Math.Between(1100, 1800),
+                    ease: "Sine.easeOut",
+                    onComplete: () => this.time.delayedCall(Phaser.Math.Between(80, 500), launchSpark),
+                });
+            };
+            this.time.delayedCall(i * 140, launchSpark);
+        }
     }
 
     // ────────────────────────────────────────────────────────────────

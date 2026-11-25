@@ -81,6 +81,10 @@ export default class TarotModalSystem {
   close() {
     this._hideCardTooltip();
     this._cleanupTargetingListeners();
+    if (this._progressTween) {
+      try { this._progressTween.stop(); } catch {}
+      this._progressTween = null;
+    }
     this._objs.forEach(o => { try { o?.destroy?.(); } catch {} });
     this._objs   = [];
     this._cardUIs = [];
@@ -93,7 +97,8 @@ export default class TarotModalSystem {
   isOpen() { return this._open; }
 
   // ─────────────────────────────────────────────────────────────────────────
-  //  BUILD MODAL
+  //  BUILD MODAL — Thiết kế gọn gàng chuẩn game:
+  //  Banner ngang phát sáng + 2 thẻ bài lớn nổi trực tiếp + Thanh tiến độ xanh + Nút "Để sau" vàng cam
   // ─────────────────────────────────────────────────────────────────────────
 
   _build(cards, me, activeIds, focusTarotId) {
@@ -105,112 +110,164 @@ export default class TarotModalSystem {
 
     this._cardUIs = [];
 
-    // ── Backdrop đen bên dưới giống lúc mua nhà ────────────────────────────
+    // ── Backdrop tối phủ toàn bàn cờ ───────────────────────────────────────
     const backdrop = push(
       sc.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.72)
         .setDepth(D).setAlpha(0).setInteractive()
     );
-    sc.tweens.add({ targets: backdrop, alpha: 1, duration: 220, ease: 'Power2' });
+    sc.tweens.add({ targets: backdrop, alpha: 1, duration: 200, ease: "Power2" });
     backdrop.on("pointerdown", () => this.close());
 
-    // ── Tiêu đề — sẽ được vẽ lại trong layout block bên dưới ────────────
-    const _titlePlaceholder1 = push(sc.add.text(-9999, -9999, ""));
-    const _titlePlaceholder2 = push(sc.add.text(-9999, -9999, ""));
+    // ── Bố cục căn giữa màn hình ──────────────────────────────────────────
+    const CARD_W   = Math.round(216 * S);
+    const CARD_H   = Math.round(316 * S);
+    const GAP      = Math.round(28 * S);
+    const BANNER_H = Math.round(44 * S);
+    const BAR_H    = Math.round(8 * S);
+    const BTN_H    = Math.round(48 * S);
+    const TOTAL_H  = BANNER_H + 22 * S + CARD_H + 18 * S + BAR_H + 16 * S + BTN_H;
 
-    // ── Layout thẻ — tính tổng chiều cao để căn giữa ────────────────────
-    const CARD_W  = 240 * S;
-    const CARD_H  = 356 * S;
-    const GAP     = 54 * S;
-    const TITLE_H = 80 * S;   // tiêu đề + subtitle
-    const CLOSE_H = 60 * S;   // nút đóng
-    const SPACING = 20 * S;   // khoảng cách giữa các phần
-    const TOTAL_H = TITLE_H + SPACING + CARD_H + SPACING + CLOSE_H;
+    const blockTop = Math.max(24 * S, height / 2 - TOTAL_H / 2);
+    const bannerCY = blockTop + BANNER_H / 2;
+    const cardCY   = blockTop + BANNER_H + 22 * S + CARD_H / 2;
+    const barCY    = cardCY + CARD_H / 2 + 18 * S + BAR_H / 2;
+    const closeBY  = barCY + BAR_H / 2 + 16 * S + BTN_H / 2;
 
-    const blockTop = height / 2 - TOTAL_H / 2;
-    const titleCY  = blockTop + TITLE_H / 2;
-    const cardCY   = blockTop + TITLE_H + SPACING + CARD_H / 2;
-    const closeBY  = blockTop + TITLE_H + SPACING + CARD_H + SPACING + CLOSE_H / 2;
+    // ── Banner tiêu đề ngang mờ 2 đầu với đường viền sáng cyan ────────────
+    const bannerW = Math.round(560 * S);
+    const bannerKey = `tarot_modal_banner_${bannerW}x${BANNER_H}`;
+    if (!sc.textures.exists(bannerKey)) {
+      const cTex = sc.textures.createCanvas(bannerKey, bannerW, BANNER_H);
+      const ctx = cTex.getContext();
+      ctx.clearRect(0, 0, bannerW, BANNER_H);
 
+      // Nền tối xanh đen mờ dần 2 đầu
+      const bgGrad = ctx.createLinearGradient(0, 0, bannerW, 0);
+      bgGrad.addColorStop(0,    "rgba(3, 16, 34, 0)");
+      bgGrad.addColorStop(0.18, "rgba(3, 18, 38, 0.82)");
+      bgGrad.addColorStop(0.5,  "rgba(5, 24, 52, 0.90)");
+      bgGrad.addColorStop(0.82, "rgba(3, 18, 38, 0.82)");
+      bgGrad.addColorStop(1,    "rgba(3, 16, 34, 0)");
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, bannerW, BANNER_H);
+
+      // Hai đường kẻ sáng cyan trên & dưới mờ dần 2 đầu
+      const lineGrad = ctx.createLinearGradient(0, 0, bannerW, 0);
+      lineGrad.addColorStop(0,    "rgba(56, 189, 248, 0)");
+      lineGrad.addColorStop(0.22, "rgba(56, 189, 248, 0.72)");
+      lineGrad.addColorStop(0.5,  "rgba(186, 230, 253, 0.95)");
+      lineGrad.addColorStop(0.78, "rgba(56, 189, 248, 0.72)");
+      lineGrad.addColorStop(1,    "rgba(56, 189, 248, 0)");
+      ctx.fillStyle = lineGrad;
+      ctx.fillRect(0, 0, bannerW, 2);
+      ctx.fillRect(0, BANNER_H - 2, bannerW, 2);
+      cTex.refresh();
+    }
+
+    const bannerImg = push(sc.add.image(width / 2, bannerCY, bannerKey).setDepth(D + 2).setAlpha(0));
+    const bannerTxt = push(sc.add.text(width / 2, bannerCY, "Chọn vào thẻ bài để sử dụng", {
+      fontFamily: "Signika",
+      fontSize: Math.max(17, Math.round(22 * S)) + "px",
+      color: "#ffffff",
+      fontStyle: "bold",
+      stroke: "#021329",
+      strokeThickness: 3,
+      shadow: { offsetX: 0, offsetY: 2, color: "#000000", blur: 6, fill: true },
+    }).setOrigin(0.5).setDepth(D + 3).setAlpha(0));
+    sc.tweens.add({ targets: [bannerImg, bannerTxt], alpha: 1, duration: 220, delay: 40 });
+
+    // ── 2 Thẻ bài lớn nổi giữa màn hình ──────────────────────────────────
     const totalW = cards.length * CARD_W + (cards.length - 1) * GAP;
     const startX = width / 2 - totalW / 2;
 
-    // Vẽ lại tiêu đề với vị trí đúng
-    this._objs.pop()?.destroy(); // xóa subtitle placeholder
-    this._objs.pop()?.destroy(); // xóa title placeholder
-
-    push(sc.add.text(width / 2, titleCY - 18 * S, "✦  CHỌN THẺ BÀI ĐỂ SỬ DỤNG  ✦", {
-      fontFamily: "Signika", fontSize: Math.floor(30 * S) + "px",
-      color: "#ffe28a", fontStyle: "bold",
-      stroke: "#3a1a00", strokeThickness: 5,
-      shadow: { offsetX: 0, offsetY: 3, color: "#000000", blur: 8, fill: true }
-    }).setOrigin(0.5).setDepth(D + 2).setAlpha(0));
-    sc.tweens.add({ targets: this._objs[this._objs.length - 1], alpha: 1, duration: 300, delay: 100 });
-
-    push(sc.add.text(width / 2, titleCY + 18 * S,
-      "Mỗi lượt chỉ dùng được 1 thẻ  •  Thẻ có cooldown sau khi sử dụng", {
-      fontFamily: "Signika", fontSize: Math.floor(15 * S) + "px",
-      color: "#c8a060", fontStyle: "italic"
-    }).setOrigin(0.5).setDepth(D + 2).setAlpha(0));
-    sc.tweens.add({ targets: this._objs[this._objs.length - 1], alpha: 1, duration: 300, delay: 150 });
-
     cards.forEach((card, index) => {
       const cardCX = startX + index * (CARD_W + GAP) + CARD_W / 2;
-      const delay  = 120 + index * 80;
+      const delay  = 70 + index * 70;
       const ui     = this._buildCard(card, cardCX, cardCY, CARD_W, CARD_H, S, D, push, delay, me);
       this._cardUIs.push({ card, ui, cx: cardCX, cy: cardCY });
     });
 
+    // ── Thanh thời gian màu xanh lá mỏng ngay dưới 2 thẻ ──────────────────
+    const barW = Math.round(220 * S);
+    const barX = width / 2 - barW / 2;
+    const barTrack = push(sc.add.graphics().setDepth(D + 3).setAlpha(0));
+    barTrack.fillStyle(0x0b1622, 0.85);
+    barTrack.fillRoundedRect(barX, barCY - BAR_H / 2, barW, BAR_H, BAR_H / 2);
+    barTrack.lineStyle(1, 0x475569, 0.7);
+    barTrack.strokeRoundedRect(barX, barCY - BAR_H / 2, barW, BAR_H, BAR_H / 2);
+
+    const barFill = push(sc.add.graphics().setDepth(D + 4).setAlpha(0));
+    const drawTimeBar = (ratio) => {
+      if (!barFill?.active) return;
+      barFill.clear();
+      const fw = Math.max(0, (barW - 2) * Phaser.Math.Clamp(ratio, 0, 1));
+      if (fw < 2) return;
+      barFill.fillGradientStyle(0xa3e635, 0xa3e635, 0x65a30d, 0x65a30d, 1);
+      barFill.fillRoundedRect(barX + 1, barCY - BAR_H / 2 + 1, fw, BAR_H - 2, (BAR_H - 2) / 2);
+    };
+    drawTimeBar(1);
+    sc.tweens.add({ targets: [barTrack, barFill], alpha: 1, duration: 240, delay: 160 });
+
+    const timerObj = { ratio: 1 };
+    this._progressTween = sc.tweens.add({
+      targets: timerObj,
+      ratio: 0,
+      duration: 15000,
+      ease: "Linear",
+      onUpdate: () => drawTimeBar(timerObj.ratio),
+      onComplete: () => {
+        if (this._open && !this._targetingMode) this.close();
+      },
+    });
+
+    // ── Nút "Để sau" màu vàng cam bóng ────────────────────────────────────
     this._buildCloseBtn(width / 2, closeBY, S, D, push);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  //  BUILD CARD
+  //  BUILD CARD — Thẻ bài full-bleed nổi trực tiếp trên nền tối (không khung đen dày)
   // ─────────────────────────────────────────────────────────────────────────
 
   _buildCard(card, cx, cy, CW, CH, S, D, push, delay, me) {
     const sc      = this.scene;
     const myUid   = sc._myUserId();
     const runtime = sc.tarotStateByUserId?.[myUid]?.tarot_runtime?.[card.id] || {};
-    // Cooldown theo số lần đổ xúc xắc
     const remaining    = Math.max(0, Number(runtime.cooldown_turns_left ?? 0));
-    const cdUnit       = 'lần đổ';
     const onCooldown   = remaining > 0;
     const usedThisTurn = !!(sc.tarotStateByUserId?.[myUid]?.used_tarot_this_turn);
 
     const left = cx - CW / 2;
     const top  = cy - CH / 2;
-    const RAD  = 20 * S;
+    const RAD  = Math.round(14 * S);
     const ui   = {};
 
-    // Bóng đổ
-    const shadow = push(sc.add.graphics().setDepth(D + 1).setAlpha(0));
-    shadow.fillStyle(0x000000, 0.35);
-    shadow.fillRoundedRect(left + 8 * S, top + 12 * S, CW, CH, RAD);
-    sc.tweens.add({ targets: shadow, alpha: 1, duration: 280, delay, ease: 'Power2' });
+    // Bóng đổ mềm phía sau thẻ
+    const shadow = push(sc.add.graphics().setDepth(D + 2).setAlpha(0));
+    shadow.fillStyle(0x000000, 0.5);
+    shadow.fillRoundedRect(left + 4 * S, top + 8 * S, CW, CH, RAD);
+    sc.tweens.add({ targets: shadow, alpha: 1, duration: 240, delay, ease: "Power2" });
 
-    // Nền card
-    const bg = push(sc.add.graphics().setDepth(D + 2).setAlpha(0));
-    this._drawCardBg(bg, left, top, CW, CH, RAD, onCooldown, S);
-    sc.tweens.add({ targets: bg, alpha: 1, duration: 280, delay, ease: 'Power2' });
-    ui.bg = bg;
+    // Hào quang vàng dịu khi di chuột vào thẻ sẵn sàng
+    const hoverGlow = push(sc.add.graphics().setDepth(D + 3).setAlpha(0));
+    hoverGlow.lineStyle(5 * S, 0xfacc15, 0.45);
+    hoverGlow.strokeRoundedRect(left - 3 * S, top - 3 * S, CW + 6 * S, CH + 6 * S, RAD + 2 * S);
+    hoverGlow.lineStyle(2 * S, 0xfff3b0, 0.95);
+    hoverGlow.strokeRoundedRect(left - 1 * S, top - 1 * S, CW + 2 * S, CH + 2 * S, RAD);
 
     // Cấp thẻ chính xác (ưu tiên dữ liệu từ server, fallback playerData)
     const lv = card.level != null ? (Number(card.level) >= 2 ? 2 : 1) : getTarotLevel(sc, card.id);
 
-    // Ảnh thẻ lớn — chiếm gần trọn khung (vì trên thẻ đã có tên thẻ)
-    const IMG_AREA_W = CW * 0.90;
-    const IMG_AREA_H = CH * 0.84;
-    const IMG_CY     = top + CH * 0.45;
-    const lvlKey     = tarotLevelKey(card.id, lv, false);
+    // Ảnh thẻ lớn full-bleed (để thẻ bài tự tỏa sáng đúng thiết kế gốc)
+    const lvlKey = tarotLevelKey(card.id, lv, false);
     const fallbackKey = sc.textures.exists(lvlKey)
       ? lvlKey
       : (sc.textures.exists(`tarot_${card.id}`) && sc.textures.get(`tarot_${card.id}`).customData?.tarotLevel === lv
         ? `tarot_${card.id}`
         : null);
 
-    const img = push(sc.add.image(cx, IMG_CY, fallbackKey || `tarot_${card.id}`)
+    const img = push(sc.add.image(cx, cy + 12 * S, fallbackKey || `tarot_${card.id}`)
       .setDepth(D + 5).setAlpha(0)
-      .setTint(onCooldown ? 0x555555 : 0xffffff));
+      .setTint(onCooldown ? 0x666666 : 0xffffff));
 
     let imgBaseScale = 1;
     const fitCardImage = (texKey) => {
@@ -218,95 +275,109 @@ export default class TarotModalSystem {
       img.setTexture(texKey);
       const nat = sc.textures.get(texKey).source[0];
       if (nat?.width && nat?.height) {
-        imgBaseScale = Math.min(IMG_AREA_W / nat.width, IMG_AREA_H / nat.height);
+        imgBaseScale = Math.min(CW / nat.width, CH / nat.height);
         img.setScale(imgBaseScale);
       }
     };
 
+    const popInCard = () => {
+      sc.tweens.add({
+        targets: img,
+        alpha: 1,
+        y: cy,
+        duration: 260,
+        delay,
+        ease: "Back.easeOut",
+      });
+    };
+
     if (fallbackKey) {
       fitCardImage(fallbackKey);
-      sc.tweens.add({ targets: img, alpha: 1, duration: 300, delay: delay + 80 });
+      popInCard();
     } else {
       ensureTarotLevelTexture(sc, card.id, lv, false, (loadedKey) => {
         if (!img.scene) return;
         fitCardImage(loadedKey || `tarot_${card.id}`);
-        sc.tweens.add({ targets: img, alpha: 1, duration: 240 });
+        popInCard();
       });
     }
     ui.img = img;
 
-    // Badge cấp LV1 / LV2 góc trên phải thẻ
+    // Badge cấp LV1 / LV2 gọn đẹp ở góc dưới trái thẻ
+    const lvW = Math.round(44 * S), lvH = Math.round(20 * S);
+    const lvX = left + 10 * S, lvY = top + CH - lvH - 10 * S;
     const lvBg = push(sc.add.graphics().setDepth(D + 6).setAlpha(0));
-    lvBg.fillStyle(lv >= 2 ? 0x8b2cf5 : 0x1585b8, 1);
-    lvBg.fillRoundedRect(left + CW - 50 * S, top + 8 * S, 42 * S, 19 * S, 8 * S);
-    lvBg.lineStyle(1.5 * S, lv >= 2 ? 0xffd55a : 0x99e6ff, 0.9);
-    lvBg.strokeRoundedRect(left + CW - 50 * S, top + 8 * S, 42 * S, 19 * S, 8 * S);
-    const lvTxt = push(sc.add.text(left + CW - 29 * S, top + 17.5 * S, `LV${lv}`, {
-      fontFamily: "Signika", fontSize: Math.floor(11 * S) + "px",
-      color: "#ffffff", fontStyle: "bold"
+    lvBg.fillStyle(lv >= 2 ? 0x7c3aed : 0x0369a1, 0.92);
+    lvBg.fillRoundedRect(lvX, lvY, lvW, lvH, 6 * S);
+    lvBg.lineStyle(1.4 * S, lv >= 2 ? 0xfde047 : 0x7dd3fc, 0.95);
+    lvBg.strokeRoundedRect(lvX, lvY, lvW, lvH, 6 * S);
+    const lvTxt = push(sc.add.text(lvX + lvW / 2, lvY + lvH / 2, `LV.${lv}`, {
+      fontFamily: "Signika",
+      fontSize: Math.max(10, Math.round(11.5 * S)) + "px",
+      color: "#ffffff",
+      fontStyle: "bold",
     }).setOrigin(0.5).setDepth(D + 7).setAlpha(0));
-    sc.tweens.add({ targets: [lvBg, lvTxt], alpha: 1, duration: 280, delay: delay + 60 });
+    sc.tweens.add({ targets: [lvBg, lvTxt], alpha: 1, duration: 240, delay: delay + 60 });
 
-    // Cooldown label gọn ở mép dưới
-    const cdText = push(sc.add.text(cx, top + CH - 29 * S,
-      onCooldown ? `⏳ Còn ${remaining} lần đổ` : `⚡ CD: ${card.cooldown_turns ?? card.cooldown_seconds ?? 0} lần`, {
-      fontFamily: "Signika", fontSize: Math.floor(13 * S) + "px",
-      color: onCooldown ? "#ff9966" : "#ffe28a", fontStyle: "bold"
-    }).setOrigin(0.5).setDepth(D + 5).setAlpha(0));
-    sc.tweens.add({ targets: cdText, alpha: 1, duration: 280, delay: delay + 120 });
-    ui.cdText = cdText;
-
-    // Cooldown bar
-    const barW = CW - 28 * S, barH = 6 * S;
-    const barX = cx - barW / 2, barY = top + CH - 15 * S;
-    const barBg = push(sc.add.graphics().setDepth(D + 4).setAlpha(0));
-    barBg.fillStyle(0x333333, 1);
-    barBg.fillRoundedRect(barX, barY, barW, barH, barH / 2);
-    sc.tweens.add({ targets: barBg, alpha: 1, duration: 280, delay: delay + 130 });
-
-    const barFill = push(sc.add.graphics().setDepth(D + 5).setAlpha(0));
-    const maxCd   = Number(card.cooldown_seconds || 1);
-    this._drawCdBar(barFill, barX, barY, barW, barH, onCooldown ? remaining / maxCd : 0, onCooldown);
-    sc.tweens.add({ targets: barFill, alpha: 1, duration: 280, delay: delay + 130 });
-    ui.barFill = barFill;
-    ui.barX = barX; ui.barY = barY; ui.barW = barW; ui.barH = barH; ui.maxCd = maxCd;
-
-    // Zone tương tác: di chuột vào hiện chức năng thẻ, click để dùng nếu sẵn sàng
+    // Zone tương tác: hover phóng nhẹ + tỏa hào quang vàng + hiện mô tả, click dùng ngay
     const canUse = !onCooldown && !usedThisTurn;
     const cardZone = push(sc.add.zone(cx, cy, CW, CH)
       .setInteractive({ useHandCursor: canUse }).setDepth(D + 10));
+
     cardZone.on("pointerover", () => {
       if (canUse) {
-        sc.tweens.add({ targets: img, scaleX: imgBaseScale * 1.05, scaleY: imgBaseScale * 1.05, duration: 110 });
+        sc.tweens.add({ targets: hoverGlow, alpha: 1, duration: 120 });
+        sc.tweens.add({ targets: img, scaleX: imgBaseScale * 1.045, scaleY: imgBaseScale * 1.045, y: cy - 6 * S, duration: 130, ease: "Sine.easeOut" });
       }
       this._showCardTooltip(card, lv, cx, cy, CW, CH, onCooldown, remaining, S, D);
     });
     cardZone.on("pointerout", () => {
       if (canUse) {
-        sc.tweens.add({ targets: img, scaleX: imgBaseScale, scaleY: imgBaseScale, duration: 110 });
+        sc.tweens.add({ targets: hoverGlow, alpha: 0, duration: 120 });
+        sc.tweens.add({ targets: img, scaleX: imgBaseScale, scaleY: imgBaseScale, y: cy, duration: 130, ease: "Sine.easeOut" });
       }
       this._hideCardTooltip();
     });
     if (canUse) {
       cardZone.on("pointerdown", () => {
         this._hideCardTooltip();
-        sc.tweens.add({ targets: img, scaleX: imgBaseScale * 0.94, scaleY: imgBaseScale * 0.94, duration: 60, yoyo: true,
-          onComplete: () => this._useCard(card) });
+        sc.tweens.add({
+          targets: img,
+          scaleX: imgBaseScale * 0.94,
+          scaleY: imgBaseScale * 0.94,
+          duration: 65,
+          yoyo: true,
+          onComplete: () => this._useCard(card),
+        });
       });
     }
 
-    // Overlay cooldown
+    // Overlay tối + số lượt hồi chiêu lớn nếu thẻ đang cooldown
     if (onCooldown) {
-      const overlay = push(sc.add.graphics().setDepth(D + 6).setAlpha(0));
-      overlay.fillStyle(0x000000, 0.52);
+      const overlay = push(sc.add.graphics().setDepth(D + 7).setAlpha(0));
+      overlay.fillStyle(0x000000, 0.56);
       overlay.fillRoundedRect(left, top, CW, CH, RAD);
-      sc.tweens.add({ targets: overlay, alpha: 1, duration: 280, delay });
+      sc.tweens.add({ targets: overlay, alpha: 1, duration: 240, delay });
 
-      const bigCD = push(sc.add.text(cx, cy, `${remaining}`, {
-        fontFamily: "Signika", fontSize: Math.floor(64 * S) + "px",
-        color: "#ffffff", fontStyle: "bold", stroke: "#000000", strokeThickness: 6
-      }).setOrigin(0.5).setDepth(D + 7).setAlpha(0));
-      sc.tweens.add({ targets: bigCD, alpha: 1, duration: 280, delay });
+      const bigCD = push(sc.add.text(cx, cy - 8 * S, `${remaining}`, {
+        fontFamily: "Signika",
+        fontSize: Math.floor(62 * S) + "px",
+        color: "#ffffff",
+        fontStyle: "bold",
+        stroke: "#000000",
+        strokeThickness: 6,
+      }).setOrigin(0.5).setDepth(D + 8).setAlpha(0));
+
+      const subCD = push(sc.add.text(cx, cy + 34 * S, `Còn ${remaining} lần tung`, {
+        fontFamily: "Signika",
+        fontSize: Math.max(12, Math.floor(14 * S)) + "px",
+        color: "#fde68a",
+        fontStyle: "bold",
+        stroke: "#000000",
+        strokeThickness: 3,
+      }).setOrigin(0.5).setDepth(D + 8).setAlpha(0));
+
+      sc.tweens.add({ targets: [bigCD, subCD], alpha: 1, duration: 240, delay });
       ui.bigCD = bigCD;
     }
 
@@ -423,43 +494,52 @@ export default class TarotModalSystem {
 
   _buildCloseBtn(bx, by, S, D, push) {
     const sc  = this.scene;
-    const BW  = 180 * S, BH = 46 * S, BR = BH / 2;
+    const BW  = Math.round(188 * S);
+    const BH  = Math.round(48 * S);
+    const BR  = BH / 2;
 
     const g = push(sc.add.graphics().setDepth(D + 5).setAlpha(0));
     const draw = (h) => {
       g.clear();
-      // Bóng
-      g.fillStyle(0x000000, 0.28);
-      g.fillRoundedRect(bx - BW/2 + 3*S, by - BH/2 + 5*S, BW, BH, BR);
-      // Gradient đỏ
+      // Hào quang vàng dịu ngoài nút
+      g.fillStyle(0xffa000, h ? 0.30 : 0.16);
+      g.fillRoundedRect(bx - BW/2 - 4*S, by - BH/2 - 4*S, BW + 8*S, BH + 8*S, BR + 3*S);
+      // Bóng đổ
+      g.fillStyle(0x000000, 0.32);
+      g.fillRoundedRect(bx - BW/2 + 2*S, by - BH/2 + 4*S, BW, BH, BR);
+      // Thân nút gradient vàng cam bóng chuẩn mẫu "Để sau"
       g.fillGradientStyle(
-        h ? 0xff4444 : 0xdd2222, h ? 0xff4444 : 0xdd2222,
-        h ? 0xbb1111 : 0x991111, h ? 0xbb1111 : 0x991111, 1
+        h ? 0xffe066 : 0xffcc33, h ? 0xffe066 : 0xffcc33,
+        h ? 0xff8c00 : 0xe67300, h ? 0xff8c00 : 0xe67300, 1
       );
       g.fillRoundedRect(bx - BW/2, by - BH/2, BW, BH, BR);
-      // Gloss
-      g.fillStyle(0xffffff, h ? 0.35 : 0.22);
-      g.fillRoundedRect(bx - BW/2 + 6*S, by - BH/2 + 4*S, BW - 12*S, BH * 0.38, BR - 3*S);
-      // Viền
-      g.lineStyle(2*S, 0xffffff, 0.7);
+      // Vệt bóng sáng trắng phía trên
+      g.fillStyle(0xffffff, h ? 0.45 : 0.32);
+      g.fillRoundedRect(bx - BW/2 + 10*S, by - BH/2 + 4*S, BW - 20*S, BH * 0.38, BR - 4*S);
+      // Viền sáng vàng kem
+      g.lineStyle(2*S, 0xfff3b0, h ? 1 : 0.85);
       g.strokeRoundedRect(bx - BW/2, by - BH/2, BW, BH, BR);
     };
     draw(false);
-    sc.tweens.add({ targets: g, alpha: 1, duration: 280, delay: 300 });
+    sc.tweens.add({ targets: g, alpha: 1, duration: 240, delay: 180 });
 
-    const txt = push(sc.add.text(bx, by, "Đóng", {
-      fontFamily: "Signika", fontSize: Math.floor(18 * S) + "px",
-      color: "#ffffff", fontStyle: "bold",
-      stroke: "#660000", strokeThickness: 3
+    const txt = push(sc.add.text(bx, by - 1 * S, "Để sau", {
+      fontFamily: "Signika",
+      fontSize: Math.max(16, Math.round(20 * S)) + "px",
+      color: "#ffffff",
+      fontStyle: "bold",
+      stroke: "#8a3a00",
+      strokeThickness: 3.5,
+      shadow: { offsetX: 0, offsetY: 2, color: "rgba(90,30,0,0.65)", blur: 3, fill: true },
     }).setOrigin(0.5).setDepth(D + 6).setAlpha(0));
-    sc.tweens.add({ targets: txt, alpha: 1, duration: 280, delay: 300 });
+    sc.tweens.add({ targets: txt, alpha: 1, duration: 240, delay: 180 });
 
     const zone = push(sc.add.zone(bx, by, BW + 10*S, BH + 10*S)
       .setInteractive({ useHandCursor: true }).setDepth(D + 10));
     zone.on("pointerover",  () => draw(true));
     zone.on("pointerout",   () => draw(false));
     zone.on("pointerdown",  () => {
-      sc.tweens.add({ targets: g, alpha: 0.6, duration: 60, yoyo: true,
+      sc.tweens.add({ targets: [g, txt], alpha: 0.72, duration: 60, yoyo: true,
         onComplete: () => this.close() });
     });
   }
