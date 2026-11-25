@@ -3,6 +3,7 @@
  * v3 — Đẹp hơn: thu chiều cao, header có trang trí, stat badge, thẻ to
  */
 import { tarotLevelKey, tarotImagePath } from "../../utils/tarotLevel.js";
+import { renderAvatarBadge } from "../../utils/avatarBadge.js";
 export default class PlayerProfilePanel {
   constructor(scene, { socket, depth = 500 }) {
     this.scene  = scene;
@@ -106,8 +107,22 @@ export default class PlayerProfilePanel {
     makeInset(leftX,  BODY_T, COL_W, BODY_H);
     makeInset(rightX, BODY_T, COL_W, BODY_H);
 
-    // ── Cột trái: tên + avatar ────────────────────────────────────────
-    push(this.scene.add.text(leftX + IP + 2, BODY_T + IP,
+    // ── Cột trái: Avatar cạnh Tên + tên nhân vật ──────────────────────
+    const avBadgeSize = 36;
+    const avBadgeX = leftX + IP + avBadgeSize / 2 + 2;
+    const avBadgeY = BODY_T + IP + 19;
+    this._headerAvatarBadge = renderAvatarBadge(this.scene, {
+      x: avBadgeX,
+      y: avBadgeY,
+      size: avBadgeSize,
+      avatarId: player.active_avatar_id || 1,
+      depth: D + 3,
+      push,
+      glow: true,
+    });
+
+    const textStartX = leftX + IP + avBadgeSize + 10;
+    push(this.scene.add.text(textStartX, BODY_T + IP + 1,
       player.name || "Player", {
         fontFamily: "Signika", fontSize: "15px", fontStyle: "bold",
       }).setDepth(D + 4)
@@ -115,12 +130,12 @@ export default class PlayerProfilePanel {
         .setTint(0xffffff, 0xffffff, 0xdddddd, 0xdddddd));
 
     const charDisplay = (player.character_name || "").replace(/_/g, " ");
-    push(this.scene.add.text(leftX + IP + 2, BODY_T + IP + 20, charDisplay, {
+    push(this.scene.add.text(textStartX, BODY_T + IP + 21, charDisplay, {
       fontFamily: "Signika", fontSize: "12px", color: "#7a5010", fontStyle: "bold",
     }).setDepth(D + 4));
 
-    const AVT_T = BODY_T + IP + 40;
-    const AVT_H = BODY_H - IP - 40 - IP;
+    const AVT_T = BODY_T + IP + 44;
+    const AVT_H = BODY_H - IP - 44 - IP;
     const AVT_W = COL_W - IP * 2;
     this._buildAvatarWithBorder(
       leftX + IP + AVT_W / 2, AVT_T + AVT_H / 2,
@@ -469,6 +484,9 @@ export default class PlayerProfilePanel {
       if (Number(data.user_id) !== Number(this._player?.user_id)) return;
       if (data.error) { this._badge1?.setText?.(data.error); return; }
       console.log("[Profile] bg_id:", data.active_bg_id, "| bg_path:", data.active_bg_path);
+      if (data.active_avatar_id) {
+        this._headerAvatarBadge?.setAvatar(data.active_avatar_id);
+      }
       if (data.friend_status === "pending_sent" || data.friend_status === "accepted") {
         this._setFriendIconGrayscale?.();
       }

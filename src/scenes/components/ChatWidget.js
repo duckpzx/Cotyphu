@@ -56,54 +56,61 @@ export default class ChatWidget {
   build(x, y, w, h) {
     this._x = x; this._y = y; this._w = w; this._h = h;
 
-    const SCROLL_W = 8;
-    const INPUT_H  = 40;
+    const SCROLL_W = 6;
+    const PAD_X    = 10;
+    const PAD_BOT  = 8;
+    const PILL_H   = 32;
+    const INPUT_H  = PILL_H + PAD_BOT + 6; // vùng đáy chứa ô pill + nút tròn
     const MSG_H    = h - INPUT_H;
-    const EMOJI_W  = 36;
-    const SEND_W   = 52;
-    const MIC_W    = this.enableMic ? 42 : 0;
-    const MIC_GAP  = this.enableMic ? 4 : 0;
-    const INPUT_W  = w - EMOJI_W - SEND_W - MIC_W - MIC_GAP;
+    const BTN_D    = 32;
+    const BTN_GAP  = 7;
+    const MIC_SLOT = this.enableMic ? (BTN_D + BTN_GAP) : 0;
+    const RIGHT_BTNS_W = BTN_D + BTN_GAP + BTN_D + MIC_SLOT;
+    const PILL_W   = Math.max(90, w - PAD_X * 2 - RIGHT_BTNS_W - 8);
     const D        = this.depth;
 
     this._MSG_H   = MSG_H;
     this._SCROLL_W = SCROLL_W;
 
-    // ── Nền vùng tin nhắn ──────────────────────────────────────────
-    const msgBg = this.scene.add.graphics().setDepth(D);
-    msgBg.fillStyle(0x041428, 0.62);
-    msgBg.fillRoundedRect(x, y, w, MSG_H, { tl: 0, tr: 10, bl: 0, br: 0 });
-    msgBg.lineStyle(1.5, 0x2255aa, 0.5);
-    msgBg.strokeRoundedRect(x, y, w, MSG_H, { tl: 0, tr: 10, bl: 0, br: 0 });
-    this._push(msgBg);
+    // ── Khung liền khối bo góc trên-phải (giống giao diện chuẩn) ────
+    const panelBg = this.scene.add.graphics().setDepth(D);
+    panelBg.fillStyle(0x041a34, 0.64);
+    panelBg.fillRoundedRect(x, y, w, h, { tl: 0, tr: 16, bl: 0, br: 0 });
+    panelBg.lineStyle(1.4, 0x3b7ec2, 0.48);
+    panelBg.strokeRoundedRect(x, y, w, h, { tl: 0, tr: 16, bl: 0, br: 0 });
+    // Mũi tên nhỏ góc trên-phải trang trí đồng bộ
+    const chX = x + w - 14, chY = y + 10;
+    panelBg.fillStyle(0x4fc3f7, 0.85);
+    panelBg.fillTriangle(chX - 4, chY - 2, chX + 4, chY - 2, chX, chY + 3);
+    this._push(panelBg);
 
     // ── Mask để clip tin nhắn ──────────────────────────────────────
     const maskGfx = this.scene.make.graphics({ add: false });
     maskGfx.fillStyle(0xffffff);
-    maskGfx.fillRect(x + 4, y + 4, w - SCROLL_W - 12, MSG_H - 8);
+    maskGfx.fillRect(x + 6, y + 6, w - SCROLL_W - 18, MSG_H - 8);
     this._maskGfx = maskGfx;
     this._clipMask = maskGfx.createGeometryMask();
 
     // chatBox dimensions (LINE_H = 22 để emoji 20x20 sắc nét không bị cắt mép)
     const LINE_H = 22;
     this._chatBox = {
-      x: x + 8,
-      y: y + 6,
-      w: w - SCROLL_W - 20,
+      x: x + 10,
+      y: y + 8,
+      w: w - SCROLL_W - 24,
       h: MSG_H - 12,
       lineH: LINE_H,
     };
     this._visibleLines = Math.floor(this._chatBox.h / LINE_H);
 
     // ── Scrollbar track ────────────────────────────────────────────
-    const sbX = x + w - SCROLL_W - 2;
-    const sbY = y + 4;
-    const sbH = MSG_H - 8;
+    const sbX = x + w - SCROLL_W - 5;
+    const sbY = y + 20;
+    const sbH = Math.max(24, MSG_H - 24);
     this._sbX = sbX; this._sbY = sbY; this._sbH = sbH;
 
     const sbTrack = this.scene.add.graphics().setDepth(D + 1);
-    sbTrack.fillStyle(0x0a1a33, 0.8);
-    sbTrack.fillRoundedRect(sbX, sbY, SCROLL_W, sbH, 4);
+    sbTrack.fillStyle(0x0a2240, 0.45);
+    sbTrack.fillRoundedRect(sbX, sbY, SCROLL_W, sbH, 3);
     this._push(sbTrack);
 
     // Scrollbar thumb (sẽ được vẽ lại khi scroll)
@@ -142,113 +149,140 @@ export default class ChatWidget {
     });
     this.scene.input.on("pointerup", () => { this._isDragging = false; });
 
-    // ── Input ──────────────────────────────────────────────────────
-    const inputY = y + MSG_H;
-    const inputBg = this.scene.add.graphics().setDepth(D);
-    inputBg.fillStyle(0x020d1e, 0.92);
-    inputBg.fillRoundedRect(x, inputY, INPUT_W, INPUT_H, { tl: 0, tr: 0, bl: 0, br: 0 });
-    inputBg.lineStyle(1.5, 0x2255aa, 0.6);
-    inputBg.strokeRoundedRect(x, inputY, INPUT_W, INPUT_H, { tl: 0, tr: 0, bl: 0, br: 0 });
+    // ── Ô nhập tin nhắn dạng viên thuốc (pill) nằm trong khung ─────
+    const pillX = x + PAD_X;
+    const pillY = y + h - PAD_BOT - PILL_H;
+    const pillCY = pillY + PILL_H / 2;
+    const pillR = PILL_H / 2;
+
+    const inputBg = this.scene.add.graphics().setDepth(D + 1);
+    const drawInputPill = (focused = false) => {
+      inputBg.clear();
+      inputBg.fillStyle(0x031122, 0.78);
+      inputBg.fillRoundedRect(pillX, pillY, PILL_W, PILL_H, pillR);
+      inputBg.lineStyle(1.4, focused ? 0x58b8ff : 0x4b7da8, focused ? 0.9 : 0.65);
+      inputBg.strokeRoundedRect(pillX, pillY, PILL_W, PILL_H, pillR);
+    };
+    drawInputPill(false);
+    this._drawInputPill = drawInputPill;
     this._push(inputBg);
 
-    this._placeholder = this.scene.add.text(x + 12, inputY + INPUT_H / 2, "Nhập tin nhắn...", {
-      fontFamily: "Signika", fontSize: "13px", color: "#4477aa"
-    }).setOrigin(0, 0.5).setDepth(D + 1);
+    // Mask nội dung text trong ô input để không tràn sang nút tròn
+    const inputMaskG = this.scene.make.graphics({ add: false });
+    inputMaskG.fillStyle(0xffffff);
+    inputMaskG.fillRoundedRect(pillX + 10, pillY + 2, PILL_W - 20, PILL_H - 4, 8);
+    this._push(inputMaskG);
+    const inputMask = inputMaskG.createGeometryMask();
+
+    this._placeholder = this.scene.add.text(pillX + 14, pillCY, "Nhập tin nhắn...", {
+      fontFamily: "Signika", fontSize: "13px", color: "#5d8db8"
+    }).setOrigin(0, 0.5).setDepth(D + 2).setMask(inputMask);
     this._push(this._placeholder);
 
-    this._inputDisplay = this.scene.add.text(x + 12, inputY + INPUT_H / 2, "", {
+    this._inputDisplay = this.scene.add.text(pillX + 14, pillCY, "", {
       fontFamily: "Signika", fontSize: "13px", color: "#ffffff"
-    }).setOrigin(0, 0.5).setDepth(D + 1);
+    }).setOrigin(0, 0.5).setDepth(D + 2).setMask(inputMask);
     this._push(this._inputDisplay);
 
-    const inputZone = this.scene.add.zone(x + INPUT_W / 2, inputY + INPUT_H / 2, INPUT_W, INPUT_H)
-      .setInteractive({ cursor: "text" }).setDepth(D + 2);
+    const inputZone = this.scene.add.zone(pillX + PILL_W / 2, pillCY, PILL_W, PILL_H)
+      .setInteractive({ cursor: "text" }).setDepth(D + 3);
     inputZone.on("pointerdown", () => this._focusInput());
     this._push(inputZone);
 
-    // ── Nút chọn Emoji (50 emoji 96x96 sắc nét) ───────────────────
-    const emojiX = x + INPUT_W;
-    const emojiCX = emojiX + EMOJI_W / 2;
-    const emojiCY = inputY + INPUT_H / 2;
-    const emojiG = this.scene.add.graphics().setDepth(D);
+    // Helper vẽ nút tròn bóng xanh dương kiểu glossy orb
+    const drawBlueOrb = (g, cx, cy, r, hover) => {
+      g.clear();
+      // Bóng đổ nhẹ
+      g.fillStyle(0x000000, 0.32);
+      g.fillCircle(cx + 1, cy + 2, r);
+      // Vòng nền xanh dương đậm
+      g.fillStyle(hover ? 0x1696f2 : 0x0572d2, 1);
+      g.fillCircle(cx, cy, r);
+      // Lòng xanh cyan sáng phía trên
+      g.fillStyle(hover ? 0x5ad4ff : 0x28b6ff, 0.92);
+      g.fillCircle(cx, cy - 1.5, r - 2.2);
+      // Vệt bóng kính trắng nửa trên
+      g.fillStyle(0xffffff, hover ? 0.42 : 0.30);
+      g.fillEllipse(cx, cy - r * 0.42, r * 1.15, r * 0.55);
+      // Viền sáng mảnh
+      g.lineStyle(1.4, hover ? 0xc2f0ff : 0x7dd8ff, 0.9);
+      g.strokeCircle(cx, cy, r - 0.5);
+    };
+
+    // ── Nút tròn 1: Chọn Emoji ─────────────────────────────────────
+    const orbR = BTN_D / 2;
+    const emojiCX = pillX + PILL_W + 8 + orbR;
+    const emojiCY = pillCY;
+    const emojiG = this.scene.add.graphics().setDepth(D + 1);
     const drawEmojiBtn = (hover) => {
-      emojiG.clear();
-      emojiG.fillStyle(hover ? 0x163259 : 0x081a34, 0.95);
-      emojiG.fillRect(emojiX, inputY, EMOJI_W, INPUT_H);
-      emojiG.lineStyle(1.5, hover ? 0x38bdf8 : 0x2255aa, 0.7);
-      emojiG.strokeRect(emojiX, inputY, EMOJI_W, INPUT_H);
+      drawBlueOrb(emojiG, emojiCX, emojiCY, orbR, hover);
+      // Vẽ icon mặt cười trắng sắc nét trên nền xanh bóng
+      emojiG.fillStyle(0xffffff, 0.96);
+      emojiG.fillCircle(emojiCX, emojiCY, orbR - 5.5);
+      emojiG.lineStyle(1.5, 0x0562b8, 0.95);
+      emojiG.strokeCircle(emojiCX, emojiCY, orbR - 5.5);
+      // 2 mắt
+      emojiG.fillStyle(0x0562b8, 1);
+      emojiG.fillCircle(emojiCX - 3.6, emojiCY - 2.5, 1.5);
+      emojiG.fillCircle(emojiCX + 3.6, emojiCY - 2.5, 1.5);
+      // Miệng cười
+      emojiG.lineStyle(1.7, 0x0562b8, 1);
+      emojiG.beginPath();
+      emojiG.arc(emojiCX, emojiCY - 0.5, 5.2, 0.18 * Math.PI, 0.82 * Math.PI, false);
+      emojiG.strokePath();
     };
     drawEmojiBtn(false);
     this._push(emojiG);
 
-    const emojiBtnKey = "chat_emoji_sm_50";
-    let emojiBtnImg = null;
-    const placeEmojiIcon = () => {
-      if (emojiBtnImg || !emojiG?.active || !this.scene?.textures?.exists(emojiBtnKey)) return;
-      emojiBtnImg = this.scene.add.image(emojiCX, emojiCY, emojiBtnKey)
-        .setDisplaySize(24, 24).setDepth(D + 1);
-      this._push(emojiBtnImg);
-    };
-    if (this.scene.textures.exists(emojiBtnKey)) {
-      placeEmojiIcon();
-    } else {
-      this.scene.load.image(emojiBtnKey, "assets/resources/Emoji/PNG/thumbs_40/50.png");
-      this.scene.load.once(`filecomplete-image-${emojiBtnKey}`, placeEmojiIcon);
-      this.scene.load.start();
-    }
-
-    const emojiZone = this.scene.add.zone(emojiCX, emojiCY, EMOJI_W, INPUT_H)
-      .setInteractive({ cursor: "pointer" }).setDepth(D + 2);
-    emojiZone.on("pointerover", () => { drawEmojiBtn(true); emojiBtnImg?.setDisplaySize(27, 27); });
-    emojiZone.on("pointerout",  () => { drawEmojiBtn(false); emojiBtnImg?.setDisplaySize(24, 24); });
+    const emojiZone = this.scene.add.zone(emojiCX, emojiCY, BTN_D, BTN_D)
+      .setInteractive({ cursor: "pointer" }).setDepth(D + 3);
+    emojiZone.on("pointerover", () => drawEmojiBtn(true));
+    emojiZone.on("pointerout",  () => drawEmojiBtn(false));
     emojiZone.on("pointerdown", (_ptr, _lx, _ly, ev) => {
       ev?.stopPropagation?.();
       this._toggleEmojiPicker();
     });
     this._push(emojiZone);
 
-    // ── Nút Gửi ───────────────────────────────────────────────────
-    const sendX = emojiX + EMOJI_W;
-    const sendG = this.scene.add.graphics().setDepth(D);
+    // ── Nút tròn 2: Gửi tin nhắn (bong bóng chat "...") ────────────
+    const sendCX = emojiCX + BTN_D + BTN_GAP;
+    const sendCY = pillCY;
+    const sendG = this.scene.add.graphics().setDepth(D + 1);
     const drawSend = (hover) => {
-      sendG.clear();
-      sendG.fillGradientStyle(
-        hover ? 0x22bbff : 0x0099ff, hover ? 0x22bbff : 0x0099ff,
-        hover ? 0x0055cc : 0x0066cc, hover ? 0x0055cc : 0x0066cc, 1
-      );
-      sendG.fillRoundedRect(sendX, inputY, SEND_W, INPUT_H, { tl: 0, tr: 0, bl: 0, br: 0 });
-      sendG.fillStyle(0xffffff, hover ? 0.3 : 0.18);
-      sendG.fillRoundedRect(sendX + 4, inputY + 3, SEND_W - 8, INPUT_H * 0.38, 3);
+      drawBlueOrb(sendG, sendCX, sendCY, orbR, hover);
+      // Bong bóng thoại trắng có 3 dấu chấm ở giữa
+      sendG.fillStyle(0xffffff, 0.96);
+      sendG.fillEllipse(sendCX, sendCY - 1, 18, 13.5);
+      sendG.fillTriangle(sendCX - 5, sendCY + 3.5, sendCX - 1, sendCY + 4.5, sendCX - 6.5, sendCY + 8.5);
+      // 3 chấm xanh bên trong bong bóng
+      sendG.fillStyle(0x0562b8, 1);
+      sendG.fillCircle(sendCX - 4.2, sendCY - 1, 1.45);
+      sendG.fillCircle(sendCX,       sendCY - 1, 1.45);
+      sendG.fillCircle(sendCX + 4.2, sendCY - 1, 1.45);
     };
     drawSend(false);
     this._push(sendG);
 
-    this._push(this.scene.add.text(sendX + SEND_W / 2, inputY + INPUT_H / 2, "Gửi", {
-      fontFamily: "Signika", fontSize: "13px", color: "#ffffff", fontStyle: "bold"
-    }).setOrigin(0.5).setDepth(D + 1));
-
-    const sendZone = this.scene.add.zone(sendX + SEND_W / 2, inputY + INPUT_H / 2, SEND_W, INPUT_H)
-      .setInteractive({ cursor: "pointer" }).setDepth(D + 2);
+    const sendZone = this.scene.add.zone(sendCX, sendCY, BTN_D, BTN_D)
+      .setInteractive({ cursor: "pointer" }).setDepth(D + 3);
     sendZone.on("pointerover",  () => drawSend(true));
     sendZone.on("pointerout",   () => drawSend(false));
     sendZone.on("pointerdown",  () => this._sendMessage());
     this._push(sendZone);
 
-    // ── Nút Micro bên phải nút Gửi (đồng bộ chuẩn với voiceChat) ──
+    // ── Nút tròn 3: Micro (đồng bộ cùng hàng trong khung) ──────────
     if (this.enableMic) {
-      const micX = sendX + SEND_W + MIC_GAP;
-      const micCX = micX + MIC_W / 2;
-      const micCY = inputY + INPUT_H / 2;
-      const micG = this.scene.add.graphics().setDepth(D);
-      const micBadgeTxt = this.scene.add.text(micCX + 11, micCY + 10, "×", {
-        fontFamily: "Signika", fontSize: "12px", color: "#ffffff", fontStyle: "bold"
-      }).setOrigin(0.5).setDepth(D + 3).setVisible(false);
+      const micCX = sendCX + BTN_D + BTN_GAP;
+      const micCY = pillCY;
+      const micG = this.scene.add.graphics().setDepth(D + 1);
+      const micBadgeTxt = this.scene.add.text(micCX + 10, micCY + 10, "×", {
+        fontFamily: "Signika", fontSize: "11px", color: "#ffffff", fontStyle: "bold"
+      }).setOrigin(0.5).setDepth(D + 4).setVisible(false);
       this._push(micG);
       this._push(micBadgeTxt);
 
-      // Icon micro từ ảnh assets/ui/shared/microphone.png (nạp lười nếu scene chưa preload)
       let micImg = null;
-      const MIC_ICON = 34;
+      const MIC_ICON = 30;
       const ensureMicImg = () => {
         if (micImg || !this.scene?.textures?.exists("icon_mic")) return;
         micImg = this.scene.add.image(micCX, micCY, "icon_mic")
@@ -273,22 +307,19 @@ export default class ChatWidget {
         micG.clear();
         const R = MIC_ICON / 2;
 
-        // Bóng đổ nhẹ phía dưới icon (không còn nền vuông)
         micG.fillStyle(0x000000, 0.28);
-        micG.fillCircle(micCX + 1, micCY + 2.5, R - 1);
+        micG.fillCircle(micCX + 1, micCY + 2, R - 1);
 
-        // Viền sáng: xanh lá phát sáng khi đang nói, xanh nhạt khi mic mở
         if (speaking) {
-          micG.lineStyle(6, 0x4ade80, 0.28);
-          micG.strokeCircle(micCX, micCY, R + 3.5);
-          micG.lineStyle(2.5, 0x86efac, 1);
-          micG.strokeCircle(micCX, micCY, R + 1.5);
+          micG.lineStyle(5, 0x4ade80, 0.28);
+          micG.strokeCircle(micCX, micCY, R + 3);
+          micG.lineStyle(2.2, 0x86efac, 1);
+          micG.strokeCircle(micCX, micCY, R + 1.2);
         } else if (on) {
-          micG.lineStyle(1.8, 0x93e6ff, 0.6);
-          micG.strokeCircle(micCX, micCY, R + 1.5);
+          micG.lineStyle(1.6, 0x93e6ff, 0.65);
+          micG.strokeCircle(micCX, micCY, R + 1.2);
         }
 
-        // Icon micro chính là nút bấm
         ensureMicImg();
         if (micImg) {
           const sc = (micHovered ? 1.1 : 1) * (speaking ? 1.06 : 1);
@@ -297,14 +328,13 @@ export default class ChatWidget {
           else    { micImg.setTint(0x9aa8bb); micImg.setAlpha(0.85); }
         }
 
-        // Chấm tròn đỏ dấu × khi đang TẮT mic
         if (!on) {
-          const bx = micCX + 12, by = micCY + 11, br = 6.5;
+          const bx = micCX + 10, by = micCY + 10, br = 6;
           micG.fillStyle(0x000000, 0.38);
           micG.fillCircle(bx + 1, by + 1.5, br);
           micG.fillStyle(0xef4444, 1);
           micG.fillCircle(bx, by, br);
-          micG.lineStyle(1.5, 0xffffff, 0.95);
+          micG.lineStyle(1.4, 0xffffff, 0.95);
           micG.strokeCircle(bx, by, br);
           micBadgeTxt.setPosition(bx, by - 0.5).setVisible(true);
         } else {
@@ -312,7 +342,7 @@ export default class ChatWidget {
         }
       };
 
-      const micZone = this.scene.add.zone(micCX, micCY, MIC_W, INPUT_H)
+      const micZone = this.scene.add.zone(micCX, micCY, BTN_D, BTN_D)
         .setInteractive({ cursor: "pointer" }).setDepth(D + 4);
       micZone.on("pointerover", () => { micHovered = true; drawMic(); });
       micZone.on("pointerout",  () => { micHovered = false; drawMic(); });
@@ -592,13 +622,14 @@ export default class ChatWidget {
 
   _focusInput() {
     this._focused = true;
+    this._drawInputPill?.(true);
     this._placeholder?.setVisible(false);
     if (!this._keyListener) {
       this._keyListener = (e) => {
         if (!this._focused) return;
         if (e.key === "Enter")          { this._sendMessage(); }
         else if (e.key === "Backspace") { this._inputText = this._inputText.slice(0, -1); this._syncInput(); }
-        else if (e.key === "Escape")    { this._focused = false; }
+        else if (e.key === "Escape")    { this._focused = false; this._drawInputPill?.(false); }
         else if (e.key.length === 1 && this._inputText.length < 200) {
           this._inputText += e.key; this._syncInput();
         }

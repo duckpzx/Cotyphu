@@ -4,7 +4,60 @@
     "presets": []
   },
   "lab": {
-    "active_id": "default",
-    "presets": []
+    "active_id": "lab_1795612151545",
+    "presets": [
+      {
+        "id": "lab_1795612151545",
+        "name": "Giáng sinh",
+        "is_custom": true,
+        "image_url": "/assets/custom_scenes/lab_1795612151545.png",
+        "version": 1795612223097,
+        "spots": [
+          {
+            "id": 1,
+            "x": 0.1557,
+            "y": 0.6163,
+            "label": "Spot 1",
+            "flipX": false
+          },
+          {
+            "id": 2,
+            "x": 0.1913,
+            "y": 0.4081,
+            "label": "Spot 2",
+            "flipX": false
+          },
+          {
+            "id": 3,
+            "x": 0.5084,
+            "y": 0.3987,
+            "label": "Spot 3 (Phù Thủy)",
+            "flipX": false
+          },
+          {
+            "id": 4,
+            "x": 0.6886,
+            "y": 0.359,
+            "label": "Spot 4",
+            "flipX": true
+          },
+          {
+            "id": 5,
+            "x": 0.8518,
+            "y": 0.497,
+            "label": "Spot 5",
+            "flipX": true
+          },
+          {
+            "id": 6,
+            "x": 0.8321,
+            "y": 0.773,
+            "label": "Spot 6",
+            "flipX": true
+          }
+        ],
+        "updated_at": "2026-11-25T13:10:23.097Z"
+      }
+    ]
   }
 }

@@ -297,6 +297,31 @@ const STYLES = {
   `,
 };
 
+function computeSplashAtmosphere(hourFloat) {
+  const h = ((hourFloat % 24) + 24) % 24;
+  if (h >= 5 && h < 7.5) {
+    const t = (h - 5) / 2.5, bell = Math.sin(t * Math.PI);
+    return { nightAlpha: +(0.85 * (1 - t)).toFixed(3), tintColor: 0xffaa55, tintAlpha: +(0.18 * bell).toFixed(3), addMode: false };
+  }
+  if (h >= 7.5 && h < 10.5) {
+    const t = (h - 7.5) / 3.0;
+    return { nightAlpha: 0, tintColor: 0xfff3cc, tintAlpha: +(0.08 * (1 - t * 0.5)).toFixed(3), addMode: true };
+  }
+  if (h >= 10.5 && h < 15.5) {
+    const t = (h - 10.5) / 5.0, bell = Math.sin(t * Math.PI);
+    return { nightAlpha: 0, tintColor: 0xffffff, tintAlpha: +(0.03 + 0.06 * bell).toFixed(3), addMode: true };
+  }
+  if (h >= 15.5 && h < 18.5) {
+    const t = (h - 15.5) / 3.0, bell = Math.sin(t * Math.PI);
+    return { nightAlpha: +(0.55 * t).toFixed(3), tintColor: 0xff6b35, tintAlpha: +(0.24 * bell).toFixed(3), addMode: false };
+  }
+  if (h >= 18.5 && h < 20.5) {
+    const t = (h - 18.5) / 2.0;
+    return { nightAlpha: +(0.55 + 0.45 * t).toFixed(3), tintColor: 0x2b1e5a, tintAlpha: +(0.16 * (1 - t * 0.4)).toFixed(3), addMode: false };
+  }
+  return { nightAlpha: 1, tintColor: 0x0a1936, tintAlpha: 0.1, addMode: false };
+}
+
 // ─────────────────────────────────────────────────────────
 export default class SplashScene extends Phaser.Scene {
   constructor() {
@@ -307,16 +332,56 @@ export default class SplashScene extends Phaser.Scene {
     this.load.image("lobby-bg-light", "assets/ui/lobby/background_light.png");
     this.load.image("lobby-bg-dark",  "assets/ui/lobby/background_dark.png");
     this.load.audio("lobby_bgm",  "assets/music/lobby/lobbyscene.mp3");
+
+    this._lobbyConfig = null;
+    if (this.cache.json.exists("lobby_config_live")) {
+      this.cache.json.remove("lobby_config_live");
+    }
+    this.load.json("lobby_config_live", `/api/assets/lobby-config?t=${Date.now()}`);
+    this.load.once("filecomplete-json-lobby_config_live", (_k, _t, payload) => {
+      const cfg = payload?.lobby;
+      if (cfg) {
+        this._lobbyConfig = cfg;
+        if (cfg.is_custom && cfg.day_url && cfg.night_url) {
+          const ver = cfg.version || 0;
+          const dk = `lobby-bg-custom-day-${ver}`;
+          const nk = `lobby-bg-custom-night-${ver}`;
+          if (!this.textures.exists(dk)) this.load.image(dk, `${cfg.day_url}?v=${ver}`);
+          if (!this.textures.exists(nk)) this.load.image(nk, `${cfg.night_url}?v=${ver}`);
+        }
+      }
+    });
   }
 
   create() {
     const { width, height } = this.scale;
     setupClickSound(this);
 
-    // ── Nền lobby theo giờ ───────────────────────────────
-    const bgKey = getLobbyBgKey();
-    const bg = this.add.image(width / 2, height / 2, bgKey);
-    bg.setScale(Math.max(width / bg.width, height / bg.height));
+    // ── Nền sảnh đồng bộ 100% với Admin Studio (bộ sảnh theo mùa + khí quyển 24h) ──
+    const lCfg = this._lobbyConfig;
+    const lVer = lCfg?.version || 0;
+    const dayKey = (lCfg?.is_custom && this.textures.exists(`lobby-bg-custom-day-${lVer}`))
+      ? `lobby-bg-custom-day-${lVer}`
+      : "lobby-bg-light";
+    const nightKey = (lCfg?.is_custom && this.textures.exists(`lobby-bg-custom-night-${lVer}`))
+      ? `lobby-bg-custom-night-${lVer}`
+      : "lobby-bg-dark";
+
+    const bgDay = this.add.image(width / 2, height / 2, dayKey);
+    bgDay.setScale(Math.max(width / bgDay.width, height / bgDay.height));
+
+    const bgNight = this.add.image(width / 2, height / 2, nightKey);
+    bgNight.setScale(Math.max(width / bgNight.width, height / bgNight.height));
+
+    const now = new Date();
+    const hourFloat = lCfg?.time_mode === "fixed"
+      ? Number(lCfg.fixed_hour ?? 12)
+      : now.getHours() + now.getMinutes() / 60;
+    const atm = computeSplashAtmosphere(hourFloat);
+    bgNight.setAlpha(atm.nightAlpha);
+
+    const atmosphereOverlay = this.add.rectangle(width / 2, height / 2, width, height, atm.tintColor, atm.tintAlpha);
+    atmosphereOverlay.setBlendMode(atm.addMode ? Phaser.BlendModes.ADD : Phaser.BlendModes.NORMAL);
 
     // ── Blur canvas + overlay tối ────────────────────────
     const canvas = this.game.canvas;

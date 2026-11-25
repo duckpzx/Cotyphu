@@ -48,7 +48,8 @@ export function registerFriendHandlers(socket, io, { onlineUserSockets, gameStat
         `SELECT
            f.id, f.status, f.created_at,
            CASE WHEN f.user_id = ? THEN f.friend_id ELSE f.user_id END AS friend_uid,
-           u.name
+           u.name,
+           COALESCE(u.active_avatar_id, 1) AS active_avatar_id
          FROM friendships f
          JOIN users u ON u.id = CASE WHEN f.user_id = ? THEN f.friend_id ELSE f.user_id END
          WHERE (f.user_id = ? OR f.friend_id = ?) AND f.status = 'accepted'
@@ -121,7 +122,8 @@ export function registerFriendHandlers(socket, io, { onlineUserSockets, gameStat
     try {
       const [rows] = await db.query(
         `SELECT f.id, f.user_id, u.name, f.created_at,
-                u.active_character_id
+                u.active_character_id,
+                COALESCE(u.active_avatar_id, 1) AS active_avatar_id
          FROM friendships f
          JOIN users u ON u.id = f.user_id
          WHERE f.friend_id = ? AND f.status = 'pending'
@@ -271,7 +273,7 @@ export function registerFriendHandlers(socket, io, { onlineUserSockets, gameStat
     if (!q) return;
     try {
       const [rows] = await db.query(
-        `SELECT id, name FROM users
+        `SELECT id, name, username, COALESCE(active_avatar_id, 1) AS active_avatar_id FROM users
          WHERE (name LIKE ? OR username LIKE ?) AND id != ?
          LIMIT 20`,
         [`%${q}%`, `%${q}%`, me]

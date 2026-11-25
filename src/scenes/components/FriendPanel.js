@@ -5,6 +5,7 @@
  */
 import PlayerProfilePanel from "./PlayerProfilePanel.js";
 import { playTabSound } from "../../utils/clickSound.js";
+import { renderAvatarBadge } from "../../utils/avatarBadge.js";
 
 export default class FriendPanel {
   /**
@@ -723,13 +724,18 @@ export default class FriendPanel {
     rowBg.lineStyle(1, 0xfff0c0, 0.45);
     rowBg.strokeRoundedRect(bx + 1, by + 1, bw - 2, bh - 2, br - 1);
 
-    // ── Avatar circle với ảnh nhân vật ───────────────────────────
+    // ── Avatar tròn 96x96 + hào quang blur ánh xạ từ chính ảnh ──
     const avR = 22;
     const avX = L + 14 + avR;
-
-    const avCircle = push(this.scene.add.graphics().setDepth(D + 2));
-    avCircle.lineStyle(2.5, 0x9d7d48, 1);
-    avCircle.strokeCircle(avX, midY, avR);
+    renderAvatarBadge(this.scene, {
+      x: avX,
+      y: midY,
+      size: avR * 2,
+      avatarId: friend.active_avatar_id || 1,
+      depth: D + 2,
+      push,
+      glow: true,
+    });
 
     // Chấm trạng thái
     const dotColor = friend.in_game ? 0xe05030
@@ -740,27 +746,11 @@ export default class FriendPanel {
                     : friend.in_room ? 0xc07810
                     : friend.online  ? 0x2a9444
                     : 0x6a5a40;
-    const dotG = push(this.scene.add.graphics().setDepth(D + 4));
+    const dotG = push(this.scene.add.graphics().setDepth(D + 5));
     dotG.fillStyle(dotColor, 1);
     dotG.fillCircle(avX + avR - 4, midY + avR - 4, 6);
     dotG.lineStyle(1.5, dotBorder, 1);
     dotG.strokeCircle(avX + avR - 4, midY + avR - 4, 6);
-
-    // Hiển thị chữ cái đầu tên với gradient màu ngẫu nhiên
-    const { color1, color2 } = this._getAvatarColors(friend.name);
-    const avFill = push(this.scene.add.graphics().setDepth(D + 2));
-    avFill.fillGradientStyle(color1, color1, color2, color2, 1);
-    avFill.fillCircle(avX, midY, avR - 1);
-    
-    const initials = (friend.name || "?").slice(0, 2).toUpperCase();
-    push(this.scene.add.text(avX, midY, initials, {
-      fontFamily: "Signika",
-      fontSize: "18px",
-      color: "#ffffff",
-      fontStyle: "bold",
-      stroke: "rgba(0,0,0,0.4)",
-      strokeThickness: 3
-    }).setOrigin(0.5).setDepth(D + 3));
 
     // ── Tên + trạng thái ─────────────────────────────────────────
     push(this.scene.add.text(avX + avR + 12, midY - 9, friend.name || "?", {
@@ -788,10 +778,11 @@ export default class FriendPanel {
         depth:  this.depth + 50,
       });
       this._profilePanel.open(width, height, {
-        user_id:        friend.friend_uid ?? friend.id,
-        name:           friend.name,
-        character_name: friend.character_name || "Unknown",
-        skin_id:        friend.skin_id || 1,
+        user_id:          friend.friend_uid ?? friend.id,
+        name:             friend.name,
+        active_avatar_id: friend.active_avatar_id || 1,
+        character_name:   friend.character_name || "Unknown",
+        skin_id:          friend.skin_id || 1,
       }, this._myUserId);
     };
     const clickW = avR * 2 + 12 + 120;
@@ -897,30 +888,18 @@ export default class FriendPanel {
       rowBg.strokePath();
     }
 
-    // ── Avatar circle với ảnh nhân vật ───────────────────────────
+    // ── Avatar tròn 96x96 + hào quang blur ───────────────────────
     const avR = 22;
     const avX = L + 14 + avR;
-
-    // Viền circle
-    const avCircle = push(this.scene.add.graphics().setDepth(D + 2));
-    avCircle.lineStyle(2.5, 0xaa8a54, 0.5);
-    avCircle.strokeCircle(avX, midY, avR);
-
-    // Hiển thị chữ cái đầu tên với gradient màu ngẫu nhiên
-    const { color1, color2 } = this._getAvatarColors(req.from_name);
-    const avFill = push(this.scene.add.graphics().setDepth(D + 2));
-    avFill.fillGradientStyle(color1, color1, color2, color2, 1);
-    avFill.fillCircle(avX, midY, avR - 1);
-    
-    const initials = (req.from_name || "?").slice(0, 2).toUpperCase();
-    push(this.scene.add.text(avX, midY, initials, {
-      fontFamily: "Arial Black, Arial, sans-serif",
-      fontSize: "16px",
-      color: "#ffffff",
-      fontStyle: "bold",
-      stroke: "rgba(0,0,0,0.3)",
-      strokeThickness: 3
-    }).setOrigin(0.5).setDepth(D + 3));
+    renderAvatarBadge(this.scene, {
+      x: avX,
+      y: midY,
+      size: avR * 2,
+      avatarId: req.active_avatar_id || 1,
+      depth: D + 2,
+      push,
+      glow: true,
+    });
 
     // Tên
     push(this.scene.add.text(avX + avR + 12, midY, req.from_name || "?", {
@@ -936,10 +915,11 @@ export default class FriendPanel {
         depth:  this.depth + 50,
       });
       this._profilePanel.open(width, height, {
-        user_id:        req.from_id ?? req.user_id,
-        name:           req.from_name,
-        character_name: req.character_name || "Unknown",
-        skin_id:        req.skin_id || 1,
+        user_id:          req.from_id ?? req.user_id,
+        name:             req.from_name,
+        active_avatar_id: req.active_avatar_id || 1,
+        character_name:   req.character_name || "Unknown",
+        skin_id:          req.skin_id || 1,
       }, this._myUserId);
     };
     // Zone phủ avatar + tên (nửa trái row)
@@ -1007,24 +987,21 @@ export default class FriendPanel {
     rowBg.fillStyle(0x000000, 0.04);
     rowBg.fillRoundedRect(L, rowY + 2, W, H - 4, 8);
 
-    // ── Avatar circle với ảnh nhân vật ───────────────────────────
+    // ── Avatar tròn 96x96 + hào quang blur ───────────────────────
     const avR = 22;
     const avX = L + 14 + avR;
-
-    const avCircle = push(this.scene.add.graphics().setDepth(D + 2));
-    avCircle.lineStyle(2.5, 0x9d7d48, 1);
-    avCircle.strokeCircle(avX, midY, avR);
-
-    // Hiển thị chữ cái đầu tên thay vì ảnh nhân vật
-    const avFill = push(this.scene.add.graphics().setDepth(D + 2));
-    avFill.fillStyle(0xc4a865, 1);
-    avFill.fillCircle(avX, midY, avR - 1);
-    push(this.scene.add.text(avX, midY, (user.name || "?").slice(0, 2).toUpperCase(), {
-      fontFamily: "Signika", fontSize: "14px", color: "#ffffff", fontStyle: "bold"
-    }).setOrigin(0.5).setDepth(D + 3));
+    renderAvatarBadge(this.scene, {
+      x: avX,
+      y: midY,
+      size: avR * 2,
+      avatarId: user.active_avatar_id || 1,
+      depth: D + 2,
+      push,
+      glow: true,
+    });
 
     push(this.scene.add.text(avX + avR + 12, midY - 8, user.name || "?", {
-      fontFamily: "Signika", fontSize: "15px", color: "#  3a2000", fontStyle: "bold"
+      fontFamily: "Signika", fontSize: "15px", color: "#3a2000", fontStyle: "bold"
     }).setOrigin(0, 0.5).setDepth(D + 2));
     push(this.scene.add.text(avX + avR + 12, midY + 8, `@${user.username || ""}`, {
       fontFamily: "Signika", fontSize: "12px", color: "#8a6a30"

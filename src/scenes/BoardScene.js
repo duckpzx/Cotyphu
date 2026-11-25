@@ -4466,6 +4466,11 @@ this.input.keyboard.on("keydown-Y", () => {
       p.userId = gmPlayer?.user_id;
       p.color = pc.color;
       p.orbKey = orbKey;
+      p.chatBubbleAnchor = {
+        x: isLeft ? (cardX + CARD_W + 12 * minRatio) : (cardX - 12 * minRatio),
+        y: py_ + H / 2,
+        isLeft,
+      };
 
       p._ui = {
         bg1, bg2, bg3, border,
@@ -6327,6 +6332,96 @@ this.input.keyboard.on("keydown-Y", () => {
       return colors[key] || "#ffffff";
   }
 
+  _showBoardHudChatBubble(userId, text) {
+    const uid = Number(userId);
+    const panel = (this.playerPanels || []).find(p => Number(p.userId) === uid);
+    const anchor = panel?.chatBubbleAnchor;
+    if (!anchor) return;
+
+    this._hudChatBubbles = this._hudChatBubbles || new Map();
+    const prev = this._hudChatBubbles.get(uid);
+    if (prev) {
+      try { prev.timer?.remove(false); } catch (_) {}
+      try { prev.container?.destroy(); } catch (_) {}
+      this._hudChatBubbles.delete(uid);
+    }
+
+    const r = this.minRatio || 1;
+    const maxTextW = Math.round(210 * r);
+    const padX = Math.round(16 * r);
+    const padY = Math.round(10 * r);
+    const arrowW = Math.round(9 * r);
+    const arrowH = Math.round(12 * r);
+
+    const displayMsg = String(text || "").trim().slice(0, 90);
+    if (!displayMsg) return;
+
+    const txt = this.add.text(0, 0, displayMsg, {
+      fontFamily: "Signika",
+      fontSize: Math.max(13, Math.round(16 * r)) + "px",
+      fontStyle: "bold",
+      color: "#ffffff",
+      stroke: "#061529",
+      strokeThickness: 2.5,
+      align: "center",
+      wordWrap: { width: maxTextW, useAdvancedWrap: true },
+    }).setOrigin(0.5);
+
+    const bw = Math.max(Math.round(96 * r), Math.ceil(txt.width) + padX * 2);
+    const bh = Math.max(Math.round(42 * r), Math.ceil(txt.height) + padY * 2);
+    const rad = Math.round(10 * r);
+
+    // Đặt tâm bong bóng bên phải (nếu player góc trái) hoặc bên trái (nếu player góc phải)
+    const cx = anchor.isLeft ? (anchor.x + arrowW + bw / 2) : (anchor.x - arrowW - bw / 2);
+    const cy = anchor.y;
+
+    const g = this.add.graphics();
+    // Nền xanh dương trong suốt giống ảnh mẫu
+    g.fillStyle(0x0b2545, 0.76);
+    g.fillRoundedRect(-bw / 2, -bh / 2, bw, bh, rad);
+    g.lineStyle(1.4, 0x62b0f5, 0.55);
+    g.strokeRoundedRect(-bw / 2, -bh / 2, bw, bh, rad);
+
+    // Mũi tên nhỏ chỉ về phía thẻ avatar của người chat
+    g.fillStyle(0x0b2545, 0.88);
+    if (anchor.isLeft) {
+      g.fillTriangle(-bw / 2, -arrowH / 2, -bw / 2, arrowH / 2, -bw / 2 - arrowW, 0);
+    } else {
+      g.fillTriangle(bw / 2, -arrowH / 2, bw / 2, arrowH / 2, bw / 2 + arrowW, 0);
+    }
+
+    const container = this.add.container(cx, cy, [g, txt])
+      .setDepth(245)
+      .setAlpha(0)
+      .setScale(0.86);
+
+    this.tweens.add({
+      targets: container,
+      alpha: 1,
+      scaleX: 1,
+      scaleY: 1,
+      duration: 180,
+      ease: "Back.easeOut",
+    });
+
+    const timer = this.time.delayedCall(4200, () => {
+      if (!container?.active) return;
+      this.tweens.add({
+        targets: container,
+        alpha: 0,
+        duration: 320,
+        onComplete: () => {
+          try { container.destroy(); } catch (_) {}
+          if (this._hudChatBubbles?.get(uid)?.container === container) {
+            this._hudChatBubbles.delete(uid);
+          }
+        },
+      });
+    });
+
+    this._hudChatBubbles.set(uid, { container, timer });
+  }
+
   _showBoardCharacterEmoji(userId, emojiId) {
     const uid = Number(userId);
     const myUid = Number(this._myUserId());
@@ -6430,10 +6525,16 @@ this.input.keyboard.on("keydown-Y", () => {
         this._updateGameChatBadge(true);
       }
 
-      // Nếu tin nhắn có mã Emoji [e:1..50] -> hiện bong bóng cảm xúc ngay trên đầu nhân vật trên bàn cờ
+      // Nếu tin nhắn có mã Emoji [e:1..50] -> hiện bong bóng cảm xúc trên đầu & bám theo nhân vật trên bàn cờ
       const eid = extractEmojiId(data.message);
       if (eid) {
         this._showBoardCharacterEmoji(data.user_id, eid);
+      }
+
+      // Nếu tin nhắn có nội dung chữ -> hiện bong bóng chat cạnh thẻ avatar/HUD của người đó
+      const cleanText = String(data.message || "").replace(/\[e:\d{1,2}\]/g, "").trim();
+      if (cleanText) {
+        this._showBoardHudChatBubble(data.user_id, cleanText);
       }
     };
 

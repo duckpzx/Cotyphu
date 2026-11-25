@@ -2036,11 +2036,12 @@ io.on("connection", (socket) => {
 
       const profLv = parseJsonCol(user?.tarot_levels);
       socket.emit("room:player:profile:result", {
-        user_id:        Number(target_id),
-        name:           user.name || user.username || "Player",
-        character_name: ac?.name || ac?.character_name || "Unknown",
-        skin_id:        ac?.active_skin_number || 1,
-        active_bg_id:   user.active_bg_id || null,
+        user_id:          Number(target_id),
+        name:             user.name || user.username || "Player",
+        active_avatar_id: Number(user.active_avatar_id || 1),
+        character_name:   ac?.name || ac?.character_name || "Unknown",
+        skin_id:          ac?.active_skin_number || 1,
+        active_bg_id:     user.active_bg_id || null,
         active_bg_path,
         tarot_cards:    tarotCards.map(t => ({ tarot_id: t.id, name: t.name, icon: t.icon, level: Number(profLv[t.id]) >= 2 ? 2 : 1 })),
         total_games:    user.total_games || 0,

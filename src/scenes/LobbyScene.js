@@ -6,6 +6,7 @@ import { SERVER_URL } from "../config.js";
 import { tarotLevelKey, tarotImagePath } from "../utils/tarotLevel.js";
 import { setupClickSound, playTabSound, playOutSound, isMusicEnabled } from "../utils/clickSound.js";
 import { openPayosTopUpFlow } from "../utils/payosModal.js";
+import { renderAvatarBadge } from "../utils/avatarBadge.js";
 
 // ── Helper: tính trạng thái khí quyển 24h mượt mà (Bình minh → Sáng → Trưa → Hoàng hôn → Đêm) ──
 function computeLobbyAtmosphere(hourFloat) {
@@ -75,6 +76,7 @@ export default class LobbyScene extends Phaser.Scene {
     // icon top bar
     this.load.image("coin","assets/ui/shared/coin.png");
     this.load.image("add","assets/ui/shared/add.png");
+    this.load.image("deposit_badge","assets/ui/shared/deposit.png");
     this.load.image("border","assets/ui/lobby/border.png");
     this.load.image("bag","assets/ui/lobby/backpack.png");
     this.load.image("shop","assets/ui/lobby/shop.png");
@@ -558,6 +560,29 @@ createTopBar() {
     this.time.delayedCall(100, () => this._showTopUpPanel(width, height));
   });
 
+  // Nhãn "NẠP" (deposit.png) phía trên nút + với hiệu ứng nhún lên xuống nhịp nhàng
+  const depositBadge = this.add.image(plusBtn.x, y - 26, "deposit_badge")
+    .setDisplaySize(46, 30)
+    .setOrigin(0.5)
+    .setDepth(108)
+    .setInteractive({ cursor: "pointer" });
+
+  this.tweens.add({
+    targets: depositBadge,
+    y: y - 31,
+    duration: 720,
+    yoyo: true,
+    repeat: -1,
+    ease: "Sine.easeInOut",
+  });
+
+  depositBadge.on("pointerover", () => depositBadge.setScale(1.06));
+  depositBadge.on("pointerout",  () => depositBadge.setDisplaySize(46, 30));
+  depositBadge.on("pointerdown", () => {
+    this.tweens.add({ targets: plusBtn, scale: 0.55, duration: 80, yoyo: true });
+    this.time.delayedCall(100, () => this._showTopUpPanel(width, height));
+  });
+
 
 // ===== ICON MENU =====
   const iconStartX = width - 440;
@@ -794,25 +819,44 @@ createTopBar() {
     if (opts.tab !== undefined) this._activeTab = opts.tab;
     if (opts.friend !== undefined) this._pmFriend = opts.friend;
 
-    const PANEL_W = 340;
-    const PANEL_H = 420;
-    const PANEL_X = 10;
-    const PANEL_Y = height / 2 - PANEL_H / 2 - 30;
-    const TAB_H   = 36;
+    const PANEL_W = Math.min(540, width - 220);
+    const PANEL_H = Math.min(470, height - 120);
+    const PANEL_X = Math.round((width - PANEL_W) / 2) + 32;
+    const PANEL_Y = Math.max(24, Math.round((height - 70 - PANEL_H) / 2));
+    const SIDE_TAB_W = 148;
+    const SIDE_TAB_H = 44;
+    const SIDE_TAB_GAP = 10;
     const D       = 120; // thấp hơn FriendPanel (160) để FriendPanel đè lên trên
 
     const objs = [];
     const push  = o => { objs.push(o); return o; };
 
-    // ── Nền panel ──────────────────────────────────────────────────
-    const bg = push(this.add.graphics().setDepth(D));
-    bg.fillStyle(0x041428, 0.92);
-    bg.fillRoundedRect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 12);
-    bg.lineStyle(1.5, 0x2255aa, 0.7);
-    bg.strokeRoundedRect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 12);
+    // ── Dimmer tối phía sau giúp khung chat nổi bật & dễ đọc ──────
+    const dim = push(this.add.graphics().setDepth(D - 2));
+    dim.fillStyle(0x000000, 0.48);
+    dim.fillRect(0, 0, width, height);
+    push(this.add.zone(width / 2, height / 2, width, height)
+      .setInteractive().setDepth(D - 2))
+      .on("pointerdown", () => this._destroyChatPanel());
 
-    // ── Tabs ───────────────────────────────────────────────────────
-    const tabs = ["Thế Giới", "Bạn Bè"];
+    // ── Khung chính to ở giữa (viền xanh cyan phát sáng kiểu Phòng Tán Gẫu) ──
+    const bg = push(this.add.graphics().setDepth(D));
+    // Hào quang xanh dương dịu ngoài viền
+    bg.lineStyle(6, 0x1ea7ff, 0.2);
+    bg.strokeRoundedRect(PANEL_X - 2, PANEL_Y - 2, PANEL_W + 4, PANEL_H + 4, 16);
+    // Nền xanh đen trong suốt
+    bg.fillStyle(0x031429, 0.86);
+    bg.fillRoundedRect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 14);
+    // Viền sáng cyan sắc nét
+    bg.lineStyle(2, 0x38bdf8, 0.92);
+    bg.strokeRoundedRect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 14);
+
+    // Chặn click xuyên qua khung chat xuống dimmer
+    push(this.add.zone(PANEL_X + PANEL_W / 2, PANEL_Y + PANEL_H / 2, PANEL_W, PANEL_H)
+      .setInteractive().setDepth(D));
+
+    // ── Tabs gắn bên cạnh trái (PHÒNG TÁN GẪU / BẠN BÈ) ───────────
+    const tabs = ["PHÒNG TÁN GẪU", "BẠN BÈ"];
     this._activeTab = this._activeTab || 0;
     const tabObjs = [];
 
@@ -821,47 +865,59 @@ createTopBar() {
       tabObjs.length = 0;
 
       tabs.forEach((label, i) => {
-        const tx = PANEL_X + (PANEL_W / tabs.length) * i;
-        const tw = PANEL_W / tabs.length;
+        const tx = PANEL_X - SIDE_TAB_W + 2;
+        const ty = PANEL_Y + 26 + i * (SIDE_TAB_H + SIDE_TAB_GAP);
         const isActive = i === this._activeTab;
 
-        const tg = this.add.graphics().setDepth(D + 1);
-        tg.fillStyle(isActive ? 0x1a5fa8 : 0x0a1a33, isActive ? 1 : 0.8);
-        tg.fillRoundedRect(tx + 2, PANEL_Y + 2, tw - 4, TAB_H - 2,
-          { tl: i === 0 ? 10 : 0, tr: 0, bl: 0, br: 0 });
+        const tg = this.add.graphics().setDepth(isActive ? D + 2 : D - 1);
+        if (isActive) {
+          tg.fillGradientStyle(0x28c2ff, 0x28c2ff, 0x0284c7, 0x0284c7, 1);
+          tg.fillRoundedRect(tx, ty, SIDE_TAB_W, SIDE_TAB_H, { tl: 12, tr: 0, bl: 12, br: 0 });
+          tg.fillStyle(0xffffff, 0.25);
+          tg.fillRoundedRect(tx + 5, ty + 3, SIDE_TAB_W - 8, SIDE_TAB_H * 0.4, { tl: 8, tr: 0, bl: 4, br: 0 });
+          tg.lineStyle(1.8, 0x7dd3fc, 0.95);
+          tg.strokeRoundedRect(tx, ty, SIDE_TAB_W, SIDE_TAB_H, { tl: 12, tr: 0, bl: 12, br: 0 });
+        } else {
+          tg.fillStyle(0x061d3a, 0.88);
+          tg.fillRoundedRect(tx + 8, ty, SIDE_TAB_W - 8, SIDE_TAB_H, { tl: 10, tr: 0, bl: 10, br: 0 });
+          tg.lineStyle(1.4, 0x2b6cb0, 0.7);
+          tg.strokeRoundedRect(tx + 8, ty, SIDE_TAB_W - 8, SIDE_TAB_H, { tl: 10, tr: 0, bl: 10, br: 0 });
+        }
         tabObjs.push(tg);
 
-        const tt = this.add.text(tx + tw / 2, PANEL_Y + TAB_H / 2, label, {
-          fontFamily: "Signika", fontSize: "15px",
-          color: isActive ? "#ffffff" : "#7799bb", fontStyle: "bold"
-        }).setOrigin(0.5).setDepth(D + 2);
+        const tt = this.add.text(tx + (isActive ? SIDE_TAB_W / 2 : (SIDE_TAB_W + 8) / 2), ty + SIDE_TAB_H / 2, label, {
+          fontFamily: "Signika", fontSize: "13.5px",
+          color: isActive ? "#ffffff" : "#89b7df",
+          fontStyle: "bold",
+          stroke: isActive ? "#034078" : "#021020",
+          strokeThickness: isActive ? 3 : 2,
+        }).setOrigin(0.5).setDepth(D + 3);
         tabObjs.push(tt);
 
-        // Badge đỏ trên tab "Bạn Bè" (i === 1)
+        // Badge đỏ trên tab "BẠN BÈ" (i === 1)
         if (i === 1) {
           const unread = this._pmUnreadTotal || 0;
           if (unread > 0 && !isActive) {
             const bR = 9;
-            const bX = tx + tw / 2 + tt.width / 2 + bR + 4;
-            const bY = PANEL_Y + TAB_H / 2;
-            const bg = this.add.graphics().setDepth(D + 3);
-            bg.fillStyle(0xdd2222, 1);
-            bg.fillCircle(bX, bY, bR);
-            tabObjs.push(bg);
+            const bX = tx + 20;
+            const bY = ty + 8;
+            const bG = this.add.graphics().setDepth(D + 4);
+            bG.fillStyle(0xdd2222, 1);
+            bG.fillCircle(bX, bY, bR);
+            tabObjs.push(bG);
             const bt = this.add.text(bX, bY, unread > 99 ? "99+" : String(unread), {
               fontFamily: "Signika", fontSize: "10px", color: "#ffffff", fontStyle: "bold"
-            }).setOrigin(0.5).setDepth(D + 4);
+            }).setOrigin(0.5).setDepth(D + 5);
             tabObjs.push(bt);
           }
         }
 
-        const tz = this.add.zone(tx + tw / 2, PANEL_Y + TAB_H / 2, tw, TAB_H)
-          .setInteractive({ cursor: "pointer" }).setDepth(D + 3);
+        const tz = this.add.zone(tx + SIDE_TAB_W / 2, ty + SIDE_TAB_H / 2, SIDE_TAB_W, SIDE_TAB_H)
+          .setInteractive({ cursor: "pointer" }).setDepth(D + 5);
         tz.on("pointerdown", () => {
           if (this._activeTab === i) return;
           playTabSound(this);
           this._activeTab = i;
-          // Bấm tab "Bạn Bè" → xóa unread
           if (i === 1) {
             this._pmUnreadTotal = 0;
             this._pmUnreadPerFriend = new Map();
@@ -877,37 +933,36 @@ createTopBar() {
       objs.push(...tabObjs);
     };
 
-    // ── Khu vực chat ───────────────────────────────────────────────
-    const CHAT_Y = PANEL_Y + TAB_H + 4;
-    const CHAT_H = PANEL_H - TAB_H - 4;
+    // ── Khu vực chat bên trong khung lớn ───────────────────────────
+    const CHAT_X = PANEL_X + 6;
+    const CHAT_Y = PANEL_Y + 6;
+    const CHAT_W = PANEL_W - 12;
+    const CHAT_H = PANEL_H - 12;
     let currentChat = null;
 
     const rebuildChatArea = () => {
       currentChat?.destroy();
 
       if (this._activeTab === 0) {
-        // World chat
         this._initWorldSocket(() => {
           currentChat = new ChatWidget(this, {
             channel: "world", socket: this._worldSocket, depth: D + 1,
             myId: this.player?.user?.id
           });
-          currentChat.build(PANEL_X, CHAT_Y, PANEL_W, CHAT_H);
+          currentChat.build(CHAT_X, CHAT_Y, CHAT_W, CHAT_H);
           currentChat.addSystemMessage("Chat Thế Giới — Chào mừng!");
           this._currentChatWidget = currentChat;
         });
       } else {
-        // Tab Bạn Bè
-        const friend = this._pmFriend; // null = xem danh sách, có = xem PM
+        const friend = this._pmFriend;
         if (!friend) {
-          currentChat = this._buildPMList(PANEL_X, CHAT_Y, PANEL_W, CHAT_H, D + 1, (f) => {
+          currentChat = this._buildPMList(CHAT_X, CHAT_Y, CHAT_W, CHAT_H, D + 1, (f) => {
             this._pmFriend = f;
             rebuildChatArea();
           });
-          this._currentChatWidget = currentChat; // lưu để destroy được
+          this._currentChatWidget = currentChat;
         } else {
-          currentChat = this._buildPMWidget(PANEL_X, CHAT_Y, PANEL_W, CHAT_H, D + 1, friend, () => {
-            // Callback back → về danh sách
+          currentChat = this._buildPMWidget(CHAT_X, CHAT_Y, CHAT_W, CHAT_H, D + 1, friend, () => {
             this._pmFriend = null;
             rebuildChatArea();
           });
@@ -916,15 +971,15 @@ createTopBar() {
       }
     };
 
-    // ── Nút đóng X (icon close.png, nhô ra góc trên phải panel) ───
-    const closeR = 18;
-    const closeX = PANEL_X + PANEL_W;
-    const closeY = PANEL_Y;
+    // ── Nút đóng X (nhô ra góc trên phải khung lớn) ───────────────
+    const closeR = 20;
+    const closeX = PANEL_X + PANEL_W - 2;
+    const closeY = PANEL_Y + 2;
     const closeBtn = push(this.add.image(closeX, closeY, "close_btn")
       .setDisplaySize(closeR * 2.2, closeR * 2.2)
-      .setDepth(D + 4));
+      .setDepth(D + 6));
     const closeZone = push(this.add.zone(closeX, closeY, closeR * 2.4, closeR * 2.4)
-      .setInteractive({ cursor: "pointer" }).setDepth(D + 5));
+      .setInteractive({ cursor: "pointer" }).setDepth(D + 7));
     closeZone.on("pointerover",  () => closeBtn.setAlpha(0.85));
     closeZone.on("pointerout",   () => closeBtn.setAlpha(1));
     closeZone.on("pointerdown",  () => this._destroyChatPanel());
@@ -966,54 +1021,168 @@ createTopBar() {
     maskShape.fillRect(x, y, w, h);
     const listMask = maskShape.createGeometryMask();
 
-    const conversations = this._pmConversations;
-    const hasCached = conversations && conversations.size > 0;
+    const rowObjs = [];
+    const clearRows = () => {
+      rowObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
+      rowObjs.length = 0;
+    };
+    const pushRow = (o) => { rowObjs.push(o); return o; };
 
-    if (!hasCached) {
-      push(this.add.text(x + w / 2, y + h / 2, "Chưa có tin nhắn nào.\nBấm 💬 trong danh sách\nbạn bè để nhắn tin!", {
-        fontFamily: "Signika", fontSize: "14px", color: "#7799bb", align: "center"
-      }).setOrigin(0.5).setDepth(D + 1));
-    } else {
-      const ROW_H = 52;
+    let scrollY = 0;
+    let maxScroll = 0;
+    let alive = true;
+
+    const loadingTxt = pushRow(this.add.text(x + w / 2, y + h / 2, "⏳ Đang tải danh sách bạn bè...", {
+      fontFamily: "Signika", fontSize: "14px", color: "#7799bb", align: "center"
+    }).setOrigin(0.5).setDepth(D + 1));
+
+    const renderFriendList = (friends) => {
+      if (!alive) return;
+      clearRows();
+      scrollY = 0;
+
+      if (!Array.isArray(friends) || friends.length === 0) {
+        pushRow(this.add.text(x + w / 2, y + h / 2, "Bạn chưa có bạn bè nào.\nHãy kết bạn để trò chuyện!", {
+          fontFamily: "Signika", fontSize: "14px", color: "#7799bb", align: "center"
+        }).setOrigin(0.5).setDepth(D + 1));
+        maxScroll = 0;
+        return;
+      }
+
+      // Sắp xếp bạn Online / Trong phòng / Trong trận lên đầu
+      const rankOf = (f) => f.online ? 0 : (f.in_room ? 1 : (f.in_game ? 2 : 3));
+      const sorted = [...friends].sort((a, b) => {
+        const ra = rankOf(a), rb = rankOf(b);
+        if (ra !== rb) return ra - rb;
+        return (a.name || "").localeCompare(b.name || "");
+      });
+
+      const ROW_H = 54;
+      const conversations = this._pmConversations;
       let rowY = y + 8;
-      conversations.forEach((msgs, friendId) => {
-        if (!msgs.length) return;
-        const lastMsg = msgs[msgs.length - 1];
-        const nameMatch = lastMsg.text.match(/^\[(.+?)\]/);
-        const displayName = nameMatch ? nameMatch[1] : `User ${friendId}`;
 
-        // Row nền — áp mask
-        const rowBg = push(this.add.graphics().setDepth(D + 1).setMask(listMask));
-        rowBg.fillStyle(0x0a2040, 0.8);
-        rowBg.fillRoundedRect(x + 6, rowY, w - 12, ROW_H - 4, 6);
-
-        // Tên
-        push(this.add.text(x + 16, rowY + 10, displayName, {
-          fontFamily: "Signika", fontSize: "14px", color: "#aaccff", fontStyle: "bold"
-        }).setDepth(D + 2).setMask(listMask));
-
-        // Preview tin nhắn cuối
-        const preview = lastMsg.text.replace(/^\[.+?\] /, "").slice(0, 30) + (lastMsg.text.length > 30 ? "…" : "");
-        push(this.add.text(x + 16, rowY + 28, preview, {
-          fontFamily: "Signika", fontSize: "12px", color: "#6688aa"
-        }).setDepth(D + 2).setMask(listMask));
-
-        // Zone click — chỉ trong vùng row thực tế
+      sorted.forEach((friend) => {
+        const fid = friend.friend_uid ?? friend.id;
+        const isOnline = !!(friend.online || friend.in_room || friend.in_game);
+        const rowAlpha = isOnline ? 1 : 0.48;
         const capturedRowY = rowY;
-        const zone = push(this.add.zone(x + w / 2, capturedRowY + (ROW_H - 4) / 2, w - 12, ROW_H - 4)
-          .setInteractive({ cursor: "pointer" }).setDepth(D + 3));
-        zone.on("pointerover",  () => { rowBg.clear(); rowBg.fillStyle(0x1a4070, 0.9); rowBg.fillRoundedRect(x + 6, capturedRowY, w - 12, ROW_H - 4, 6); });
-        zone.on("pointerout",   () => { rowBg.clear(); rowBg.fillStyle(0x0a2040, 0.8); rowBg.fillRoundedRect(x + 6, capturedRowY, w - 12, ROW_H - 4, 6); });
-        zone.on("pointerdown",  () => {
-          onSelect({ friend_uid: friendId, id: friendId, name: displayName === "Bạn" ? `User ${friendId}` : displayName });
+
+        const rowBg = pushRow(this.add.graphics().setDepth(D + 1).setMask(listMask).setAlpha(rowAlpha));
+        const drawRowBg = (hover = false) => {
+          rowBg.clear();
+          rowBg.fillStyle(hover ? 0x163b6b : (isOnline ? 0x0a2244 : 0x07162b), hover ? 0.92 : 0.82);
+          rowBg.fillRoundedRect(x + 6, capturedRowY, w - 12, ROW_H - 5, 8);
+          rowBg.lineStyle(1, isOnline ? (hover ? 0x58b8ff : 0x2a66a8) : 0x1e334d, isOnline ? 0.7 : 0.4);
+          rowBg.strokeRoundedRect(x + 6, capturedRowY, w - 12, ROW_H - 5, 8);
+        };
+        drawRowBg(false);
+
+        // Avatar tròn 34x34
+        const avX = x + 28;
+        const avY = capturedRowY + (ROW_H - 5) / 2;
+        renderAvatarBadge(this, {
+          x: avX,
+          y: avY,
+          size: 34,
+          avatarId: friend.active_avatar_id || 1,
+          depth: D + 2,
+          push: (o) => {
+            o.setMask(listMask);
+            if (!isOnline) o.setAlpha(0.55);
+            return pushRow(o);
+          },
+          glow: isOnline,
         });
+
+        // Chấm trạng thái góc dưới phải avatar
+        const dotColor = friend.in_game ? 0xe05030
+                       : friend.in_room ? 0xe8a020
+                       : friend.online  ? 0x22c55e
+                       : 0x64748b;
+        const dotG = pushRow(this.add.graphics().setDepth(D + 5).setMask(listMask));
+        dotG.fillStyle(dotColor, 1);
+        dotG.fillCircle(avX + 12, avY + 12, 4.5);
+        dotG.lineStyle(1.2, 0x041428, 1);
+        dotG.strokeCircle(avX + 12, avY + 12, 4.5);
+
+        // Tên bạn bè
+        pushRow(this.add.text(x + 54, capturedRowY + 9, friend.name || `User ${fid}`, {
+          fontFamily: "Signika", fontSize: "14px",
+          color: isOnline ? "#d8ecff" : "#7c91a8", fontStyle: "bold"
+        }).setDepth(D + 3).setMask(listMask));
+
+        // Dòng phụ: trạng thái hoặc tin nhắn gần nhất
+        const msgs = conversations?.get(fid);
+        let subText = friend.in_game ? "Trong trận"
+                    : friend.in_room ? "Trong phòng"
+                    : friend.online  ? "Online • Nhấn để chat"
+                    : "Offline";
+        if (msgs && msgs.length > 0 && isOnline) {
+          const last = msgs[msgs.length - 1].text.replace(/^\[.+?\] /, "");
+          subText = last.slice(0, 24) + (last.length > 24 ? "…" : "");
+        }
+        const subColor = friend.in_game ? "#f87171"
+                       : friend.in_room ? "#fbbf24"
+                       : friend.online  ? "#4ade80"
+                       : "#64748b";
+        pushRow(this.add.text(x + 54, capturedRowY + 28, subText, {
+          fontFamily: "Signika", fontSize: "11.5px", color: subColor
+        }).setDepth(D + 3).setMask(listMask));
+
+        // Chỉ cho phép bấm chat khi bạn đang Online
+        if (isOnline) {
+          pushRow(this.add.text(x + w - 18, avY, "💬", {
+            fontSize: "15px"
+          }).setOrigin(0.5).setDepth(D + 3).setMask(listMask));
+
+          const zone = pushRow(this.add.zone(x + w / 2, avY, w - 12, ROW_H - 5)
+            .setInteractive({ cursor: "pointer" }).setDepth(D + 6));
+          zone.on("pointerover", () => drawRowBg(true));
+          zone.on("pointerout",  () => drawRowBg(false));
+          zone.on("pointerdown", () => {
+            onSelect({
+              friend_uid: fid,
+              id: fid,
+              name: friend.name || `User ${fid}`,
+              active_avatar_id: friend.active_avatar_id || 1,
+            });
+          });
+        }
 
         rowY += ROW_H;
       });
+
+      const totalH = sorted.length * ROW_H + 12;
+      maxScroll = Math.max(0, totalH - h);
+      rowObjs.forEach(o => { if (o) o._pmBaseY = o.y; });
+    };
+
+    const onWheel = (pointer, _objs, _dx, dy) => {
+      if (!alive || maxScroll <= 0) return;
+      if (pointer.x < x || pointer.x > x + w || pointer.y < y || pointer.y > y + h) return;
+      scrollY = Phaser.Math.Clamp(scrollY + dy * 0.45, 0, maxScroll);
+      rowObjs.forEach(o => {
+        if (!o || o._pmBaseY === undefined) return;
+        try { o.y = o._pmBaseY - scrollY; } catch(_) {}
+      });
+    };
+    this.input.on("wheel", onWheel);
+
+    const socket = this._worldSocket;
+    const onFriendList = (list) => renderFriendList(list || []);
+    if (socket) {
+      socket.on("friend:list", onFriendList);
+      socket.emit("friend:list");
+    } else {
+      loadingTxt.setText("Chưa kết nối máy chủ chat");
     }
 
     return {
       destroy: () => {
+        alive = false;
+        this.input.off("wheel", onWheel);
+        if (socket) socket.off("friend:list", onFriendList);
+        clearRows();
         maskShape.destroy();
         objs.forEach(o => { try { o?.destroy(); } catch(e){} });
       }
@@ -2027,14 +2196,29 @@ createTopBar() {
       const skin     = profile.skin_id || 1;
       const userName = user.name || this.playerName;
 
+      // Avatar tròn cạnh Tên người chơi & tên nhân vật (đồng bộ PlayerProfilePanel)
+      const avBadgeSize = 38;
+      const avBadgeX = leftX + IP + avBadgeSize / 2 + 1;
+      const avBadgeY = BODY_T + IP + 20;
+      renderAvatarBadge(this, {
+        x: avBadgeX,
+        y: avBadgeY,
+        size: avBadgeSize,
+        avatarId: user.active_avatar_id || this.player?.user?.active_avatar_id || 1,
+        depth: D + 3,
+        push: (o) => tabContent.push(o),
+        glow: true,
+      });
+
+      const nameStartX = leftX + IP + avBadgeSize + 10;
       // Tên người chơi (To, rõ như bên Friend)
-      tabContent.push(this.add.text(leftX + IP + 2, BODY_T + IP, userName, {
-        fontFamily: "Signika", fontSize: "18px",
+      tabContent.push(this.add.text(nameStartX, BODY_T + IP + 1, userName, {
+        fontFamily: "Signika", fontSize: "17px",
         fontStyle: "bold", color: "#4a2500",
       }).setDepth(D + 4));
 
       // Tên nhân vật bên dưới
-      tabContent.push(this.add.text(leftX + IP + 2, BODY_T + IP + 22,
+      tabContent.push(this.add.text(nameStartX, BODY_T + IP + 22,
         charName.replace(/_/g, " "), {
         fontFamily: "Signika", fontSize: "13px",
         fontStyle: "bold", color: "#8a5a18",

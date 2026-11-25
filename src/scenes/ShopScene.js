@@ -5,6 +5,7 @@ import { setupClickSound, playTabSound, playOutSound, playBuySound } from "../ut
 import { createLoadingOverlay } from "../utils/loadingOverlay.js";
 import { loadCharSkills, findCharSkill, renderCharSkillBox } from "../utils/charSkillCard.js";
 import { openPayosTopUpFlow } from "../utils/payosModal.js";
+import { getItemRarityTier, ensureRarityCardTexture } from "../utils/rarityCard.js";
 
 // src/scenes/ShopScene.js
 export default class ShopScene extends Phaser.Scene {
@@ -1238,8 +1239,10 @@ export default class ShopScene extends Phaser.Scene {
 
         const HDR_H = Math.round(h * 0.26);
 
-        // ── Nền card dùng card_item1 như BagScene ────────────────
-        const cardBg = this.add.image(w / 2, h / 2, "card_item1").setDisplaySize(w, h);
+        // ── Nền card gradient + ánh sáng theo cấp độ giá (S+ Vàng, S Tím, A Xanh dương, B Xanh lá) ──
+        const rarityTier = getItemRarityTier(item);
+        const cardTexKey = ensureRarityCardTexture(this, rarityTier, w, h);
+        const cardBg = this.add.image(w / 2, h / 2, cardTexKey).setDisplaySize(w, h);
 
         // ── Tên trên header ───────────────────────────────────────
         const rawLabel = (item.label || this._getDisplayName(item.name || "")).replace(/_/g, " ");

@@ -3,6 +3,7 @@ import { SERVER_URL } from "../config.js";
 import { setupClickSound, playTabSound, playOutSound, playUseSound } from "../utils/clickSound.js";
 import { createLoadingOverlay } from "../utils/loadingOverlay.js";
 import { loadCharSkills, findCharSkill, renderCharSkillBox } from "../utils/charSkillCard.js";
+import { getItemRarityTier, ensureRarityCardTexture } from "../utils/rarityCard.js";
 
 export default class BagScene extends Phaser.Scene {
     constructor() {
@@ -890,8 +891,10 @@ export default class BagScene extends Phaser.Scene {
         // Header cam chiếm ~26% chiều cao card
         const HDR_H = Math.round(h * 0.26);
 
-        // ── Ảnh nền card ──────────────────────────────────────────
-        const cardBg = this.add.image(w / 2, h / 2, "card_item1")
+        // ── Ảnh nền card theo cấp độ (S+ Vàng, S Tím, A Xanh dương, B Xanh lá) ──
+        const rarityTier = getItemRarityTier(item);
+        const cardTexKey = ensureRarityCardTexture(this, rarityTier, w, h);
+        const cardBg = this.add.image(w / 2, h / 2, cardTexKey)
             .setDisplaySize(w, h);
         if (isLocked) cardBg.setAlpha(0.55);
 
