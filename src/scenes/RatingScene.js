@@ -181,66 +181,133 @@ export default class RatingScene extends Phaser.Scene {
       // Đỉnh đầu thực tế nằm ở: targetSpriteY - CHAR_H + (CHAR_H * 0.22) ≈ py - 129px
       const headY = py - 129;
 
-      // 3. Bảng tên (Badge Container) căn giữa hoàn hảo
-      const badgeY = headY - 42;
+      // 3. Bảng thông tin nổi không khung đen (blur halo + chữ gradient đồng bộ màu aura Top 1 Cam / Top 2 Tím / Top 3 Xanh dương, không icon)
+      const badgeY = headY - 40;
       const badgeContainer = this.add
         .container(px, badgeY)
         .setDepth(30)
         .setAlpha(0);
 
-      // - Dòng 1: Huy hiệu và thứ hạng
-      const rankText = this.add
-        .text(0, -17, `${layout.medal} ${layout.rankLabel}`, {
-          fontFamily: "Signika",
-          fontSize: "13px",
-          fontStyle: "bold",
-          color: layout.color,
-          stroke: "#000000",
-          strokeThickness: 3,
-        })
-        .setOrigin(0.5, 0.5);
-
-      // - Dòng 2: Tên người chơi
-      const nameText = this.add
-        .text(0, 2, data.username, {
-          fontFamily: "Signika",
-          fontSize: "16px",
-          fontStyle: "bold",
-          color: "#ffffff",
-          stroke: "#0a192f",
-          strokeThickness: 4,
-          shadow: { offsetX: 1, offsetY: 2, color: "#000000", blur: 3, fill: true },
-        })
-        .setOrigin(0.5, 0.5);
-
-      // - Dòng 3: Số trận thắng
+      const BADGE_THEMES = {
+        1: {
+          haloInner: "rgba(255, 178, 36, 0.72)",
+          haloMid:   "rgba(245, 130, 11, 0.36)",
+          rankTop:   "#ffffff",
+          rankMid:   "#ffe66d",
+          rankBot:   "#ff9800",
+          stroke:    "#4a1c00",
+          glow:      "rgba(255, 152, 0, 0.92)",
+          winsColor: "#fde68a",
+          lineColor: "rgba(255, 215, 100, 0.85)",
+        },
+        2: {
+          haloInner: "rgba(232, 121, 249, 0.70)",
+          haloMid:   "rgba(168, 85, 247, 0.35)",
+          rankTop:   "#ffffff",
+          rankMid:   "#f5d0fe",
+          rankBot:   "#e879f9",
+          stroke:    "#2e0659",
+          glow:      "rgba(192, 38, 211, 0.90)",
+          winsColor: "#f5d0fe",
+          lineColor: "rgba(232, 121, 249, 0.85)",
+        },
+        3: {
+          haloInner: "rgba(56, 189, 248, 0.70)",
+          haloMid:   "rgba(2, 132, 199, 0.35)",
+          rankTop:   "#ffffff",
+          rankMid:   "#bae6fd",
+          rankBot:   "#38bdf8",
+          stroke:    "#062847",
+          glow:      "rgba(14, 165, 233, 0.90)",
+          winsColor: "#bae6fd",
+          lineColor: "rgba(56, 189, 248, 0.85)",
+        },
+      };
+      const bt = BADGE_THEMES[rank] || BADGE_THEMES[3];
       const winsCount = Number(data.wins || 0);
       const winsStr = winsCount === 1 ? "1 Trận Thắng" : `${winsCount} Trận Thắng`;
-      const winsText = this.add
-        .text(0, 20, `🏆 ${winsStr}`, {
-          fontFamily: "Signika",
-          fontSize: "12px",
-          fontStyle: "bold",
-          color: layout.color,
-          stroke: "#000000",
-          strokeThickness: 2.5,
-        })
-        .setOrigin(0.5, 0.5);
+      const uname = String(data.username || "Player").slice(0, 18);
 
-      // Tự động căn bề rộng khung đen bao quanh text
-      const maxW = Math.max(rankText.width, nameText.width, winsText.width);
-      const badgeW = Math.max(maxW + 36, 140);
-      const badgeH = 62;
+      const cw = 250, ch = 92;
+      const DPR = 2;
+      const texKey = `rank_badge_${rank}_${uname}_${winsCount}_${Date.now()}`;
+      if (this.textures.exists(texKey)) this.textures.remove(texKey);
+      const cTex = this.textures.createCanvas(texKey, cw * DPR, ch * DPR);
+      const ctx = cTex.getContext();
+      ctx.scale(DPR, DPR);
+      const cx = cw / 2, cy = ch / 2;
 
-      // Vẽ Background bo tròn sang trọng căn giữa tuyệt đối quanh (0, 0)
-      const bgGfx = this.add.graphics();
-      bgGfx.fillStyle(0x07111e, 0.85);
-      bgGfx.fillRoundedRect(-badgeW / 2, -badgeH / 2, badgeW, badgeH, 10);
-      bgGfx.lineStyle(2, layout.stroke, 0.95);
-      bgGfx.strokeRoundedRect(-badgeW / 2, -badgeH / 2, badgeW, badgeH, 10);
+      // Quầng sáng blur mềm phía sau chữ (trùng màu aura dưới chân)
+      ctx.save();
+      ctx.filter = "blur(12px)";
+      const halo = ctx.createRadialGradient(cx, cy, 6, cx, cy, cw * 0.44);
+      halo.addColorStop(0, bt.haloInner);
+      halo.addColorStop(0.5, bt.haloMid);
+      halo.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = halo;
+      ctx.fillRect(0, 0, cw, ch);
+      ctx.restore();
 
-      // Thêm các thành phần vào container
-      badgeContainer.add([bgGfx, rankText, nameText, winsText]);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.lineJoin = "round";
+
+      // Dòng 1: QUÁN QUÂN / HẠNG 2 / HẠNG 3 (chữ gradient nổi phát sáng, không icon)
+      ctx.font = `900 ${rank === 1 ? 16 : 14.5}px Signika, Arial, sans-serif`;
+      ctx.save();
+      ctx.shadowColor = bt.glow;
+      ctx.shadowBlur = 9;
+      ctx.lineWidth = 4.2;
+      ctx.strokeStyle = bt.stroke;
+      ctx.strokeText(layout.rankLabel, cx, 22);
+      ctx.restore();
+      const rGrad = ctx.createLinearGradient(cx, 13, cx, 31);
+      rGrad.addColorStop(0, bt.rankTop);
+      rGrad.addColorStop(0.55, bt.rankMid);
+      rGrad.addColorStop(1, bt.rankBot);
+      ctx.fillStyle = rGrad;
+      ctx.fillText(layout.rankLabel, cx, 22);
+
+      // Dòng 2: Tên người chơi (trắng sáng đậm sắc nét)
+      ctx.font = "900 19px Signika, Arial, sans-serif";
+      ctx.save();
+      ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
+      ctx.shadowBlur = 6;
+      ctx.lineWidth = 4.6;
+      ctx.strokeStyle = "#081426";
+      ctx.strokeText(uname, cx, 47);
+      ctx.restore();
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(uname, cx, 47);
+
+      // Đường kẻ sáng mỏng trang trí mờ 2 đầu
+      const lineG = ctx.createLinearGradient(cx - 58, 0, cx + 58, 0);
+      lineG.addColorStop(0, "rgba(255,255,255,0)");
+      lineG.addColorStop(0.5, bt.lineColor);
+      lineG.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = lineG;
+      ctx.fillRect(cx - 58, 60, 116, 1.5);
+
+      // Dòng 3: Số trận thắng (không icon)
+      ctx.font = "700 13px Signika, Arial, sans-serif";
+      ctx.lineWidth = 3.2;
+      ctx.strokeStyle = bt.stroke;
+      ctx.strokeText(winsStr, cx, 73);
+      ctx.fillStyle = bt.winsColor;
+      ctx.fillText(winsStr, cx, 73);
+
+      cTex.refresh();
+
+      const badgeImg = this.add.image(0, 0, texKey).setDisplaySize(cw, ch);
+      badgeContainer.add(badgeImg);
+      this.tweens.add({
+        targets: badgeImg,
+        y: -4,
+        duration: 1100 + rank * 120,
+        yoyo: true,
+        repeat: -1,
+        ease: "Sine.easeInOut",
+      });
 
       groups[rank] = {
         px,

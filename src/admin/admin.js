@@ -2327,9 +2327,10 @@ async function renderStudioMaps() {
       <div class="asset-card-grid">
         ${mapEditorState.maps.map(m => {
           const isActive = m.id === mapEditorState.activeMapId;
+          const isEditing = m.id === mapEditorState.editingId;
           const thumb = m.image_url + (m.version ? `?v=${m.version}` : "");
           return `
-            <div class="asset-item-card ${isActive ? "selected" : ""}">
+            <div class="asset-item-card ${isActive || isEditing ? "selected" : ""}" style="cursor:pointer" data-act="load-map-editor" data-id="${esc(m.id)}" title="Bấm vào thẻ để mở lên khung kéo thả tọa độ">
               <img class="bg-thumb" src="${esc(thumb)}" alt="${esc(m.name)}" />
               <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
                 <strong>${esc(m.name)}</strong>
@@ -2337,7 +2338,6 @@ async function renderStudioMaps() {
               </div>
               <div class="actions-cell">
                 ${!isActive ? `<button class="btn btn-primary btn-sm" data-act="activate-map" data-id="${esc(m.id)}">Áp dụng</button>` : ""}
-                <button class="btn btn-secondary btn-sm" data-act="load-map-editor" data-id="${esc(m.id)}">Chỉnh tọa độ</button>
                 ${m.is_custom ? `<button class="btn btn-danger btn-sm" data-act="delete-map" data-id="${esc(m.id)}">Xóa</button>` : ""}
               </div>
             </div>
@@ -2720,9 +2720,10 @@ async function renderStudioLobby() {
         ${lobbyStudioState.presets.map(p => {
           const isActive = p.id === lobbyStudioState.activeId;
           const isEditing = p.id === lobbyStudioState.editingId;
+          const isPreview = p.id === lobbyStudioState.previewId;
           const v = p.version ? `?v=${p.version}` : "";
           return `
-            <div class="orb-pair-card ${isActive || isEditing ? "selected" : ""}">
+            <div class="orb-pair-card ${isActive || isEditing || isPreview ? "selected" : ""}" style="cursor:pointer" data-act="preview-lobby" data-id="${esc(p.id)}" title="Bấm vào thẻ để xem demo 24h & kéo thả vị trí chữ">
               <div class="orb-pair-head">
                 <strong>${esc(p.name)}</strong>
                 ${isActive ? `<span class="badge badge-online">[ĐANG DÙNG]</span>` : `<span class="badge badge-offline">[SẴN SÀNG]</span>`}
@@ -2739,7 +2740,6 @@ async function renderStudioLobby() {
               </div>
               <div class="actions-cell">
                 ${!isActive ? `<button class="btn btn-primary btn-sm" data-act="activate-lobby" data-id="${esc(p.id)}">Áp dụng</button>` : ""}
-                <button class="btn btn-secondary btn-sm" data-act="preview-lobby" data-id="${esc(p.id)}">Xem Demo / Sửa vị trí</button>
                 <button class="btn ${isEditing ? "btn-warning" : "btn-secondary"} btn-sm" data-act="edit-lobby" data-id="${esc(p.id)}">✏️ Sửa giao diện</button>
                 ${p.id === "default" && p.has_override ? `<button class="btn btn-ghost btn-sm" data-act="reset-default-lobby">↩ Khôi phục gốc</button>` : ""}
                 ${p.is_custom ? `<button class="btn btn-danger btn-sm" data-act="delete-lobby" data-id="${esc(p.id)}">Xóa</button>` : ""}
@@ -3043,9 +3043,10 @@ async function renderStudioScenes() {
       <div class="asset-card-grid">
         ${sceneEditorState.presets.map(p => {
           const isActive = p.id === sceneEditorState.activeId;
+          const isEditing = p.id === sceneEditorState.editingId;
           const thumb = p.image_url + (p.version ? `?v=${p.version}` : "");
           return `
-            <div class="asset-item-card ${isActive ? "selected" : ""}">
+            <div class="asset-item-card ${isActive || isEditing ? "selected" : ""}" style="cursor:pointer" data-act="edit-scene-preset" data-id="${esc(p.id)}" title="Bấm vào thẻ để mở lên khung kéo thả vị trí">
               <img class="bg-thumb" src="${esc(thumb)}" alt="${esc(p.name)}" />
               <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
                 <strong>${esc(p.name)}</strong>
@@ -3053,7 +3054,6 @@ async function renderStudioScenes() {
               </div>
               <div class="actions-cell">
                 ${!isActive ? `<button class="btn btn-primary btn-sm" data-act="activate-scene-preset" data-id="${esc(p.id)}">Áp dụng</button>` : ""}
-                <button class="btn btn-secondary btn-sm" data-act="edit-scene-preset" data-id="${esc(p.id)}">Chỉnh tọa độ</button>
                 ${p.is_custom ? `<button class="btn btn-danger btn-sm" data-act="delete-scene-preset" data-id="${esc(p.id)}">Xóa</button>` : ""}
               </div>
             </div>
@@ -3366,7 +3366,8 @@ document.addEventListener("click", async (e) => {
         lobbyStudioState.previewDayUrl = found.day_url + v;
         lobbyStudioState.previewNightUrl = found.night_url + v;
         lobbyStudioState.islands = (found.islands || lobbyStudioState.defaultIslands).map(i => ({ ...i }));
-        renderStudioLobby();
+        await renderStudioLobby();
+        $("lobbySimStage")?.scrollIntoView({ behavior: "smooth", block: "center" });
       }
     } else if (act === "edit-lobby") {
       const lid = btn.dataset.id;
@@ -3433,7 +3434,8 @@ document.addEventListener("click", async (e) => {
         sceneEditorState.pickedImageDataUrl = null;
         sceneEditorState.spots = (found.spots || sceneEditorState.defaultSpots).map(s => ({ ...s }));
         sceneEditorState.selectedSpotIdx = 0;
-        renderStudioScenes();
+        await renderStudioScenes();
+        $("sceneEditorStage")?.scrollIntoView({ behavior: "smooth", block: "center" });
       }
     } else if (act === "delete-scene-preset") {
       const pid = btn.dataset.id;

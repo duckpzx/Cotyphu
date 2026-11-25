@@ -1153,6 +1153,70 @@ code {
   cursor: grabbing;
 }
 
+/* CUSTOM TACTICAL FILE INPUTS (REPLACE UGLY DEFAULT BROWSER "CHOOSE FILES") */
+input[type="file"] {
+  width: 100%;
+  padding: 6px 10px;
+  background: #060b0f;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+input[type="file"]:hover {
+  border-color: rgba(0, 216, 255, 0.55);
+  background: #081017;
+  color: var(--text);
+}
+input[type="file"]:focus {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 2px rgba(0, 216, 255, 0.16);
+}
+input[type="file"]::file-selector-button,
+input[type="file"]::-webkit-file-upload-button {
+  margin-right: 12px;
+  padding: 6px 13px;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 216, 255, 0.55);
+  background: rgba(0, 216, 255, 0.11);
+  color: var(--cyan);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+input[type="file"]:hover::file-selector-button,
+input[type="file"]:hover::-webkit-file-upload-button {
+  background: rgba(0, 216, 255, 0.22);
+  border-color: var(--cyan);
+  color: #e6fbff;
+  box-shadow: 0 0 10px rgba(0, 216, 255, 0.25);
+}
+.drop-zone input[type="file"] {
+  border: 1px dashed rgba(0, 255, 136, 0.35);
+  background: rgba(0, 255, 136, 0.03);
+}
+.drop-zone input[type="file"]::file-selector-button,
+.drop-zone input[type="file"]::-webkit-file-upload-button {
+  border-color: rgba(0, 255, 136, 0.6);
+  background: rgba(0, 255, 136, 0.13);
+  color: var(--green);
+}
+.drop-zone input[type="file"]:hover::file-selector-button,
+.drop-zone input[type="file"]:hover::-webkit-file-upload-button {
+  background: rgba(0, 255, 136, 0.25);
+  border-color: var(--green);
+  color: #eafff4;
+  box-shadow: 0 0 10px rgba(0, 255, 136, 0.28);
+}
+
 @media (max-width: 900px) {
   .app-layout { flex-direction: column; }
   .sidebar { width: 100%; position: static; }
