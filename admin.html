@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>COTYPHU.NOC // Admin Terminal HUD</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/admin/admin.css" />
+</head>
+<body>
+  <!-- LOGIN OVERLAY -->
+  <div id="loginView" class="login-wrapper">
+    <div class="login-card hud-box">
+      <div class="login-top-row">
+        <span class="brand-badge">[ ADMIN TERMINAL ]</span>
+        <span class="live-pill"><span class="pulse-dot"></span>AUTH READY</span>
+      </div>
+      <h1>COTYPHU<span class="accent-green">NOC</span></h1>
+      <p class="subtitle">&gt; yêu cầu xác thực tài khoản quản trị viên (role = admin)</p>
+      <form id="loginForm">
+        <div class="field">
+          <label for="loginUsername">TÊN ĐĂNG NHẬP</label>
+          <input id="loginUsername" type="text" placeholder="nhập username..." required autocomplete="username" />
+        </div>
+        <div class="field">
+          <label for="loginPassword">MẬT KHẨU</label>
+          <input id="loginPassword" type="password" placeholder="nhập mật khẩu..." required autocomplete="current-password" />
+        </div>
+        <div id="loginError" class="error-box hidden"></div>
+        <button type="submit" class="btn btn-primary btn-block">ĐĂNG NHẬP QUẢN TRỊ</button>
+      </form>
+      <div class="login-footer">
+        <a href="/">← QUAY LẠI TRÒ CHƠI</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN DASHBOARD -->
+  <div id="appView" class="app-shell hidden">
+    <!-- TOP TACTICAL HEADER -->
+    <header class="noc-header">
+      <div class="noc-header-left">
+        <div class="noc-brand">
+          <span class="noc-brand-main">COTYPHU<span class="accent-green">NOC</span></span>
+          <span class="noc-brand-sub">// quản trị hệ thống &amp; giám sát thời gian thực</span>
+        </div>
+        <div class="noc-clock-box">
+          LOCAL <span id="hudClock" class="cyan-val">--:--:--</span>
+        </div>
+      </div>
+
+      <div class="noc-header-right">
+        <span id="adminProfile" class="noc-chip">ADMIN</span>
+        <button id="refreshBtn" class="btn btn-secondary btn-sm">LÀM MỚI</button>
+        <a href="/" class="btn btn-ghost btn-sm">MỞ GAME</a>
+        <button id="logoutBtn" class="btn btn-danger btn-sm">ĐĂNG XUẤT</button>
+        <span class="live-pill live-pill-red"><span class="pulse-dot pulse-dot-red"></span>LIVE</span>
+      </div>
+    </header>
+
+    <!-- TERMINAL TELEMETRY STATUS STRIP -->
+    <div class="telemetry-strip">
+      <span>&gt; services: auth <b class="ok-txt">[ok]</b> rooms <b class="ok-txt">[ok]</b> quiz <b class="ok-txt">[ok]</b> bot-ai <b class="ok-txt">[ready]</b></span>
+      <span>&gt; guard: ban/mute <b class="ok-txt">[enforced]</b></span>
+      <span>&gt; rbac: <b class="cyan-val">[admin-session]</b></span>
+    </div>
+
+    <div class="app-layout">
+      <aside class="sidebar hud-box">
+        <div class="sidebar-section-label">[ MODULES ]</div>
+        <nav class="nav-menu">
+          <button class="nav-item active" data-tab="overview">
+            <span class="nav-code">01</span>
+            <span>Tổng quan</span>
+          </button>
+          <button class="nav-item" data-tab="users">
+            <span class="nav-code">02</span>
+            <span>Người chơi &amp; Ban/Mute</span>
+          </button>
+          <button class="nav-item" data-tab="rooms">
+            <span class="nav-code">03</span>
+            <span>Phòng đấu</span>
+          </button>
+          <button class="nav-item" data-tab="questions">
+            <span class="nav-code">04</span>
+            <span>Câu hỏi Quiz</span>
+          </button>
+          <button class="nav-item" data-tab="tarots">
+            <span class="nav-code">05</span>
+            <span>Thẻ Tarot</span>
+          </button>
+          <button class="nav-item" data-tab="characters">
+            <span class="nav-code">06</span>
+            <span>Nhân vật &amp; Kỹ năng</span>
+          </button>
+          <button class="nav-item" data-tab="audit">
+            <span class="nav-code">07</span>
+            <span>Nhật ký quản trị</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-meta">
+          <div class="meta-row"><span>ENDPOINT</span><span class="cyan-val">/api/admin</span></div>
+          <div class="meta-row"><span>STATUS</span><span class="ok-txt">[ONLINE]</span></div>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <div class="view-header">
+          <h2 id="pageTitle" class="section-bracket">[ TỔNG QUAN HỆ THỐNG ]</h2>
+          <span class="muted">tabular-telemetry • real-time sync</span>
+        </div>
+
+        <section id="tabContent" class="content-body">
+          <!-- Dynamic content rendered by admin.js -->
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- MODAL -->
+  <div id="modalOverlay" class="modal-overlay hidden">
+    <div class="modal-box hud-box">
+      <div class="modal-header">
+        <h3 id="modalTitle">[ TIÊU ĐỀ ]</h3>
+        <button id="modalCloseBtn" class="icon-btn" aria-label="Đóng">✕</button>
+      </div>
+      <div id="modalBody" class="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script type="module" src="/src/admin/admin.js"></script>
+</body>
+</html>

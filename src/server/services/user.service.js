@@ -42,6 +42,21 @@ const userService = {
 
     const { user } = result;
 
+    // Kiểm tra trạng thái khóa tài khoản (Ban)
+    if (Number(user.is_banned) === 1) {
+      const banUntil = user.banned_until ? new Date(user.banned_until) : null;
+      if (!banUntil || banUntil.getTime() > Date.now()) {
+        const untilStr = banUntil
+          ? ` đến ${banUntil.toLocaleString("vi-VN")}`
+          : " vĩnh viễn";
+        return {
+          success: false,
+          banned: true,
+          message: `Tài khoản đã bị khóa${untilStr}. Lý do: ${user.ban_reason || "Vi phạm quy định"}`
+        };
+      }
+    }
+
     const token = jwt.sign(
       { id: user.id },
       SECRET,

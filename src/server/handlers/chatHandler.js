@@ -40,6 +40,26 @@ function sanitize(msg) {
 }
 
 /**
+ * Kiểm tra người chơi có đang bị cấm chat (mute) không.
+ */
+async function getMuteError(user_id) {
+  try {
+    const [rows] = await db.query(
+      "SELECT muted_until, mute_reason FROM users WHERE id = ? LIMIT 1",
+      [Number(user_id)]
+    );
+    const row = rows[0];
+    if (row?.muted_until) {
+      const until = new Date(row.muted_until);
+      if (until.getTime() > Date.now()) {
+        return `Bạn đang bị cấm chat đến ${until.toLocaleString("vi-VN")}. Lý do: ${row.mute_reason || "Vi phạm quy tắc chat"}`;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
+/**
  * Đăng ký tất cả chat events cho một socket
  * @param {import("socket.io").Socket} socket
  * @param {import("socket.io").Server} io
@@ -51,6 +71,11 @@ export function registerChatHandlers(socket, io) {
   socket.on("chat:world:send", async ({ message }) => {
     const msg = sanitize(message);
     if (!msg) return;
+    const muteErr = await getMuteError(user_id);
+    if (muteErr) {
+      socket.emit("chat:error", { message: muteErr });
+      return;
+    }
     if (isRateLimited(user_id)) {
       socket.emit("chat:error", { message: "Bạn gửi quá nhanh, hãy chờ chút!" });
       return;
@@ -77,6 +102,11 @@ export function registerChatHandlers(socket, io) {
 
     const msg = sanitize(message);
     if (!msg) return;
+    const muteErr = await getMuteError(user_id);
+    if (muteErr) {
+      socket.emit("chat:error", { message: muteErr });
+      return;
+    }
     if (isRateLimited(user_id)) {
       socket.emit("chat:error", { message: "Bạn gửi quá nhanh!" });
       return;
@@ -120,6 +150,11 @@ export function registerChatHandlers(socket, io) {
 
     const msg = sanitize(message);
     if (!msg) return;
+    const muteErr = await getMuteError(user_id);
+    if (muteErr) {
+      socket.emit("chat:error", { message: muteErr });
+      return;
+    }
     if (isRateLimited(user_id)) {
       socket.emit("chat:error", { message: "Bạn gửi quá nhanh!" });
       return;

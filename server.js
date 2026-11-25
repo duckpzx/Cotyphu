@@ -28,6 +28,8 @@ import { registerChatHandlers, startChatCleanupJob } from "./src/server/handlers
 import { registerFriendHandlers } from "./src/server/handlers/friendHandler.js";
 import { registerVoiceHandlers } from "./src/server/handlers/voiceHandler.js";
 import botAI from "./src/server/ai/botAI.js";
+import adminRepo from "./src/server/repositories/admin.repo.js";
+import { createAdminRouter } from "./src/server/routes/admin.routes.js";
 
 const SECRET = process.env.JWT_SECRET;
 const app    = express();
@@ -57,12 +59,24 @@ console.log("🚀 Server đang chạy...");
 // ===== SOCKET.IO =====
 const io = new Server(server, { cors: { origin: "*" } });
 
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
     if (!token) return next(new Error("No token"));
     const decoded = jwt.verify(token, SECRET);
     socket.user_id = decoded.id;
+
+    // Chặn socket nếu tài khoản đang bị khóa (Ban)
+    try {
+      const mod = await adminRepo.getUserModerationStatus(decoded.id);
+      if (mod && Number(mod.is_banned) === 1) {
+        const until = mod.banned_until ? new Date(mod.banned_until) : null;
+        if (!until || until.getTime() > Date.now()) {
+          return next(new Error(`Tài khoản bị khóa: ${mod.ban_reason || "Vi phạm quy định"}`));
+        }
+      }
+    } catch (_) {}
+
     next();
   } catch (err) {
     return next(new Error("Invalid token"));
@@ -4195,9 +4209,16 @@ app.post("/rooms/:id/verify-password", async (req, res) => {
   } catch { res.status(500).json({ success: false, message: "Server error" }); }
 });
 
+// ── ADMIN DASHBOARD API & PAGE ─────────────────────────────────
+app.use("/api/admin", createAdminRouter({ io, gameStates, onlineUserSockets, clearRoomBotTimers }));
+app.get("/admin", (req, res) => {
+  res.sendFile(path.join(__dirname, "admin.html"));
+});
+
 server.listen(3000, "0.0.0.0", () => {
   console.log("✅ Server ready at (tất cả interface)");
   startChatCleanupJob();
+  adminRepo.ensureAdminSchema();
 
   // ── Dọn dẹp các phòng bị kẹt khi server restart ──────────────
   db.query(
