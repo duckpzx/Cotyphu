@@ -1,0 +1,44 @@
+{
+  "active_lobby_id": "lobby_1795603574104",
+  "time_mode": "fixed",
+  "fixed_hour": 22.5,
+  "default_islands": null,
+  "default_override": null,
+  "presets": [
+    {
+      "id": "lobby_1795603574104",
+      "name": "Giáng sinh",
+      "is_custom": true,
+      "day_url": "/assets/custom_lobby/lobby_1795603574104_day.png",
+      "night_url": "/assets/custom_lobby/lobby_1795603574104_night.png",
+      "islands": [
+        {
+          "key": "play",
+          "label": "ĐẤU TRƯỜNG TRÍ TUỆ",
+          "x": 0.5,
+          "y": 0.5393
+        },
+        {
+          "key": "shop",
+          "label": "CỬA HÀNG",
+          "x": 0.31,
+          "y": 0.23
+        },
+        {
+          "key": "rank",
+          "label": "XẾP HẠNG",
+          "x": 0.12,
+          "y": 0.42
+        },
+        {
+          "key": "lab",
+          "label": "NGHIÊN CỨU",
+          "x": 0.84,
+          "y": 0.44
+        }
+      ],
+      "version": 1795603574145,
+      "updated_at": "2026-11-25T10:46:14.145Z"
+    }
+  ]
+}

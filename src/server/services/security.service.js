@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import securityRepo from "../repositories/security.repo.js";
+import systemConsoleService from "./systemConsole.service.js";
 
 /**
  * Chuẩn hóa địa chỉ IP thật từ Express req hoặc Socket.IO handshake.
@@ -143,6 +144,17 @@ const securityService = {
         endpoint,
         payload_summary: sanitizeSummary(payload),
       });
+      if (finalRisk > 0) {
+        systemConsoleService.log({
+          category: "SECURITY",
+          level: finalSeverity === "CRITICAL" || finalSeverity === "HIGH" ? "ERR" : "WARN",
+          user_id,
+          username,
+          ip: ip_address,
+          action: `${event_type} [${finalSeverity} +${finalRisk}] ${endpoint || ""}`.trim(),
+          detail: payload,
+        });
+      }
     } catch (err) {
       console.error("securityService.recordEvent error:", err.message);
     }

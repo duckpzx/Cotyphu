@@ -10,6 +10,7 @@ import { getTarotLevel, tarotImagePath, prepareLevelTexture, markLevelTexture, t
 import ChatWidget         from "./components/ChatWidget.js";
 import PlayerProfilePanel from "./components/PlayerProfilePanel.js";
 import voiceChat          from "../utils/voiceChatManager.js";
+import { extractEmojiId, showCharacterEmojiBubble } from "../utils/emojiBubble.js";
 import {
   playBoardBuySound, playBoardErrSound, playBoardHunterSound,
   playBoardIncreaseSound, playBoardTeacherSound, playBoardSkillSound,
@@ -2947,9 +2948,13 @@ this.socket.on("game:tarot_denied", (data) => {
 
     this.load.image("bg", "./assets/nen_trochoi.jpg");
 
-    // Nạp cấu hình bản đồ theo mùa (ảnh map + tọa độ 37 ô) từ Admin Map Editor
+    // Nạp cấu hình bản đồ theo mùa (ưu tiên snapshot của phòng đang đấu nếu đang reconnect)
     this._activeMapConfig = null;
-    this.load.json("map_config_live", `/api/assets/map-config?t=${Date.now()}`);
+    const mapRoomParam = this.gameRoomId ? `room_id=${encodeURIComponent(this.gameRoomId)}&` : "";
+    if (this.cache.json.exists("map_config_live")) {
+      this.cache.json.remove("map_config_live");
+    }
+    this.load.json("map_config_live", `/api/assets/map-config?${mapRoomParam}t=${Date.now()}`);
     this.load.once("filecomplete-json-map_config_live", (_k, _t, payload) => {
       const m = payload?.active_map;
       if (m) {
@@ -2991,6 +2996,9 @@ this.socket.on("game:tarot_denied", (data) => {
 
     // Nạp cấu hình NPC tùy biến từ Admin Sprite Studio (nếu có)
     this._npcConfig = null;
+    if (this.cache.json.exists("npc_config_live")) {
+      this.cache.json.remove("npc_config_live");
+    }
     this.load.json("npc_config_live", `/api/assets/npc-config?t=${Date.now()}`);
     this.load.once("filecomplete-json-npc_config_live", (_key, _type, payload) => {
       const npcs = payload?.npcs || {};
@@ -6319,6 +6327,32 @@ this.input.keyboard.on("keydown-Y", () => {
       return colors[key] || "#ffffff";
   }
 
+  _showBoardCharacterEmoji(userId, emojiId) {
+    const uid = Number(userId);
+    const myUid = Number(this._myUserId());
+    let targetSprite = null;
+    if (uid === myUid && this.player?.active) {
+      targetSprite = this.player;
+    } else {
+      const opKey = Object.keys(this.otherPlayers || {}).find(
+        k => Number(this.otherPlayers[k]?.user_id) === uid
+      );
+      if (opKey && this.otherPlayers[opKey]?.active) {
+        targetSprite = this.otherPlayers[opKey];
+      }
+    }
+    if (!targetSprite) return;
+    showCharacterEmojiBubble(this, {
+      userId: uid,
+      emojiId,
+      targetSprite,
+      offsetX: Math.round(32 * (this.minRatio || 1)),
+      offsetY: -118 * (this.minRatio || 1),
+      depth: 240,
+      size: Math.round(40 * (this.minRatio || 1)),
+    });
+  }
+
   _buildGameChat(width, height) {
     const BTN_SIZE  = 80;
     const LABEL_H   = 18;
@@ -6394,6 +6428,12 @@ this.input.keyboard.on("keydown-Y", () => {
       if (!this._gameChatPanelOpen && Number(data.user_id) !== Number(this._myUserId())) {
         this._gameChatUnread = (this._gameChatUnread || 0) + 1;
         this._updateGameChatBadge(true);
+      }
+
+      // Nếu tin nhắn có mã Emoji [e:1..50] -> hiện bong bóng cảm xúc ngay trên đầu nhân vật trên bàn cờ
+      const eid = extractEmojiId(data.message);
+      if (eid) {
+        this._showBoardCharacterEmoji(data.user_id, eid);
       }
     };
 

@@ -17,14 +17,33 @@ export default class RatingScene extends Phaser.Scene {
   preload() {
     this.load.image("rating-bg", "assets/nen_23.png");
     this.load.image("out", "assets/ui/shared/return.png");
+
+    this._ratingSceneConfig = null;
+    if (this.cache.json.exists("rating_scene_cfg")) {
+      this.cache.json.remove("rating_scene_cfg");
+    }
+    this.load.json("rating_scene_cfg", `/api/assets/scene-config/rating?t=${Date.now()}`);
+    this.load.once("filecomplete-json-rating_scene_cfg", (_k, _t, payload) => {
+      const sc = payload?.scene;
+      if (sc) {
+        this._ratingSceneConfig = sc;
+        if (sc.is_custom && sc.image_url) {
+          const tk = `rating-bg-custom-${sc.version || 0}`;
+          if (!this.textures.exists(tk)) this.load.image(tk, `${sc.image_url}?v=${sc.version || 0}`);
+        }
+      }
+    });
   }
 
   async create() {
     const { width, height } = this.scale;
     setupClickSound(this);
 
-    // ── Nền bục đá ──
-    const bg = this.add.image(width / 2, height / 2, "rating-bg");
+    // ── Nền bục đá (hỗ trợ nền tùy biến từ Admin Studio) ──
+    const rVer = this._ratingSceneConfig?.version || 0;
+    const customBgKey = this._ratingSceneConfig?.is_custom ? `rating-bg-custom-${rVer}` : null;
+    const bgKey = (customBgKey && this.textures.exists(customBgKey)) ? customBgKey : "rating-bg";
+    const bg = this.add.image(width / 2, height / 2, bgKey);
     bg.setScale(Math.max(width / bg.width, height / bg.height));
 
     const loading = createLoadingOverlay(this);
@@ -97,27 +116,34 @@ export default class RatingScene extends Phaser.Scene {
     const scaleX = width / 1128;
     const scaleY = height / 636;
 
-    // Tọa độ tâm mặt phẳng của 3 bục (đo chính xác theo asset nen_23.png)
+    // Tọa độ tâm mặt phẳng của 3 bục (ưu tiên tọa độ custom từ Admin Studio nếu có)
+    const customSpots = Array.isArray(this._ratingSceneConfig?.spots) && this._ratingSceneConfig.spots.length === 3
+      ? this._ratingSceneConfig.spots
+      : null;
+    const s1 = customSpots ? { x: customSpots[0].x * width, y: customSpots[0].y * height } : { x: 564 * scaleX, y: 385 * scaleY };
+    const s2 = customSpots ? { x: customSpots[1].x * width, y: customSpots[1].y * height } : { x: 272 * scaleX, y: 412 * scaleY };
+    const s3 = customSpots ? { x: customSpots[2].x * width, y: customSpots[2].y * height } : { x: 856 * scaleX, y: 422 * scaleY };
+
     const podiumLayout = {
       2: {
-        x: 272 * scaleX,
-        podiumY: 412 * scaleY,
+        x: s2.x,
+        podiumY: s2.y,
         rankLabel: "HẠNG 2",
         medal: "🥈",
         color: "#E2E8F0",
         stroke: 0xc0d0e0,
       },
       1: {
-        x: 564 * scaleX,
-        podiumY: 385 * scaleY,
+        x: s1.x,
+        podiumY: s1.y,
         rankLabel: "QUÁN QUÂN",
         medal: "👑",
         color: "#FFD700",
         stroke: 0xffd700,
       },
       3: {
-        x: 856 * scaleX,
-        podiumY: 422 * scaleY,
+        x: s3.x,
+        podiumY: s3.y,
         rankLabel: "HẠNG 3",
         medal: "🥉",
         color: "#F6AD55",

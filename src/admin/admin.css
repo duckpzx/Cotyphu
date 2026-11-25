@@ -982,6 +982,42 @@ code {
   z-index: 8;
 }
 
+/* SYSTEM CONSOLE TERMINAL */
+.console-terminal {
+  background: #040709;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 10px 12px;
+  height: 520px;
+  overflow-y: auto;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.console-line {
+  display: grid;
+  grid-template-columns: 74px 90px 115px 120px 1fr;
+  gap: 8px;
+  padding: 3px 6px;
+  border-bottom: 1px solid rgba(24, 36, 41, 0.45);
+  align-items: baseline;
+  transition: background 0.12s var(--ease);
+}
+.console-line:hover {
+  background: var(--surface-hover);
+}
+.console-ts { color: var(--muted); }
+.console-cat { font-weight: 700; }
+.cat-CHAT     { color: #00FF88; }
+.cat-SHOP     { color: #F59E0B; }
+.cat-PAYMENT  { color: #34D399; }
+.cat-GAME     { color: #00D8FF; }
+.cat-ROOM     { color: #38BDF8; }
+.cat-AUTH     { color: #A78BFA; }
+.cat-SECURITY { color: #FF3B3B; }
+.cat-ADMIN    { color: #F472B6; }
+.cat-SYSTEM   { color: #94A3B8; }
+.console-detail { color: var(--muted); word-break: break-word; }
+
 .error-box {
   background: rgba(255, 59, 59, 0.12);
   border: 1px solid rgba(255, 59, 59, 0.45);
@@ -1077,6 +1113,44 @@ code {
   padding: 36px;
   color: var(--muted);
   font-size: 12px;
+}
+
+/* DRAGGABLE LOBBY ISLAND PINS */
+.lobby-island-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(6, 12, 18, 0.72);
+  backdrop-filter: blur(4px);
+  border: 1.5px solid rgba(0, 216, 255, 0.8);
+  color: #dff8ff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-align: center;
+  line-height: 1.15;
+  white-space: nowrap;
+  cursor: grab;
+  user-select: none;
+  z-index: 6;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+  transition: border-color 0.12s, box-shadow 0.12s, background 0.12s;
+}
+.lobby-island-pin:hover {
+  border-color: var(--green);
+  background: rgba(6, 18, 16, 0.88);
+}
+.lobby-island-pin.pin-selected {
+  border-color: var(--green);
+  background: rgba(0, 42, 26, 0.88);
+  color: var(--green);
+  box-shadow: 0 0 0 2px rgba(0, 255, 136, 0.35), 0 6px 18px rgba(0, 0, 0, 0.7);
+  z-index: 8;
+}
+.lobby-island-pin:active {
+  cursor: grabbing;
 }
 
 @media (max-width: 900px) {

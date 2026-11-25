@@ -21,6 +21,22 @@ export default class LabScene extends Phaser.Scene {
         this.load.image("lab-bg", "assets/nen_2.png");
         this.load.image("out",    "assets/ui/shared/return.png");
 
+        this._labSceneConfig = null;
+        if (this.cache.json.exists("lab_scene_cfg")) {
+            this.cache.json.remove("lab_scene_cfg");
+        }
+        this.load.json("lab_scene_cfg", `/api/assets/scene-config/lab?t=${Date.now()}`);
+        this.load.once("filecomplete-json-lab_scene_cfg", (_k, _t, payload) => {
+            const sc = payload?.scene;
+            if (sc) {
+                this._labSceneConfig = sc;
+                if (sc.is_custom && sc.image_url) {
+                    const tk = `lab-bg-custom-${sc.version || 0}`;
+                    if (!this.textures.exists(tk)) this.load.image(tk, `${sc.image_url}?v=${sc.version || 0}`);
+                }
+            }
+        });
+
         // Load 5 idle frames phù thủy cho Spot 3
         for (let i = 0; i <= 4; i++) {
             const num = String(i).padStart(3, "0");
@@ -54,8 +70,22 @@ export default class LabScene extends Phaser.Scene {
         this._memberSprites = {}; // user_id → { sprite, shadow, nameText }
         this._mySpotIndex   = null;
 
-        // ── Nền ──────────────────────────────────────────────────────
-        const bg = this.add.image(width / 2, height / 2, "lab-bg");
+        // ── Tọa độ 6 tảng đá (ưu tiên cấu hình tùy biến từ Admin Studio) ──
+        if (Array.isArray(this._labSceneConfig?.spots) && this._labSceneConfig.spots.length === PLATFORM_SPOTS.length) {
+            this._spots = this._labSceneConfig.spots.map((s, i) => ({
+                ...PLATFORM_SPOTS[i],
+                rx: Number(s.x),
+                ry: Number(s.y),
+            }));
+        } else {
+            this._spots = PLATFORM_SPOTS;
+        }
+
+        // ── Nền (hỗ trợ nền tùy biến từ Admin Studio) ────────────────
+        const lVer = this._labSceneConfig?.version || 0;
+        const customBgKey = this._labSceneConfig?.is_custom ? `lab-bg-custom-${lVer}` : null;
+        const bgKey = (customBgKey && this.textures.exists(customBgKey)) ? customBgKey : "lab-bg";
+        const bg = this.add.image(width / 2, height / 2, bgKey);
         bg.setScale(Math.max(width / bg.width, height / bg.height));
 
         // ── Nút Back ─────────────────────────────────────────────────
@@ -90,7 +120,7 @@ export default class LabScene extends Phaser.Scene {
     //  Phù thủy NPC tĩnh tại Spot 3 (không phải player)
     // ────────────────────────────────────────────────────────────────
     _spawnWizard(width, height) {
-        const spot = PLATFORM_SPOTS[2]; // Spot 3 = index 2
+        const spot = (this._spots || PLATFORM_SPOTS)[2]; // Spot 3 = index 2
         if (!spot) return;
 
         const minR = Math.min(width / 1920, height / 1080);
@@ -247,7 +277,7 @@ export default class LabScene extends Phaser.Scene {
         const { width, height }  = this.scale;
         const minR = Math.min(width / 1920, height / 1080);
 
-        const spot = PLATFORM_SPOTS[member.spot_index];
+        const spot = (this._spots || PLATFORM_SPOTS)[member.spot_index];
         if (!spot) return;
 
         const sx = spot.rx * width;
@@ -295,7 +325,7 @@ export default class LabScene extends Phaser.Scene {
         this._removeMember(member.user_id);
 
         const isMe = Number(member.user_id) === Number(getPlayerData(this)?.user?.id);
-        const spot = PLATFORM_SPOTS[member.spot_index];
+        const spot = (this._spots || PLATFORM_SPOTS)[member.spot_index];
         const shouldFlip = spot?.flipX ?? false;
 
         const character = (member.charName || "Dark_Oracle").replace(/ /g, "_");

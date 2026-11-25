@@ -33,6 +33,7 @@ import { createAdminRouter } from "./src/server/routes/admin.routes.js";
 import securityService, { extractClientIp, extractUserAgent } from "./src/server/services/security.service.js";
 import assetUploadService from "./src/server/services/assetUpload.service.js";
 import payosService, { TOPUP_PACKAGES } from "./src/server/services/payos.service.js";
+import systemConsoleService from "./src/server/services/systemConsole.service.js";
 
 const SECRET = process.env.JWT_SECRET;
 const app    = express();
@@ -44,6 +45,7 @@ app.use(cors());
 app.use(compression()); // gzip tất cả response
 app.use(express.json({ limit: "40mb" }));
 app.use((req, res, next) => securityService.ipGuardMiddleware(req, res, next));
+app.use((req, res, next) => systemConsoleService.httpLoggerMiddleware(req, res, next));
 
 // Static files với cache dài hạn cho assets (ảnh, âm thanh, font)
 // Browser sẽ cache lại sau lần đầu load — không cần download lại
@@ -982,6 +984,7 @@ async function initGameState(room_id, sockets, bet_ecoin = 5000, match_mode = "s
     build_cost: bet_ecoin * 5,
     cellStates: {},
     traps: {},
+    map_config: assetUploadService.getActiveMapConfig(),
     _buildTimer: null,
     _botActionTimer: null,
     _botTakeoverTimers: {},
@@ -1952,6 +1955,7 @@ io.on("connection", (socket) => {
   });
   let lastFloodLog = 0;
   socket.use(([eventName, payload], next) => {
+    systemConsoleService.logSocketEvent(socket, eventName, payload);
     if (typeof eventName === "string" && eventName.startsWith("game:")) {
       if (securityService.checkSocketFlood(socket)) {
         const now = Date.now();
@@ -4322,7 +4326,21 @@ app.get("/api/assets/npc-config", (req, res) => {
 });
 app.get("/api/assets/map-config", (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  res.json({ success: true, active_map: assetUploadService.getActiveMapConfig() });
+  const roomId = Number(req.query.room_id);
+  const liveGs = roomId ? gameStates[roomId] : null;
+  // Nếu phòng đang trong trận → luôn trả đúng bản đồ snapshot của trận đó (an toàn khi F5 reconnect)
+  const activeMap = liveGs?.map_config || assetUploadService.getActiveMapConfig();
+  res.json({ success: true, active_map: activeMap, from_match_snapshot: !!liveGs?.map_config });
+});
+app.get("/api/assets/lobby-config", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ success: true, lobby: assetUploadService.getActiveLobbyConfig() });
+});
+app.get("/api/assets/scene-config/:sceneType", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const cfg = assetUploadService.getActiveSceneConfig(req.params.sceneType);
+  if (!cfg) return res.status(404).json({ success: false, message: "Invalid sceneType" });
+  res.json({ success: true, scene: cfg });
 });
 
 // ── PAYOS REAL-MONEY TOP-UP & WEBHOOK ──────────────────────────
@@ -5133,6 +5151,157 @@ app.post("/users/:userId/backgrounds/active", async (req, res) => {
   } catch (err) {
     console.error("POST active background error:", err);
     res.status(500).json({ success: false, message: "Lỗi server" });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+//  AVATAR SHOP & PROFILE SYSTEM (50 AVATARS 96x96)
+// ══════════════════════════════════════════════════════════════════
+const AVATAR_CATALOG = Array.from({ length: 50 }, (_, idx) => {
+  const id = idx + 1;
+  let price_ecoin = 15000;
+  let tier = "Phổ thông";
+  if (id === 1) { price_ecoin = 0; tier = "Mặc định"; }
+  else if (id <= 15) { price_ecoin = 15000; tier = "Phổ thông"; }
+  else if (id <= 30) { price_ecoin = 25000; tier = "Hiếm"; }
+  else if (id <= 42) { price_ecoin = 40000; tier = "Sử thi"; }
+  else { price_ecoin = 60000; tier = "Huyền thoại"; }
+  return {
+    id,
+    name: id === 1 ? "Avatar Khởi Đầu" : `Avatar #${id}`,
+    tier,
+    price_ecoin,
+    image_path: `assets/resources/Avatar/PNG/thumbs_96/${id}.png`,
+  };
+});
+
+let _avatarTablesReady = false;
+async function ensureAvatarTables() {
+  if (_avatarTablesReady) return;
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS user_avatars (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        avatar_id INT NOT NULL,
+        acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_user_avatar (user_id, avatar_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    const [cols] = await db.query("SHOW COLUMNS FROM users LIKE 'active_avatar_id'");
+    if (!cols.length) {
+      await db.query("ALTER TABLE users ADD COLUMN active_avatar_id INT NOT NULL DEFAULT 1");
+    }
+    _avatarTablesReady = true;
+  } catch (err) {
+    console.warn("ensureAvatarTables warning:", err.message);
+  }
+}
+ensureAvatarTables();
+
+// GET /shop/avatars — Danh sách 50 avatar trong cửa hàng
+app.get("/shop/avatars", (req, res) => {
+  res.json({ success: true, avatars: AVATAR_CATALOG });
+});
+
+// GET /users/:userId/avatars — Avatar đang dùng + danh sách đã sở hữu
+app.get("/users/:userId/avatars", async (req, res) => {
+  try {
+    await ensureAvatarTables();
+    const userId = Number(req.params.userId);
+    const [[userRow]] = await db.query("SELECT active_avatar_id FROM users WHERE id = ?", [userId]);
+    const [ownedRows] = await db.query("SELECT avatar_id FROM user_avatars WHERE user_id = ?", [userId]);
+    const ownedSet = new Set([1, ...ownedRows.map(r => Number(r.avatar_id))]);
+    const activeId = Number(userRow?.active_avatar_id || 1);
+    res.json({
+      success: true,
+      active_avatar_id: ownedSet.has(activeId) ? activeId : 1,
+      owned_ids: [...ownedSet].sort((a, b) => a - b),
+      avatars: AVATAR_CATALOG,
+    });
+  } catch (err) {
+    console.error("GET /users/:userId/avatars error:", err);
+    res.status(500).json({ success: false, message: "Lỗi tải danh sách avatar" });
+  }
+});
+
+// POST /shop/buy-avatar — Mua avatar bằng Ecoin
+app.post("/shop/buy-avatar", async (req, res) => {
+  try {
+    await ensureAvatarTables();
+    const userId = Number(req.body?.user_id);
+    const avatarId = Number(req.body?.avatar_id);
+    const item = AVATAR_CATALOG.find(a => a.id === avatarId);
+    if (!userId || !item) return res.json({ success: false, message: "Avatar không hợp lệ" });
+
+    if (avatarId === 1) {
+      return res.json({ success: false, message: "Avatar mặc định đã có sẵn!" });
+    }
+    const [owned] = await db.query(
+      "SELECT 1 FROM user_avatars WHERE user_id = ? AND avatar_id = ?",
+      [userId, avatarId]
+    );
+    if (owned.length > 0) {
+      return res.json({ success: false, message: "Bạn đã sở hữu avatar này rồi!" });
+    }
+
+    const [[userRow]] = await db.query("SELECT ecoin, name FROM users WHERE id = ?", [userId]);
+    const currentEcoin = Number(userRow?.ecoin || 0);
+    if (currentEcoin < item.price_ecoin) {
+      return res.json({ success: false, message: `Không đủ Ecoin! Cần ${item.price_ecoin.toLocaleString("vi-VN")}` });
+    }
+
+    if (item.price_ecoin > 0) {
+      await db.query("UPDATE users SET ecoin = ecoin - ? WHERE id = ?", [item.price_ecoin, userId]);
+    }
+    await db.query("INSERT INTO user_avatars (user_id, avatar_id) VALUES (?, ?)", [userId, avatarId]);
+
+    const [[newUser]] = await db.query("SELECT ecoin FROM users WHERE id = ?", [userId]);
+    systemConsoleService.log({
+      category: "SHOP",
+      level: "SUCCESS",
+      action: "BUY_AVATAR",
+      actor: userRow?.name || `UID:${userId}`,
+      actorId: userId,
+      detail: `Mua ${item.name} (-${item.price_ecoin.toLocaleString("vi-VN")} Ecoin)`,
+      meta: { avatar_id: avatarId, price: item.price_ecoin },
+    });
+
+    res.json({
+      success: true,
+      message: `Mua ${item.name} thành công! -${item.price_ecoin.toLocaleString("vi-VN")} Ecoin`,
+      ecoin: Number(newUser?.ecoin || 0),
+      avatar_id: avatarId,
+    });
+  } catch (err) {
+    console.error("POST /shop/buy-avatar error:", err);
+    res.status(500).json({ success: false, message: "Lỗi server khi mua avatar" });
+  }
+});
+
+// POST /users/:userId/avatars/active — Chọn / trang bị avatar đã sở hữu
+app.post("/users/:userId/avatars/active", async (req, res) => {
+  try {
+    await ensureAvatarTables();
+    const userId = Number(req.params.userId);
+    const avatarId = Number(req.body?.avatar_id);
+    if (!userId || avatarId < 1 || avatarId > 50) {
+      return res.json({ success: false, message: "Avatar không hợp lệ" });
+    }
+    if (avatarId !== 1) {
+      const [owned] = await db.query(
+        "SELECT 1 FROM user_avatars WHERE user_id = ? AND avatar_id = ?",
+        [userId, avatarId]
+      );
+      if (!owned.length) {
+        return res.json({ success: false, message: "Bạn chưa sở hữu avatar này! Hãy mua trong Cửa Hàng." });
+      }
+    }
+    await db.query("UPDATE users SET active_avatar_id = ? WHERE id = ?", [avatarId, userId]);
+    res.json({ success: true, active_avatar_id: avatarId, message: `Đã đổi sang Avatar #${avatarId}!` });
+  } catch (err) {
+    console.error("POST /users/:userId/avatars/active error:", err);
+    res.status(500).json({ success: false, message: "Lỗi khi đổi avatar" });
   }
 });
 

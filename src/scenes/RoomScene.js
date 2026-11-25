@@ -1,6 +1,7 @@
 import { getActiveProfile } from "../server/utils/playerData.js";
 import { SERVER_URL } from "../config.js";
 import ChatWidget from "./components/ChatWidget.js";
+import { showCharacterEmojiBubble } from "../utils/emojiBubble.js";
 import PlayerProfilePanel from "./components/PlayerProfilePanel.js";
 import voiceChat from "../utils/voiceChatManager.js";
 import { setupClickSound, playOutSound, isMusicEnabled, isSoundEnabled, setMusicEnabled, setSoundEnabled } from "../utils/clickSound.js";
@@ -689,7 +690,13 @@ export default class RoomScene extends Phaser.Scene {
     const playerData = this.registry.get("playerData") || JSON.parse(localStorage.getItem("playerData") || "null");
     const myId = playerData?.user?.id || playerData?.id;
     const myName = playerData?.user?.name || playerData?.name || "Player";
-    this._chatWidget = new ChatWidget(this, { channel: "room", socket: this.socket, myId, enableMic: true });
+    this._chatWidget = new ChatWidget(this, {
+      channel: "room",
+      socket: this.socket,
+      myId,
+      enableMic: true,
+      onEmojiMessage: (uid, eid) => this._showSlotEmoji(uid, eid),
+    });
     this._chatWidget.build(0, this._chatPanelY, this._chatW, this._chatPanelH);
     this._chatWidget.addSystemMessage("Chào mừng vào phòng chờ!");
     this._chatWidget.addSystemMessage("Nhấn Sẵn Sàng khi đã chuẩn bị.");
@@ -703,6 +710,20 @@ export default class RoomScene extends Phaser.Scene {
       this._shutdownHooked = true;
       this.events.once("shutdown", () => this.shutdown());
     }
+  }
+
+  _showSlotEmoji(userId, emojiId) {
+    const anchor = this._slotAnchors?.[Number(userId)];
+    if (!anchor) return;
+    showCharacterEmojiBubble(this, {
+      userId,
+      emojiId,
+      x: anchor.x,
+      y: anchor.y + 12,
+      offsetX: 44,
+      depth: 320,
+      size: 44,
+    });
   }
 
   // Rebuild phần bottom panel (nút bắt đầu / sẵn sàng)
@@ -980,6 +1001,22 @@ export default class RoomScene extends Phaser.Scene {
     });
 
     container.add([bg, avatarBg, ...(bgImgObj ? [bgImgObj] : []), avatar, charLabel, ...vipItems, ...readyItems, infoIcon]);
+
+    // Lưu tọa độ ngay phía trên đầu nhân vật để bật bong bóng cảm xúc Emoji
+    this._slotAnchors = this._slotAnchors || {};
+    this._slotAnchors[Number(player.user_id)] = {
+      x: container.x,
+      y: container.y + avatarCY - avatarSize * 0.44,
+    };
+
+    // Bấm vào nhân vật của mình -> mở nhanh bảng chọn 50 Emoji để thả cảm xúc trên đầu
+    if (isMe && avatar) {
+      avatar.setInteractive({ cursor: "pointer" });
+      avatar.on("pointerdown", (_p, _lx, _ly, ev) => {
+        ev?.stopPropagation?.();
+        this._chatWidget?._toggleEmojiPicker();
+      });
+    }
 
     // ── Hover / click để đổi chỗ ─────────────────────────────────────────
     container.setSize(sw, sh).setInteractive({ cursor: "pointer" });

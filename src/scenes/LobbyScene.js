@@ -7,11 +7,39 @@ import { tarotLevelKey, tarotImagePath } from "../utils/tarotLevel.js";
 import { setupClickSound, playTabSound, playOutSound, isMusicEnabled } from "../utils/clickSound.js";
 import { openPayosTopUpFlow } from "../utils/payosModal.js";
 
-// ── Helper: chọn background theo giờ trong ngày ──────────────────
-// 5:00 → 19:00 = ban ngày (light), còn lại = ban đêm (dark)
-function getLobbyBgKey() {
-  const hour = new Date().getHours();
-  return (hour >= 5 && hour < 19) ? "lobby-bg-light" : "lobby-bg-dark";
+// ── Helper: tính trạng thái khí quyển 24h mượt mà (Bình minh → Sáng → Trưa → Hoàng hôn → Đêm) ──
+function computeLobbyAtmosphere(hourFloat) {
+  const h = ((hourFloat % 24) + 24) % 24;
+  // 05:00 -> 07:30: Bình minh (đêm tan dần sang ngày + ánh nắng cam vàng dịu)
+  if (h >= 5 && h < 7.5) {
+    const t = (h - 5) / 2.5;
+    const bell = Math.sin(t * Math.PI);
+    return { nightAlpha: +(0.85 * (1 - t)).toFixed(3), tintColor: 0xffaa55, tintAlpha: +(0.18 * bell).toFixed(3), addMode: false };
+  }
+  // 07:30 -> 10:30: Sáng sớm nắng nhẹ
+  if (h >= 7.5 && h < 10.5) {
+    const t = (h - 7.5) / 3.0;
+    return { nightAlpha: 0, tintColor: 0xfff3cc, tintAlpha: +(0.08 * (1 - t * 0.5)).toFixed(3), addMode: true };
+  }
+  // 10:30 -> 15:30: Trưa nắng sáng rực rỡ
+  if (h >= 10.5 && h < 15.5) {
+    const t = (h - 10.5) / 5.0;
+    const bell = Math.sin(t * Math.PI);
+    return { nightAlpha: 0, tintColor: 0xffffff, tintAlpha: +(0.03 + 0.06 * bell).toFixed(3), addMode: true };
+  }
+  // 15:30 -> 18:30: Hoàng hôn (ánh cam hồng ấm + bắt đầu chuyển dần sang nền đêm)
+  if (h >= 15.5 && h < 18.5) {
+    const t = (h - 15.5) / 3.0;
+    const bell = Math.sin(t * Math.PI);
+    return { nightAlpha: +(0.55 * t).toFixed(3), tintColor: 0xff6b35, tintAlpha: +(0.24 * bell).toFixed(3), addMode: false };
+  }
+  // 18:30 -> 20:30: Chạng vạng (tối dần sang hoàn toàn ban đêm)
+  if (h >= 18.5 && h < 20.5) {
+    const t = (h - 18.5) / 2.0;
+    return { nightAlpha: +(0.55 + 0.45 * t).toFixed(3), tintColor: 0x2b1e5a, tintAlpha: +(0.16 * (1 - t * 0.4)).toFixed(3), addMode: false };
+  }
+  // 20:30 -> 05:00: Ban đêm sâu lắng
+  return { nightAlpha: 1, tintColor: 0x0a1936, tintAlpha: 0.1, addMode: false };
 }
 
 // src/scenes/LobbyScene.js
@@ -21,9 +49,28 @@ export default class LobbyScene extends Phaser.Scene {
   }
 
   preload() {
-    // Load cả 2 nền, dùng theo giờ
+    // Load cả 2 nền mặc định, đồng thời kiểm tra cấu hình sảnh tùy biến từ Admin
     this.load.image("lobby-bg-light", "assets/ui/lobby/background_light.png");
     this.load.image("lobby-bg-dark",  "assets/ui/lobby/background_dark.png");
+
+    this._lobbyConfig = null;
+    if (this.cache.json.exists("lobby_config_live")) {
+      this.cache.json.remove("lobby_config_live");
+    }
+    this.load.json("lobby_config_live", `/api/assets/lobby-config?t=${Date.now()}`);
+    this.load.once("filecomplete-json-lobby_config_live", (_k, _t, payload) => {
+      const cfg = payload?.lobby;
+      if (cfg) {
+        this._lobbyConfig = cfg;
+        if (cfg.is_custom && cfg.day_url && cfg.night_url) {
+          const ver = cfg.version || 0;
+          const dk = `lobby-bg-custom-day-${ver}`;
+          const nk = `lobby-bg-custom-night-${ver}`;
+          if (!this.textures.exists(dk)) this.load.image(dk, `${cfg.day_url}?v=${ver}`);
+          if (!this.textures.exists(nk)) this.load.image(nk, `${cfg.night_url}?v=${ver}`);
+        }
+      }
+    });
 
     // icon top bar
     this.load.image("coin","assets/ui/shared/coin.png");
@@ -67,17 +114,57 @@ export default class LobbyScene extends Phaser.Scene {
     }
     setupClickSound(this);
 
-    // ===== NỀN SẢNH theo giờ =====
-    const bg = this.add.image(width / 2, height / 2, getLobbyBgKey());
+    // ===== NỀN SẢNH CHUYỂN CẢNH KHÍ QUYỂN 24 GIỜ (DAY ↔ NIGHT CROSSFADE) =====
+    const lCfg = this._lobbyConfig;
+    const lVer = lCfg?.version || 0;
+    const dayKey = (lCfg?.is_custom && this.textures.exists(`lobby-bg-custom-day-${lVer}`))
+      ? `lobby-bg-custom-day-${lVer}`
+      : "lobby-bg-light";
+    const nightKey = (lCfg?.is_custom && this.textures.exists(`lobby-bg-custom-night-${lVer}`))
+      ? `lobby-bg-custom-night-${lVer}`
+      : "lobby-bg-dark";
 
-    // scale theo chiều ngang
-    const scale = width / bg.width;
-    bg.setScale(scale);
-    bg.setPosition(width / 2, height / 2);
+    const bgDay = this.add.image(width / 2, height / 2, dayKey);
+    bgDay.setScale(Math.max(width / bgDay.width, height / bgDay.height));
+
+    const bgNight = this.add.image(width / 2, height / 2, nightKey);
+    bgNight.setScale(Math.max(width / bgNight.width, height / bgNight.height));
+
+    const atmosphereOverlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0);
+
+    const applyAtmosphereNow = () => {
+      const now = new Date();
+      const hourFloat = lCfg?.time_mode === "fixed"
+        ? Number(lCfg.fixed_hour ?? 12)
+        : now.getHours() + now.getMinutes() / 60;
+      const atm = computeLobbyAtmosphere(hourFloat);
+      bgNight.setAlpha(atm.nightAlpha);
+      atmosphereOverlay.setFillStyle(atm.tintColor, atm.tintAlpha);
+      atmosphereOverlay.setBlendMode(atm.addMode ? Phaser.BlendModes.ADD : Phaser.BlendModes.NORMAL);
+    };
+    applyAtmosphereNow();
+
+    // Cập nhật ánh sáng mượt mỗi 30 giây nếu đang ở chế độ giờ thực
+    this.time.addEvent({
+      delay: 30000,
+      loop: true,
+      callback: applyAtmosphereNow,
+    });
+
+    // ===== LẤY TỌA ĐỘ 4 KHU VỰC TỪ CẤU HÌNH ADMIN (HOẶC MẶC ĐỊNH) =====
+    const islandCfgMap = new Map((lCfg?.islands || []).map(it => [it.key, it]));
+    const getIslandPos = (key, defX, defY) => {
+      const found = islandCfgMap.get(key);
+      return {
+        rx: Number.isFinite(Number(found?.x)) ? Number(found.x) : defX,
+        ry: Number.isFinite(Number(found?.y)) ? Number(found.y) : defY,
+      };
+    };
 
     // ===== NÚT Ở ĐẢO GIỮA: ĐẤU TRƯỜNG TRÒ CHƠI =====
+    const playPos = getIslandPos("play", 0.50, 0.5393);
     const playText = this.add
-      .text(width / 2, height / 2 + 25, "ĐẤU TRƯỜNG\nTRÍ TUỆ", {
+      .text(width * playPos.rx, height * playPos.ry, "ĐẤU TRƯỜNG\nTRÍ TUỆ", {
         fontFamily: "Signika",
         fontSize: "36px",
         fontWeight: 900,
@@ -118,24 +205,27 @@ export default class LobbyScene extends Phaser.Scene {
     };
 
     // ===== TOẠ ĐỘ TƯƠNG ĐỐI 3 ĐẢO (dùng tỉ lệ để auto fit màn hình) =====
+    const shopPos = getIslandPos("shop", 0.31, 0.23);
+    const rankPos = getIslandPos("rank", 0.12, 0.42);
+    const labPos  = getIslandPos("lab",  0.84, 0.44);
     const menuItems = [
       {
         key: "shop",
         label: "CỬA HÀNG",
-        rx: 0.31, // đảo trên bên trái
-        ry: 0.23
+        rx: shopPos.rx,
+        ry: shopPos.ry
       },
       {
         key: "rank",
         label: "XẾP HẠNG",
-        rx: 0.12, // đảo giữa/trên trái (tuỳ map bạn chỉnh)
-        ry: 0.42
+        rx: rankPos.rx,
+        ry: rankPos.ry
       },
       {
         key: "lab",
         label: "NGHIÊN CỨU",
-        rx: 0.84, // đảo bên phải
-        ry: 0.44
+        rx: labPos.rx,
+        ry: labPos.ry
       }
     ];
 
@@ -183,17 +273,19 @@ export default class LobbyScene extends Phaser.Scene {
     this.scale.on("resize", (gameSize) => {
       const { width: w, height: h } = gameSize;
 
-      // cập nhật lại nền
-      const newScale = w / bg.width;
-      bg.setScale(newScale);
-      bg.setPosition(w / 2, h / 2);
+      // cập nhật lại nền Ngày/Đêm + lớp phủ khí quyển
+      bgDay.setPosition(w / 2, h / 2);
+      bgDay.setScale(Math.max(w / bgDay.width, h / bgDay.height));
+      bgNight.setPosition(w / 2, h / 2);
+      bgNight.setScale(Math.max(w / bgNight.width, h / bgNight.height));
+      atmosphereOverlay.setPosition(w / 2, h / 2).setSize(w, h);
 
-      // cập nhật vị trí 3 chữ đảo
+      // cập nhật vị trí 4 chữ đảo
       this.islandTexts.forEach(({ text, config }) => {
         text.setPosition(w * config.rx, h * config.ry);
       });
 
-      playText.setPosition(w / 2, h / 2 + 40);
+      playText.setPosition(w * playPos.rx, h * playPos.ry);
     });
   }
 
@@ -280,14 +372,99 @@ createTopBar() {
   profileBg.strokeRoundedRect(profileX + 20, y - profileBgHeight / 2, profileBgWidth, profileBgHeight, 8);
   profileBg.setDepth(102);
 
-  // 2. Vẽ Avatar với VIỀN (Stroke)
-  // setStrokeStyle(độ dày, màu sắc, alpha)
-  const avatar = this.add.circle(profileX + avatarRadius, y - 2, avatarRadius, 0x000000, 0)
-      .setDepth(104);
+  // 2. Vẽ Avatar người chơi (96x96 bo tròn + viền vàng kim sang trọng)
+  const avX = profileX + avatarRadius;
+  const avY = y - 2;
+  const avMaskG = this.make.graphics({ add: false });
+  avMaskG.fillStyle(0xffffff);
+  avMaskG.fillCircle(avX, avY, avatarRadius - 1);
+  const avMask = avMaskG.createGeometryMask();
 
-  const avatarBorder = this.add.image(avatar.x, avatar.y, "border")
-    .setDepth(105)
-    .setDisplaySize(avatarSize + 4, avatarSize + 4);
+  // Viền kính mỏng tinh tế nằm trên ảnh (depth 106)
+  const avRing = this.add.graphics().setDepth(106);
+  avRing.lineStyle(1.2, 0xffffff, 0.36);
+  avRing.strokeCircle(avX, avY, avatarRadius - 0.5);
+
+  this._lobbyAvatarGlow = null;
+  this._lobbyAvatarImg = null;
+  this._refreshLobbyAvatar = (avatarId) => {
+    const id = Math.max(1, Math.min(50, Number(avatarId || 1)));
+    const key = `avatar_96_${id}`;
+    const glowKey = `avatar_glow_${id}`;
+
+    const buildGlowTex = () => {
+      if (this.textures.exists(glowKey)) return glowKey;
+      const srcImg = this.textures.get(key)?.getSourceImage?.();
+      if (!srcImg) return null;
+      const sz = 128;
+      const cTex = this.textures.createCanvas(glowKey, sz, sz);
+      const ctx = cTex.getContext();
+      ctx.clearRect(0, 0, sz, sz);
+      ctx.save();
+      ctx.filter = "blur(9px) saturate(1.5) brightness(1.18)";
+      ctx.drawImage(srcImg, 18, 18, sz - 36, sz - 36);
+      ctx.restore();
+      ctx.globalCompositeOperation = "destination-in";
+      const grad = ctx.createRadialGradient(sz / 2, sz / 2, sz * 0.24, sz / 2, sz / 2, sz * 0.5);
+      grad.addColorStop(0, "rgba(255,255,255,1)");
+      grad.addColorStop(0.68, "rgba(255,255,255,0.72)");
+      grad.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, sz, sz);
+      ctx.globalCompositeOperation = "source-over";
+      cTex.refresh();
+      return glowKey;
+    };
+
+    const applyTex = () => {
+      if (!this.sys?.isActive?.() || !this.textures?.exists(key)) return;
+      const gk = buildGlowTex();
+      if (gk) {
+        if (this._lobbyAvatarGlow?.active) {
+          this._lobbyAvatarGlow.setTexture(gk).setDisplaySize(avatarSize + 24, avatarSize + 24);
+        } else {
+          this._lobbyAvatarGlow = this.add.image(avX, avY, gk)
+            .setDisplaySize(avatarSize + 24, avatarSize + 24)
+            .setDepth(103)
+            .setAlpha(0.95);
+        }
+      }
+      if (this._lobbyAvatarImg?.active) {
+        this._lobbyAvatarImg.setTexture(key).setDisplaySize(avatarSize - 2, avatarSize - 2);
+      } else {
+        this._lobbyAvatarImg = this.add.image(avX, avY, key)
+          .setDisplaySize(avatarSize - 2, avatarSize - 2)
+          .setDepth(104)
+          .setMask(avMask);
+      }
+    };
+    if (this.textures.exists(key)) {
+      applyTex();
+    } else {
+      this.load.image(key, `assets/resources/Avatar/PNG/thumbs_96/${id}.png`);
+      this.load.once(`filecomplete-image-${key}`, applyTex);
+      this.load.start();
+    }
+  };
+
+  const initialAvId = Number(this.player?.user?.active_avatar_id || 1);
+  this._refreshLobbyAvatar(initialAvId);
+
+  const myUid = this.player?.user?.id || this.player?.user_id;
+  if (myUid) {
+    fetch(`${SERVER_URL}/users/${myUid}/avatars`)
+      .then(r => r.json())
+      .then(d => {
+        if (d?.success && d.active_avatar_id) {
+          if (this.player?.user) {
+            this.player.user.active_avatar_id = Number(d.active_avatar_id);
+            setPlayerData(this, this.player);
+          }
+          this._refreshLobbyAvatar(d.active_avatar_id);
+        }
+      })
+      .catch(() => {});
+  }
 
   // 3. Tên người chơi (đặt vào trong khung nền)
   const name = this.add.text(profileX + avatarSize + 15, y, this.playerName, {
@@ -1657,9 +1834,17 @@ createTopBar() {
 
     const tabBtns    = [];
     const tabContent = [];
+    let avatarDomEl  = null;
+    const removeAvatarDom = () => {
+      if (avatarDomEl) {
+        try { avatarDomEl.remove(); } catch(_) {}
+        avatarDomEl = null;
+      }
+    };
 
     const closeAll = () => {
       this._myProfilePanelOpen = false;
+      removeAvatarDom();
       tabBtns.forEach(o => { try { o?.destroy(); } catch(e){} });
       tabContent.forEach(o => { try { o?.destroy(); } catch(e){} });
       objs.forEach(o => { try { o?.destroy(); } catch(e){} });
@@ -1755,13 +1940,13 @@ createTopBar() {
       closeAll();
     });
 
-    // ── Dời vị trí của 2 Tab (Thông Tin / Lịch Sử Trận) xuống thấp hơn một chút để không bị che bởi pill tiêu đề mới ──
+    // ── 3 Tab: Thông Tin / Avatar / Lịch Sử Trận ──────────────────
     const TAB_Y = T + 30;
     const TAB_H = 32;
     const PAD   = 22;
-    const GAP   = 12;
-    const TAB_W = (PW - PAD * 2 - GAP) / 2;
-    const tabs  = ["Thông Tin", "Lịch Sử Trận"];
+    const GAP   = 10;
+    const tabs  = ["Thông Tin", "Avatar", "Lịch Sử Trận"];
+    const TAB_W = (PW - PAD * 2 - GAP * (tabs.length - 1)) / tabs.length;
     let activeTab = 0;
 
     const pd    = this.registry.get("playerData") || JSON.parse(localStorage.getItem("playerData") || "null");
@@ -1804,6 +1989,7 @@ createTopBar() {
     const CONTENT_H = PH - (CONTENT_Y - T) - 20;
 
     const clearContent = () => {
+      removeAvatarDom();
       tabContent.forEach(o => { try { o?.destroy(); } catch(e){} });
       tabContent.length = 0;
     };
@@ -2308,10 +2494,189 @@ createTopBar() {
       });
     };
 
+    // ── TAB 2: CHỌN & THIẾT LẬP AVATAR (50 AVATARS 96x96) ─────────
+    const renderAvatarTab = () => {
+      const boxX = L + PAD;
+      const boxY = CONTENT_Y;
+      const boxW = PW - PAD * 2;
+      const boxH = CONTENT_H;
+
+      const bgG = this.add.graphics().setDepth(D + 2);
+      bgG.fillStyle(0xeed698, 1);
+      bgG.fillRoundedRect(boxX, boxY, boxW, boxH, 10);
+      bgG.lineStyle(1.5, 0xb89040, 0.85);
+      bgG.strokeRoundedRect(boxX, boxY, boxW, boxH, 10);
+      tabContent.push(bgG);
+
+      const canvas = this.game?.canvas;
+      const rect = canvas ? canvas.getBoundingClientRect() : { left: 0, top: 0, width, height };
+      const sx = rect.width / width;
+      const sy = rect.height / height;
+
+      const wrap = document.createElement("div");
+      wrap.style.cssText = `
+        position: fixed;
+        left: ${rect.left + (boxX + 6) * sx}px;
+        top: ${rect.top + (boxY + 6) * sy}px;
+        width: ${(boxW - 12) * sx}px;
+        height: ${(boxH - 12) * sy}px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        z-index: 99980;
+        font-family: Signika, system-ui, sans-serif;
+        box-sizing: border-box;
+      `;
+
+      const statusBar = document.createElement("div");
+      statusBar.style.cssText = `
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 4px 8px; border-radius: 7px;
+        background: rgba(138, 90, 24, 0.16); color: #4a2500;
+        font-size: 12px; font-weight: 700; flex-shrink: 0;
+      `;
+      statusBar.innerHTML = `<span>⏳ Đang tải bộ sưu tập Avatar...</span>`;
+      wrap.appendChild(statusBar);
+
+      const innerW = Math.max(240, (boxW - 12) * sx);
+      const cols = 6;
+      const cellGap = 8;
+      const cellSize = Math.max(48, Math.floor((innerW - 24 - cellGap * (cols - 1)) / cols));
+
+      const grid = document.createElement("div");
+      grid.style.cssText = `
+        flex: 1; overflow-y: auto; overflow-x: hidden; padding: 6px;
+        display: grid;
+        grid-template-columns: repeat(${cols}, ${cellSize}px);
+        grid-auto-rows: ${cellSize}px;
+        gap: ${cellGap}px;
+        justify-content: center;
+        align-content: start;
+      `;
+      wrap.appendChild(grid);
+      document.body.appendChild(wrap);
+      avatarDomEl = wrap;
+
+      const renderAvatarGrid = (avatars, ownedIds, activeAvId) => {
+        if (!avatarDomEl || !this._myProfilePanelOpen) return;
+        const ownedSet = new Set(ownedIds.map(Number));
+        statusBar.innerHTML = `
+          <span>Đã sở hữu: <b>${ownedSet.size}/${avatars.length}</b> • Chọn avatar đã mở khóa để trang bị</span>
+          <button type="button" id="goAvatarShopBtn" style="
+            background: linear-gradient(180deg,#ff9800,#d97706); color:#fff; border:1px solid #8b5e1a;
+            border-radius:6px; padding:3px 9px; font-size:11px; font-weight:700; cursor:pointer;
+          ">🛒 Mua thêm</button>
+        `;
+        statusBar.querySelector("#goAvatarShopBtn").onclick = () => {
+          closeAll();
+          this.scene.start("ShopScene");
+        };
+
+        grid.innerHTML = "";
+        avatars.forEach((av) => {
+          const isOwned = av.id === 1 || ownedSet.has(Number(av.id));
+          const isActive = Number(activeAvId) === Number(av.id);
+
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.title = isOwned
+            ? `${av.name} (${isActive ? "Đang dùng" : "Bấm để chọn"})`
+            : `${av.name} — Chưa sở hữu (${Number(av.price_ecoin).toLocaleString("vi-VN")} Ecoin)`;
+          cell.style.cssText = `
+            position: relative; width: ${cellSize}px; height: ${cellSize}px;
+            padding: 0; margin: 0; box-sizing: border-box;
+            border-radius: 10px; overflow: hidden; cursor: pointer;
+            border: 2.5px solid ${isActive ? "#16a34a" : (isOwned ? "#b88628" : "#5c4a32")};
+            background: #101828;
+            box-shadow: ${isActive ? "0 0 0 2px rgba(22,163,74,0.4)" : "0 2px 6px rgba(0,0,0,0.22)"};
+            transition: transform 0.12s ease;
+          `;
+
+          const img = document.createElement("img");
+          img.src = `/${av.image_path}`;
+          img.alt = av.name;
+          img.loading = "lazy";
+          img.style.cssText = `
+            width: 100%; height: 100%; object-fit: cover; display: block;
+            ${isOwned ? "" : "filter: grayscale(0.25) brightness(0.65);"}
+          `;
+          cell.appendChild(img);
+
+          if (!isOwned) {
+            const lockMask = document.createElement("div");
+            lockMask.style.cssText = `
+              position: absolute; inset: 0;
+              background: rgba(0, 0, 0, 0.58);
+              display: flex; flex-direction: column; align-items: center; justify-content: center;
+              color: #f8fafc; font-size: 20px; text-shadow: 0 2px 6px rgba(0,0,0,0.9);
+            `;
+            lockMask.innerHTML = `<span>🔒</span>`;
+            cell.appendChild(lockMask);
+          } else if (isActive) {
+            const tick = document.createElement("div");
+            tick.style.cssText = `
+              position: absolute; bottom: 0; left: 0; right: 0;
+              background: rgba(22, 163, 74, 0.92); color: #fff;
+              font-size: 9px; font-weight: 800; padding: 1px 0; text-align: center;
+            `;
+            tick.textContent = "ĐANG DÙNG";
+            cell.appendChild(tick);
+          }
+
+          cell.onmouseenter = () => { cell.style.transform = "scale(1.06)"; };
+          cell.onmouseleave = () => { cell.style.transform = "scale(1)"; };
+          cell.onclick = async () => {
+            if (!isOwned) {
+              statusBar.querySelector("span").innerHTML =
+                `🔒 <b>${av.name}</b> chưa sở hữu (${Number(av.price_ecoin).toLocaleString("vi-VN")} Ecoin) — bấm <b>Mua thêm</b>!`;
+              return;
+            }
+            if (isActive) return;
+            try {
+              const r = await fetch(`${SERVER_URL}/users/${uid}/avatars/active`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ avatar_id: av.id }),
+              });
+              const j = await r.json();
+              if (j.success) {
+                if (this.player?.user) {
+                  this.player.user.active_avatar_id = av.id;
+                  setPlayerData(this, this.player);
+                }
+                if (pd?.user) pd.user.active_avatar_id = av.id;
+                this._refreshLobbyAvatar?.(av.id);
+                renderAvatarGrid(avatars, ownedIds, av.id);
+                statusBar.querySelector("span").innerHTML = `✅ Đã đổi sang <b>${av.name}</b>!`;
+              }
+            } catch (_) {
+              statusBar.querySelector("span").textContent = "❌ Lỗi kết nối khi đổi avatar";
+            }
+          };
+
+          grid.appendChild(cell);
+        });
+      };
+
+      fetch(`${SERVER_URL}/users/${uid}/avatars`)
+        .then(r => r.json())
+        .then(data => {
+          if (!data?.success) {
+            statusBar.innerHTML = `<span>❌ Không tải được danh sách avatar</span>`;
+            return;
+          }
+          renderAvatarGrid(data.avatars || [], data.owned_ids || [1], data.active_avatar_id || 1);
+        })
+        .catch(() => {
+          if (statusBar) statusBar.innerHTML = `<span>❌ Lỗi kết nối server</span>`;
+        });
+    };
+
     const renderContent = () => {
       clearContent();
-      if (activeTab === 0) renderInfoTab();
-      else                 renderHistoryTab();
+      if (activeTab === 0)      renderInfoTab();
+      else if (activeTab === 1) renderAvatarTab();
+      else                      renderHistoryTab();
     };
 
     drawTabs();

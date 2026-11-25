@@ -8,9 +8,39 @@ const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = path.resolve(__dirname, "../../..");
 const CUSTOM_NPC_DIR = path.join(PROJECT_ROOT, "assets", "custom_npcs");
 const CUSTOM_MAP_DIR = path.join(PROJECT_ROOT, "assets", "custom_maps");
+const CUSTOM_LOBBY_DIR = path.join(PROJECT_ROOT, "assets", "custom_lobby");
+const CUSTOM_SCENE_DIR = path.join(PROJECT_ROOT, "assets", "custom_scenes");
 const BACKUP_DIR = path.join(PROJECT_ROOT, "assets", "_studio_backups");
 const CONFIG_PATH = path.join(CUSTOM_NPC_DIR, "npc_config.json");
 const MAP_CONFIG_PATH = path.join(CUSTOM_MAP_DIR, "map_config.json");
+const LOBBY_CONFIG_PATH = path.join(CUSTOM_LOBBY_DIR, "lobby_config.json");
+const SCENE_CONFIG_PATH = path.join(CUSTOM_SCENE_DIR, "scene_config.json");
+
+const SCENE_DEFAULTS = {
+  rating: {
+    label: "Bảng Vàng Xếp Hạng",
+    default_name: "BXH Mặc Định",
+    default_image: "/assets/nen_23.png",
+    default_spots: [
+      { id: 1, x: 0.5000, y: 0.6053, label: "Hạng 1 (Quán Quân)" },
+      { id: 2, x: 0.2411, y: 0.6478, label: "Hạng 2 (Trái)" },
+      { id: 3, x: 0.7589, y: 0.6635, label: "Hạng 3 (Phải)" },
+    ],
+  },
+  lab: {
+    label: "Phòng Nghiên Cứu",
+    default_name: "Nghiên Cứu Mặc Định",
+    default_image: "/assets/nen_2.png",
+    default_spots: [
+      { id: 1, x: 0.1430, y: 0.5970, label: "Spot 1", flipX: false },
+      { id: 2, x: 0.2000, y: 0.4390, label: "Spot 2", flipX: false },
+      { id: 3, x: 0.4880, y: 0.4530, label: "Spot 3 (Phù Thủy)", flipX: false },
+      { id: 4, x: 0.6570, y: 0.4030, label: "Spot 4", flipX: true },
+      { id: 5, x: 0.8480, y: 0.5160, label: "Spot 5", flipX: true },
+      { id: 6, x: 0.7130, y: 0.6060, label: "Spot 6", flipX: true },
+    ],
+  },
+};
 
 export const DEFAULT_BOARD_PATH = [
   { index:0,  x:0.24,  y:0.59,  hw:0.022, hh:0.018, name:"START",   type:"skill" },
@@ -753,6 +783,506 @@ const assetUploadService = {
       }
     }
     return { success: true, message: `Đã xóa bản đồ "${removed.name}"` };
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  //  7. SẢNH CHỜ NGÀY / ĐÊM (LOBBY DAY/NIGHT PRESETS + 24H CYCLE)
+  // ═══════════════════════════════════════════════════════════════
+  _defaultLobbyIslands() {
+    return [
+      { key: "play", label: "ĐẤU TRƯỜNG TRÍ TUỆ", x: 0.50, y: 0.5393 },
+      { key: "shop", label: "CỬA HÀNG", x: 0.31, y: 0.23 },
+      { key: "rank", label: "XẾP HẠNG", x: 0.12, y: 0.42 },
+      { key: "lab",  label: "NGHIÊN CỨU", x: 0.84, y: 0.44 },
+    ];
+  },
+
+  _normalizeLobbyIslands(rawIslands) {
+    const defs = this._defaultLobbyIslands();
+    if (!Array.isArray(rawIslands) || rawIslands.length === 0) {
+      return defs.map(d => ({ ...d }));
+    }
+    return defs.map(def => {
+      const inp = rawIslands.find(item => item && item.key === def.key);
+      if (!inp) return { ...def };
+      const nx = Math.min(0.96, Math.max(0.04, Number(inp.x)));
+      const ny = Math.min(0.96, Math.max(0.04, Number(inp.y)));
+      return {
+        ...def,
+        x: Number.isFinite(nx) ? Number(nx.toFixed(4)) : def.x,
+        y: Number.isFinite(ny) ? Number(ny.toFixed(4)) : def.y,
+      };
+    });
+  },
+
+  _readLobbyConfig() {
+    try {
+      if (fs.existsSync(LOBBY_CONFIG_PATH)) {
+        const parsed = JSON.parse(fs.readFileSync(LOBBY_CONFIG_PATH, "utf-8"));
+        return {
+          active_lobby_id: parsed.active_lobby_id || "default",
+          time_mode: parsed.time_mode === "fixed" ? "fixed" : "auto",
+          fixed_hour: Number.isFinite(Number(parsed.fixed_hour)) ? Number(parsed.fixed_hour) : 12,
+          default_islands: Array.isArray(parsed.default_islands) ? parsed.default_islands : null,
+          default_override: parsed.default_override && typeof parsed.default_override === "object" ? parsed.default_override : null,
+          presets: Array.isArray(parsed.presets) ? parsed.presets : [],
+        };
+      }
+    } catch (err) {
+      console.warn("_readLobbyConfig error:", err.message);
+    }
+    return { active_lobby_id: "default", time_mode: "auto", fixed_hour: 12, default_islands: null, default_override: null, presets: [] };
+  },
+
+  _writeLobbyConfig(cfg) {
+    ensureDir(CUSTOM_LOBBY_DIR);
+    fs.writeFileSync(LOBBY_CONFIG_PATH, JSON.stringify(cfg, null, 2), "utf-8");
+  },
+
+  getActiveLobbyConfig() {
+    const cfg = this._readLobbyConfig();
+    if (cfg.active_lobby_id && cfg.active_lobby_id !== "default") {
+      const found = cfg.presets.find(p => p.id === cfg.active_lobby_id);
+      if (found) {
+        return {
+          id: found.id,
+          name: found.name,
+          is_custom: true,
+          day_url: found.day_url,
+          night_url: found.night_url,
+          version: found.version || 0,
+          time_mode: cfg.time_mode,
+          fixed_hour: cfg.fixed_hour,
+          islands: this._normalizeLobbyIslands(found.islands),
+        };
+      }
+    }
+    const ov = cfg.default_override;
+    const hasOverrideImg = Boolean(ov?.day_url || ov?.night_url);
+    return {
+      id: "default",
+      name: ov?.name || "Sảnh Mặc Định",
+      is_custom: hasOverrideImg,
+      has_override: Boolean(ov),
+      day_url: ov?.day_url || "/assets/ui/lobby/background_light.png",
+      night_url: ov?.night_url || "/assets/ui/lobby/background_dark.png",
+      version: ov?.version || 0,
+      time_mode: cfg.time_mode,
+      fixed_hour: cfg.fixed_hour,
+      islands: this._normalizeLobbyIslands(cfg.default_islands),
+    };
+  },
+
+  listLobbyPresets() {
+    const cfg = this._readLobbyConfig();
+    const ov = cfg.default_override;
+    const defaultEntry = {
+      id: "default",
+      name: ov?.name || "Sảnh Mặc Định",
+      is_custom: false,
+      has_override: Boolean(ov),
+      day_url: ov?.day_url || "/assets/ui/lobby/background_light.png",
+      night_url: ov?.night_url || "/assets/ui/lobby/background_dark.png",
+      version: ov?.version || 0,
+      islands: this._normalizeLobbyIslands(cfg.default_islands),
+    };
+    const presets = cfg.presets.map(p => ({
+      ...p,
+      islands: this._normalizeLobbyIslands(p.islands),
+    }));
+    return {
+      active_lobby_id: cfg.active_lobby_id,
+      time_mode: cfg.time_mode,
+      fixed_hour: cfg.fixed_hour,
+      default_islands: this._defaultLobbyIslands(),
+      presets: [defaultEntry, ...presets],
+    };
+  },
+
+  saveLobbyPreset({ id = null, name, day_data_url = null, night_data_url = null, islands = null, activate = true }) {
+    const cleanName = String(name || "").trim().slice(0, 80);
+    if (!cleanName) return { success: false, message: "Vui lòng nhập tên bộ sảnh chờ!" };
+
+    const cfg = this._readLobbyConfig();
+
+    // Cho phép sửa trực tiếp Sảnh Mặc Định (vẫn giữ nguyên ảnh gốc trên đĩa để khôi phục bất cứ lúc nào)
+    if (String(id) === "default") {
+      const prevOv = cfg.default_override || {};
+      let dayUrl = prevOv.day_url || "/assets/ui/lobby/background_light.png";
+      let nightUrl = prevOv.night_url || "/assets/ui/lobby/background_dark.png";
+
+      if (day_data_url && String(day_data_url).startsWith("data:image/")) {
+        const dec = decodeDataUrlImage(day_data_url);
+        if (!dec) return { success: false, message: "Ảnh Ban Ngày không hợp lệ (PNG/WebP/JPG ≤ 6MB)" };
+        ensureDir(CUSTOM_LOBBY_DIR);
+        const fn = `default_override_day.${dec.ext}`;
+        fs.writeFileSync(path.join(CUSTOM_LOBBY_DIR, fn), dec.buffer);
+        dayUrl = `/assets/custom_lobby/${fn}`;
+      }
+      if (night_data_url && String(night_data_url).startsWith("data:image/")) {
+        const dec = decodeDataUrlImage(night_data_url);
+        if (!dec) return { success: false, message: "Ảnh Ban Đêm không hợp lệ (PNG/WebP/JPG ≤ 6MB)" };
+        ensureDir(CUSTOM_LOBBY_DIR);
+        const fn = `default_override_night.${dec.ext}`;
+        fs.writeFileSync(path.join(CUSTOM_LOBBY_DIR, fn), dec.buffer);
+        nightUrl = `/assets/custom_lobby/${fn}`;
+      }
+
+      const normalizedIslands = this._normalizeLobbyIslands(islands || cfg.default_islands);
+      cfg.default_islands = normalizedIslands;
+      cfg.default_override = {
+        name: cleanName,
+        day_url: dayUrl,
+        night_url: nightUrl,
+        version: Date.now(),
+        updated_at: new Date().toISOString(),
+      };
+      if (activate) cfg.active_lobby_id = "default";
+      this._writeLobbyConfig(cfg);
+      return {
+        success: true,
+        message: `Đã cập nhật "${cleanName}" (có thể bấm Khôi phục gốc bất cứ lúc nào)!`,
+        preset: {
+          id: "default",
+          name: cleanName,
+          is_custom: false,
+          has_override: true,
+          day_url: dayUrl,
+          night_url: nightUrl,
+          islands: normalizedIslands,
+          version: cfg.default_override.version,
+        },
+        active_lobby_id: cfg.active_lobby_id,
+      };
+    }
+
+    const existingIdx = id && id !== "default" ? cfg.presets.findIndex(p => p.id === String(id)) : -1;
+    const presetId = existingIdx >= 0 ? cfg.presets[existingIdx].id : `lobby_${Date.now()}`;
+    let dayUrl = existingIdx >= 0 ? cfg.presets[existingIdx].day_url : null;
+    let nightUrl = existingIdx >= 0 ? cfg.presets[existingIdx].night_url : null;
+
+    if (day_data_url && String(day_data_url).startsWith("data:image/")) {
+      const dec = decodeDataUrlImage(day_data_url);
+      if (!dec) return { success: false, message: "Ảnh Ban Ngày không hợp lệ (PNG/WebP/JPG ≤ 6MB)" };
+      ensureDir(CUSTOM_LOBBY_DIR);
+      const fn = `${presetId}_day.${dec.ext}`;
+      fs.writeFileSync(path.join(CUSTOM_LOBBY_DIR, fn), dec.buffer);
+      dayUrl = `/assets/custom_lobby/${fn}`;
+    }
+
+    if (night_data_url && String(night_data_url).startsWith("data:image/")) {
+      const dec = decodeDataUrlImage(night_data_url);
+      if (!dec) return { success: false, message: "Ảnh Ban Đêm không hợp lệ (PNG/WebP/JPG ≤ 6MB)" };
+      ensureDir(CUSTOM_LOBBY_DIR);
+      const fn = `${presetId}_night.${dec.ext}`;
+      fs.writeFileSync(path.join(CUSTOM_LOBBY_DIR, fn), dec.buffer);
+      nightUrl = `/assets/custom_lobby/${fn}`;
+    }
+
+    if (!dayUrl || !nightUrl) {
+      return { success: false, message: "Vui lòng chọn đủ cả 2 ảnh: Ban Ngày và Ban Đêm!" };
+    }
+
+    const normalizedIslands = this._normalizeLobbyIslands(
+      islands || (existingIdx >= 0 ? cfg.presets[existingIdx].islands : null)
+    );
+
+    const entry = {
+      id: presetId,
+      name: cleanName,
+      is_custom: true,
+      day_url: dayUrl,
+      night_url: nightUrl,
+      islands: normalizedIslands,
+      version: Date.now(),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (existingIdx >= 0) cfg.presets[existingIdx] = entry;
+    else cfg.presets.unshift(entry);
+    if (activate) cfg.active_lobby_id = presetId;
+    this._writeLobbyConfig(cfg);
+
+    return {
+      success: true,
+      message: existingIdx >= 0
+        ? `Đã cập nhật bộ sảnh "${cleanName}"!`
+        : (activate ? `Đã thêm & áp dụng sảnh "${cleanName}" (Ngày + Đêm)!` : `Đã lưu sảnh "${cleanName}" vào kho!`),
+      preset: entry,
+      active_lobby_id: cfg.active_lobby_id,
+    };
+  },
+
+  resetDefaultLobby() {
+    const cfg = this._readLobbyConfig();
+    const ov = cfg.default_override;
+    if (ov) {
+      for (const u of [ov.day_url, ov.night_url]) {
+        if (u?.startsWith("/assets/custom_lobby/default_override_")) {
+          const abs = path.join(PROJECT_ROOT, u.slice(1));
+          if (fs.existsSync(abs)) {
+            try { fs.unlinkSync(abs); } catch (_) {}
+          }
+        }
+      }
+    }
+    cfg.default_override = null;
+    cfg.default_islands = null;
+    this._writeLobbyConfig(cfg);
+    return { success: true, message: "Đã khôi phục Sảnh Mặc Định về ảnh & vị trí gốc!" };
+  },
+
+  updateLobbyIslands(presetId, islands) {
+    const cfg = this._readLobbyConfig();
+    const normalized = this._normalizeLobbyIslands(islands);
+    if (!presetId || presetId === "default") {
+      cfg.default_islands = normalized;
+      this._writeLobbyConfig(cfg);
+      return {
+        success: true,
+        message: "Đã lưu vị trí 4 khu vực (Đấu Trường, Cửa Hàng, Xếp Hạng, Nghiên Cứu) cho Sảnh Mặc Định!",
+        islands: normalized,
+      };
+    }
+    const found = cfg.presets.find(p => p.id === String(presetId));
+    if (!found) return { success: false, message: "Không tìm thấy bộ sảnh" };
+    found.islands = normalized;
+    found.updated_at = new Date().toISOString();
+    this._writeLobbyConfig(cfg);
+    return {
+      success: true,
+      message: `Đã lưu vị trí 4 khu vực cho sảnh "${found.name}"!`,
+      islands: normalized,
+    };
+  },
+
+  activateLobbyPreset(presetId) {
+    const cfg = this._readLobbyConfig();
+    if (presetId === "default") {
+      cfg.active_lobby_id = "default";
+      this._writeLobbyConfig(cfg);
+      return { success: true, message: "Đã khôi phục Sảnh Mặc Định!" };
+    }
+    const found = cfg.presets.find(p => p.id === String(presetId));
+    if (!found) return { success: false, message: "Không tìm thấy bộ sảnh" };
+    cfg.active_lobby_id = found.id;
+    this._writeLobbyConfig(cfg);
+    return { success: true, message: `Đã áp dụng sảnh "${found.name}"!` };
+  },
+
+  setLobbyTimeMode({ time_mode = "auto", fixed_hour = 12 }) {
+    const cfg = this._readLobbyConfig();
+    cfg.time_mode = time_mode === "fixed" ? "fixed" : "auto";
+    cfg.fixed_hour = Math.min(23.99, Math.max(0, Number(fixed_hour) || 12));
+    this._writeLobbyConfig(cfg);
+    return {
+      success: true,
+      message: cfg.time_mode === "auto"
+        ? "Đã bật chế độ chuyển cảnh tự động 24 giờ theo giờ thực!"
+        : `Đã cố định khung giờ sảnh tại ${String(Math.floor(cfg.fixed_hour)).padStart(2, "0")}:${String(Math.round((cfg.fixed_hour % 1) * 60)).padStart(2, "0")} để demo!`,
+      time_mode: cfg.time_mode,
+      fixed_hour: cfg.fixed_hour,
+    };
+  },
+
+  deleteLobbyPreset(presetId) {
+    if (!presetId || presetId === "default") {
+      return { success: false, message: "Không thể xóa sảnh mặc định" };
+    }
+    const cfg = this._readLobbyConfig();
+    const idx = cfg.presets.findIndex(p => p.id === String(presetId));
+    if (idx === -1) return { success: false, message: "Không tìm thấy bộ sảnh" };
+    const [removed] = cfg.presets.splice(idx, 1);
+    if (cfg.active_lobby_id === removed.id) cfg.active_lobby_id = "default";
+    this._writeLobbyConfig(cfg);
+
+    for (const u of [removed.day_url, removed.night_url]) {
+      if (u?.startsWith("/assets/custom_lobby/")) {
+        const abs = path.join(PROJECT_ROOT, u.slice(1));
+        if (fs.existsSync(abs)) {
+          try { fs.unlinkSync(abs); } catch (_) {}
+        }
+      }
+    }
+    return { success: true, message: `Đã xóa bộ sảnh "${removed.name}"` };
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  //  8. BẢNG XẾP HẠNG (RATING) & PHÒNG NGHIÊN CỨU (LAB) VISUAL EDITOR
+  // ═══════════════════════════════════════════════════════════════
+  _readSceneConfig() {
+    try {
+      if (fs.existsSync(SCENE_CONFIG_PATH)) {
+        return JSON.parse(fs.readFileSync(SCENE_CONFIG_PATH, "utf-8"));
+      }
+    } catch (err) {
+      console.warn("_readSceneConfig error:", err.message);
+    }
+    return {};
+  },
+
+  _writeSceneConfig(cfg) {
+    ensureDir(CUSTOM_SCENE_DIR);
+    fs.writeFileSync(SCENE_CONFIG_PATH, JSON.stringify(cfg, null, 2), "utf-8");
+  },
+
+  _normalizeSceneSpots(sceneType, rawSpots) {
+    const def = SCENE_DEFAULTS[sceneType];
+    if (!def) return [];
+    if (!Array.isArray(rawSpots) || rawSpots.length !== def.default_spots.length) {
+      return def.default_spots.map(s => ({ ...s }));
+    }
+    return def.default_spots.map((d, i) => {
+      const inp = rawSpots[i] || {};
+      const x = Math.min(0.98, Math.max(0.02, Number(inp.x)));
+      const y = Math.min(0.98, Math.max(0.02, Number(inp.y)));
+      return {
+        ...d,
+        x: Number.isFinite(x) ? Number(x.toFixed(4)) : d.x,
+        y: Number.isFinite(y) ? Number(y.toFixed(4)) : d.y,
+      };
+    });
+  },
+
+  getActiveSceneConfig(sceneType) {
+    const def = SCENE_DEFAULTS[sceneType];
+    if (!def) return null;
+    const all = this._readSceneConfig();
+    const bucket = all[sceneType] || { active_id: "default", presets: [] };
+    if (bucket.active_id && bucket.active_id !== "default") {
+      const found = (bucket.presets || []).find(p => p.id === bucket.active_id);
+      if (found) {
+        return {
+          id: found.id,
+          name: found.name,
+          is_custom: true,
+          image_url: found.image_url,
+          version: found.version || 0,
+          spots: this._normalizeSceneSpots(sceneType, found.spots),
+        };
+      }
+    }
+    return {
+      id: "default",
+      name: def.default_name,
+      is_custom: false,
+      image_url: def.default_image,
+      version: 0,
+      spots: def.default_spots.map(s => ({ ...s })),
+    };
+  },
+
+  listScenePresets(sceneType) {
+    const def = SCENE_DEFAULTS[sceneType];
+    if (!def) return { success: false, message: "Loại scene không hợp lệ" };
+    const all = this._readSceneConfig();
+    const bucket = all[sceneType] || { active_id: "default", presets: [] };
+    const defaultEntry = {
+      id: "default",
+      name: def.default_name,
+      is_custom: false,
+      image_url: def.default_image,
+      version: 0,
+      spots: def.default_spots.map(s => ({ ...s })),
+    };
+    return {
+      success: true,
+      scene_type: sceneType,
+      label: def.label,
+      active_id: bucket.active_id || "default",
+      default_spots: def.default_spots,
+      presets: [defaultEntry, ...(bucket.presets || [])],
+    };
+  },
+
+  saveScenePreset(sceneType, { id = null, name, image_data_url = null, spots = null, activate = true }) {
+    const def = SCENE_DEFAULTS[sceneType];
+    if (!def) return { success: false, message: "Loại scene không hợp lệ" };
+    const cleanName = String(name || "").trim().slice(0, 80);
+    if (!cleanName) return { success: false, message: "Vui lòng nhập tên giao diện!" };
+
+    const all = this._readSceneConfig();
+    const bucket = all[sceneType] || { active_id: "default", presets: [] };
+    const presets = Array.isArray(bucket.presets) ? bucket.presets : [];
+    const existingIdx = id && id !== "default" ? presets.findIndex(p => p.id === String(id)) : -1;
+    const presetId = existingIdx >= 0 ? presets[existingIdx].id : `${sceneType}_${Date.now()}`;
+    let imageUrl = existingIdx >= 0 ? presets[existingIdx].image_url : null;
+
+    if (image_data_url && String(image_data_url).startsWith("data:image/")) {
+      const dec = decodeDataUrlImage(image_data_url);
+      if (!dec) return { success: false, message: "Ảnh nền không hợp lệ (PNG/WebP/JPG ≤ 6MB)" };
+      ensureDir(CUSTOM_SCENE_DIR);
+      const fn = `${presetId}.${dec.ext}`;
+      fs.writeFileSync(path.join(CUSTOM_SCENE_DIR, fn), dec.buffer);
+      imageUrl = `/assets/custom_scenes/${fn}`;
+    }
+
+    if (!imageUrl) {
+      return { success: false, message: "Vui lòng chọn ảnh nền mới trước khi lưu!" };
+    }
+
+    const entry = {
+      id: presetId,
+      name: cleanName,
+      is_custom: true,
+      image_url: imageUrl,
+      version: Date.now(),
+      spots: this._normalizeSceneSpots(sceneType, spots),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (existingIdx >= 0) presets[existingIdx] = entry;
+    else presets.unshift(entry);
+    bucket.presets = presets;
+    if (activate) bucket.active_id = presetId;
+    all[sceneType] = bucket;
+    this._writeSceneConfig(all);
+
+    return {
+      success: true,
+      message: activate
+        ? `Đã lưu & áp dụng nền "${cleanName}" cho ${def.label}!`
+        : `Đã lưu "${cleanName}" vào kho!`,
+      preset: entry,
+      active_id: bucket.active_id,
+    };
+  },
+
+  activateScenePreset(sceneType, presetId) {
+    const def = SCENE_DEFAULTS[sceneType];
+    if (!def) return { success: false, message: "Loại scene không hợp lệ" };
+    const all = this._readSceneConfig();
+    const bucket = all[sceneType] || { active_id: "default", presets: [] };
+    if (presetId === "default") {
+      bucket.active_id = "default";
+      all[sceneType] = bucket;
+      this._writeSceneConfig(all);
+      return { success: true, message: `Đã khôi phục mặc định cho ${def.label}!` };
+    }
+    const found = (bucket.presets || []).find(p => p.id === String(presetId));
+    if (!found) return { success: false, message: "Không tìm thấy preset" };
+    bucket.active_id = found.id;
+    all[sceneType] = bucket;
+    this._writeSceneConfig(all);
+    return { success: true, message: `Đã áp dụng "${found.name}" cho ${def.label}!` };
+  },
+
+  deleteScenePreset(sceneType, presetId) {
+    if (!presetId || presetId === "default") return { success: false, message: "Không thể xóa preset mặc định" };
+    const all = this._readSceneConfig();
+    const bucket = all[sceneType];
+    if (!bucket) return { success: false, message: "Không tìm thấy dữ liệu" };
+    const idx = (bucket.presets || []).findIndex(p => p.id === String(presetId));
+    if (idx === -1) return { success: false, message: "Không tìm thấy preset" };
+    const [removed] = bucket.presets.splice(idx, 1);
+    if (bucket.active_id === removed.id) bucket.active_id = "default";
+    all[sceneType] = bucket;
+    this._writeSceneConfig(all);
+    if (removed.image_url?.startsWith("/assets/custom_scenes/")) {
+      const abs = path.join(PROJECT_ROOT, removed.image_url.slice(1));
+      if (fs.existsSync(abs)) { try { fs.unlinkSync(abs); } catch (_) {} }
+    }
+    return { success: true, message: `Đã xóa "${removed.name}"` };
   },
 };
 

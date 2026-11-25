@@ -19,12 +19,15 @@ export default class ShopScene extends Phaser.Scene {
         // ── Dữ liệu shop (tất cả item trong game) ──
         this.allCharacters  = [];   // { id, name, description, skin_number, image, price }
         this.allShopSkins   = [];   // { skin_id, character_id, skin_number, character_name, price }
-        this.allBackgrounds = [];   // tương lai
+        this.allBackgrounds = [];   // phông nền
+        this.allAvatars     = [];   // 50 avatar 96x96
 
         // ── Dữ liệu sở hữu ──
         this.ownedCharacters = [];  // { character_id, ... }
         this.ownedSkins      = [];  // { skin_id, ... }
         this.ownedBgIds      = [];
+        this.ownedAvatarIds  = [1];
+        this.activeAvatarId  = 1;
 
         // ── Tiền ──
         this.playerEcoin = 0;
@@ -191,6 +194,16 @@ export default class ShopScene extends Phaser.Scene {
             this.allBackgrounds = [];
         }
 
+        // 3b) Load tất cả 50 avatars
+        try {
+            const res = await fetch(`${SERVER_URL}/shop/avatars`);
+            const json = await res.json();
+            this.allAvatars = json.avatars || [];
+        } catch(e) {
+            console.warn("Shop: Failed to load avatars", e);
+            this.allAvatars = [];
+        }
+
         if (this.playerUserId) {
             // 3) Load nhân vật đã sở hữu
             try {
@@ -216,13 +229,30 @@ export default class ShopScene extends Phaser.Scene {
                 this.ownedBgIds = bgs.map(b => Number(b.background_id || b.id || 0)).filter(Boolean);
             }
 
+            // 5b) Load avatars sở hữu & đang trang bị
+            try {
+                const avRes = await fetch(`${SERVER_URL}/users/${this.playerUserId}/avatars`);
+                const avJson = await avRes.json();
+                if (avJson.success) {
+                    this.ownedAvatarIds = avJson.owned_ids || [1];
+                    this.activeAvatarId = Number(avJson.active_avatar_id || 1);
+                    if (this.playerData?.user) {
+                        this.playerData.user.active_avatar_id = this.activeAvatarId;
+                        setPlayerData(this, this.playerData);
+                    }
+                }
+            } catch(e) {
+                console.warn("Shop: Failed to load owned avatars", e);
+            }
+
             // 6) Load ecoin thật từ server
             this.playerEcoin = await EcoinManager.fetchFromServer(this, this.playerUserId);
         }
 
-        // 7) Load sprite idle frames cho tất cả nhân vật và background
+        // 7) Load sprite idle frames cho tất cả nhân vật, background và avatar
         await this._loadAllCharacterSprites();
         await this._loadAllBackgroundSprites();
+        await this._loadAllAvatarSprites();
     }
 
     async _loadAllCharacterSprites() {
@@ -352,6 +382,24 @@ export default class ShopScene extends Phaser.Scene {
         }
     }
 
+    async _loadAllAvatarSprites() {
+        let needsLoad = false;
+        for (const av of this.allAvatars) {
+            const imgKey = `avatar_96_${av.id}`;
+            if (!this.textures.exists(imgKey) && av.image_path) {
+                this.load.image(imgKey, av.image_path);
+                needsLoad = true;
+            }
+        }
+        if (needsLoad) {
+            this.load.on("loaderror", () => {});
+            await new Promise(resolve => {
+                this.load.once("complete", resolve);
+                this.load.start();
+            });
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  HELPERS — ownership / status
     // ═══════════════════════════════════════════════════════════════
@@ -366,6 +414,14 @@ export default class ShopScene extends Phaser.Scene {
 
     _isBgActive(bgId) {
         return Number(this.playerData?.user?.active_bg_id) === Number(bgId);
+    }
+
+    _isAvatarOwned(avId) {
+        return Number(avId) === 1 || this.ownedAvatarIds.includes(Number(avId));
+    }
+
+    _isAvatarActive(avId) {
+        return Number(this.activeAvatarId || 1) === Number(avId);
     }
 
     _isCharActive(charId) {
@@ -709,7 +765,23 @@ export default class ShopScene extends Phaser.Scene {
         };
 
         if (item) {
-            if (item.type === "background") {
+            if (item.type === "avatar") {
+                const avKey = `avatar_96_${item.id}`;
+                const avCY = PREVIEW_Y + PREVIEW_H / 2;
+                const avSize = 152;
+                const frameG = push(this.add.graphics().setDepth(6));
+                frameG.fillStyle(0x0b1a33, 0.75);
+                frameG.fillRoundedRect(leftCX - avSize / 2 - 8, avCY - avSize / 2 - 8, avSize + 16, avSize + 16, 20);
+                frameG.lineStyle(3, 0xf5d77f, 0.95);
+                frameG.strokeRoundedRect(leftCX - avSize / 2 - 8, avCY - avSize / 2 - 8, avSize + 16, avSize + 16, 20);
+                if (this.textures.exists(avKey)) {
+                    const avImg = push(this.add.image(leftCX, avCY, avKey).setDisplaySize(avSize, avSize).setDepth(7));
+                    const maskShape = push(this.make.graphics({ add: false }));
+                    maskShape.fillStyle(0xffffff);
+                    maskShape.fillRoundedRect(leftCX - avSize / 2, avCY - avSize / 2, avSize, avSize, 14);
+                    avImg.setMask(maskShape.createGeometryMask());
+                }
+            } else if (item.type === "background") {
                 const bgKey = `bg_${item.id}`;
                 if (this.textures.exists(bgKey)) {
                     const bgSprite = push(this.add.sprite(leftCX, PREVIEW_Y + PREVIEW_H / 2, bgKey));
@@ -904,9 +976,9 @@ export default class ShopScene extends Phaser.Scene {
 
         const { rightCX, RIGHT_W, PANEL_Y } = this._layout;
 
-        const tabs = ["NHÂN VẬT", "TRANG PHỤC", "PHÔNG NỀN"];
-        const ids  = ["character", "skin", "background"];
-        const tabW = 160;
+        const tabs = ["NHÂN VẬT", "TRANG PHỤC", "PHÔNG NỀN", "AVATAR"];
+        const ids  = ["character", "skin", "background", "avatar"];
+        const tabW = 148;
         const tabH = 46;
         const gap  = 8;
         const totalW = tabs.length * tabW + (tabs.length - 1) * gap;
@@ -949,7 +1021,7 @@ export default class ShopScene extends Phaser.Scene {
     }
 
     _drawAllTabs(startX, tabY, tabW, tabH, gap) {
-        const ids = ["character", "skin", "background"];
+        const ids = ["character", "skin", "background", "avatar"];
         this._tabGraphics.forEach((g, i) => {
             const tx     = startX + i * (tabW + gap);
             const active = this.activeTab === ids[i];
@@ -997,6 +1069,13 @@ export default class ShopScene extends Phaser.Scene {
                 id: b.id, type: "background", name: b.name || `Phông nền ${b.id}`, description: "Một phông nền tuyệt đẹp cho phòng chơi.",
                 price: Number(b.price_ecoin) || 0, imgKey: `bg_${b.id}`
             };
+        } else if (this.activeTab === "avatar" && this.allAvatars.length > 0) {
+            const a = this.allAvatars[0];
+            this.selectedItem = {
+                id: a.id, type: "avatar", name: a.name, label: a.name,
+                description: `Hạng ${a.tier}`,
+                price: Number(a.price_ecoin) || 0, imgKey: `avatar_96_${a.id}`,
+            };
         } else {
             this.selectedItem = null;
         }
@@ -1043,6 +1122,15 @@ export default class ShopScene extends Phaser.Scene {
                 imgKey: `bg_${b.id}`,
                 isOwned: this._isBgOwned(b.id),
                 isActive: this._isBgActive(b.id),
+            }));
+        } else if (this.activeTab === "avatar") {
+            items = this.allAvatars.map(a => ({
+                id: a.id, type: "avatar", name: a.name, label: a.name,
+                description: `Hạng ${a.tier}`,
+                price: Number(a.price_ecoin) || 0,
+                imgKey: `avatar_96_${a.id}`,
+                isOwned: this._isAvatarOwned(a.id),
+                isActive: this._isAvatarActive(a.id),
             }));
         }
 
@@ -1187,6 +1275,9 @@ export default class ShopScene extends Phaser.Scene {
             imgObj = this.add.image(w / 2, imgCenterY, item.imgKey).setOrigin(0.5);
             if (item.type === "background") {
                 imgObj.setScale(Math.min((w - 10) / imgObj.width, (imgAreaH - 8) / imgObj.height));
+            } else if (item.type === "avatar") {
+                const sz = Math.min(w - 28, imgAreaH - 22, 92);
+                imgObj.setDisplaySize(sz, sz);
             } else {
                 imgObj.setScale(Math.min((w - 28) / imgObj.width, (imgAreaH - 20) / imgObj.height) * 1.3);
             }
@@ -1298,6 +1389,7 @@ export default class ShopScene extends Phaser.Scene {
         if (item.type === "character") return this._isCharOwned(item.id);
         if (item.type === "skin") return !!item.isOwned;
         if (item.type === "background") return this._isBgOwned(item.id);
+        if (item.type === "avatar") return this._isAvatarOwned(item.id);
         return false;
     }
 
@@ -1306,6 +1398,7 @@ export default class ShopScene extends Phaser.Scene {
         if (item.type === "character") return this._isCharActive(item.id);
         if (item.type === "skin") return !!item.isActive;
         if (item.type === "background") return this._isBgActive(item.id);
+        if (item.type === "avatar") return this._isAvatarActive(item.id);
         return false;
     }
 
@@ -1427,6 +1520,33 @@ export default class ShopScene extends Phaser.Scene {
                 console.warn("Buy background error:", e);
                 this.showToast("❌ Lỗi kết nối!");
             }
+        } else if (item.type === "avatar") {
+            try {
+                const res = await fetch(`${SERVER_URL}/shop/buy-avatar`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        user_id: this.playerUserId,
+                        avatar_id: item.id,
+                    }),
+                });
+                const json = await res.json();
+                if (json.success) {
+                    EcoinManager.set(this, json.ecoin);
+                    playBuySound(this);
+                    if (!this.ownedAvatarIds.includes(Number(item.id))) {
+                        this.ownedAvatarIds.push(Number(item.id));
+                    }
+                    this.showToast(`✅ ${json.message}`);
+                    this.buildLeftPanel();
+                    this.renderRightPanel();
+                } else {
+                    this.showToast(`❌ ${json.message || "Lỗi mua avatar"}`);
+                }
+            } catch(e) {
+                console.warn("Buy avatar error:", e);
+                this.showToast("❌ Lỗi kết nối!");
+            }
         }
     }
 
@@ -1486,6 +1606,30 @@ export default class ShopScene extends Phaser.Scene {
             } catch(e) {
                 console.warn("Equip bg error:", e);
                 this.showToast("❌ Lỗi áp dụng phông nền!");
+            }
+        } else if (item.type === "avatar") {
+            try {
+                const res = await fetch(`${SERVER_URL}/users/${this.playerUserId}/avatars/active`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ avatar_id: item.id }),
+                });
+                const json = await res.json();
+                if (json.success) {
+                    this.activeAvatarId = Number(item.id);
+                    if (this.playerData?.user) {
+                        this.playerData.user.active_avatar_id = this.activeAvatarId;
+                        setPlayerData(this, this.playerData);
+                    }
+                    this.showToast(`✅ ${json.message || "Đã đổi avatar!"}`);
+                    this.buildLeftPanel();
+                    this.renderRightPanel();
+                } else {
+                    this.showToast(`❌ ${json.message || "Lỗi đổi avatar"}`);
+                }
+            } catch(e) {
+                console.warn("Equip avatar error:", e);
+                this.showToast("❌ Lỗi đổi avatar!");
             }
         }
     }

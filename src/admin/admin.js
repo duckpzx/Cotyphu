@@ -21,6 +21,7 @@ const TAB_POLL_MS = {
   tarots: 12000,
   characters: 12000,
   sprites: 60000,
+  console: 2000,
 };
 
 // Cache dữ liệu hiện tại để mở modal nhanh
@@ -169,6 +170,7 @@ const TAB_TITLES = {
   security: "[ GIÁM SÁT AN NINH & CHỐNG GIAN LẬN — SOC ]",
   blacklist: "[ IP BLACKLIST & PHIÊN ĐĂNG NHẬP ]",
   sprites: "[ ASSET & SPRITE STUDIO — NPC / SKIN / TAROT / PHÔNG NỀN / TINH CẦU ]",
+  console: "[ SYSTEM CONSOLE — LIVE TAIL TOÀN HỆ THỐNG ]",
 };
 
 function setTabHtml(html, silent = _silentRender) {
@@ -204,6 +206,7 @@ async function loadTab(tab, { silent = false } = {}) {
   const secSev     = keepFilters ? ($("secSevSelect")?.value || "all") : "all";
   const secType    = keepFilters ? ($("secTypeSelect")?.value || "all") : "all";
   const secSearch  = keepFilters ? ($("secSearchInput")?.value || "") : "";
+  const conSearch  = keepFilters ? ($("consoleSearchInput")?.value || "") : "";
 
   if (!silent) {
     $("tabContent").innerHTML = `<div class="empty-state">&gt; đang tải telemetry...</div>`;
@@ -222,6 +225,7 @@ async function loadTab(tab, { silent = false } = {}) {
     else if (tab === "security") await renderSecurity(secSev, secType, secSearch);
     else if (tab === "blacklist") await renderBlacklistAndSessions();
     else if (tab === "sprites") await renderSpriteStudio();
+    else if (tab === "console") await renderSystemConsole(consoleCategory, conSearch);
     markSyncedNow();
   } catch (err) {
     if (!silent) {
@@ -1216,6 +1220,7 @@ let studioSubTab = "npcs"; // npcs | skins | tarots | backgrounds | orbs | maps
 let cacheSkins = [];
 let cacheBackgrounds = [];
 let cacheOrbs = [];
+const MAP_BACKUP_KEY = "cotyphu_map_coords_backup";
 let mapEditorState = {
   editingId: null,
   name: "",
@@ -1227,6 +1232,107 @@ let mapEditorState = {
   autoAdvance: false,
   maps: [],
   activeMapId: "default",
+  undoStack: [],
+  redoStack: [],
+};
+
+function clonePath(arr) {
+  return (arr || []).map(c => ({ ...c }));
+}
+
+function pushMapUndoSnapshot(reason = "") {
+  if (!mapEditorState.boardPath?.length) return;
+  mapEditorState.undoStack.push({
+    boardPath: clonePath(mapEditorState.boardPath),
+    selectedCell: mapEditorState.selectedCell,
+    reason,
+  });
+  if (mapEditorState.undoStack.length > 60) mapEditorState.undoStack.shift();
+  mapEditorState.redoStack = [];
+  updateMapHistoryButtons();
+}
+
+function autoBackupMapCoords() {
+  try {
+    if (!mapEditorState.boardPath?.length) return;
+    localStorage.setItem(MAP_BACKUP_KEY, JSON.stringify({
+      saved_at: new Date().toISOString(),
+      name: $("mapNameInput")?.value?.trim() || mapEditorState.name || "Auto-backup",
+      board_path: clonePath(mapEditorState.boardPath),
+    }));
+  } catch (_) {}
+}
+
+function updateMapHistoryButtons() {
+  if ($("mapUndoBtn")) {
+    $("mapUndoBtn").disabled = mapEditorState.undoStack.length === 0;
+    $("mapUndoBtn").textContent = `↶ Undo (${mapEditorState.undoStack.length})`;
+  }
+  if ($("mapRedoBtn")) {
+    $("mapRedoBtn").disabled = mapEditorState.redoStack.length === 0;
+    $("mapRedoBtn").textContent = `↷ Redo (${mapEditorState.redoStack.length})`;
+  }
+}
+
+function performMapUndo() {
+  if (!mapEditorState.undoStack.length) return showToast("Không có bước nào để hoàn tác", "error");
+  mapEditorState.redoStack.push({
+    boardPath: clonePath(mapEditorState.boardPath),
+    selectedCell: mapEditorState.selectedCell,
+  });
+  const snap = mapEditorState.undoStack.pop();
+  mapEditorState.boardPath = snap.boardPath;
+  mapEditorState.selectedCell = snap.selectedCell;
+  syncSelectedCellInputs();
+  drawMapPinsAndPath();
+  autoBackupMapCoords();
+  updateMapHistoryButtons();
+  showToast(`↶ Đã hoàn tác (Ctrl+Z) — còn ${mapEditorState.undoStack.length} bước`);
+}
+
+function performMapRedo() {
+  if (!mapEditorState.redoStack.length) return;
+  mapEditorState.undoStack.push({
+    boardPath: clonePath(mapEditorState.boardPath),
+    selectedCell: mapEditorState.selectedCell,
+  });
+  const snap = mapEditorState.redoStack.pop();
+  mapEditorState.boardPath = snap.boardPath;
+  mapEditorState.selectedCell = snap.selectedCell;
+  syncSelectedCellInputs();
+  drawMapPinsAndPath();
+  autoBackupMapCoords();
+  updateMapHistoryButtons();
+  showToast("↷ Đã làm lại (Ctrl+Y)");
+}
+let lobbyStudioState = {
+  presets: [],
+  activeId: "default",
+  previewId: null,
+  editingId: null,
+  editingName: "",
+  timeMode: "auto",
+  fixedHour: 12,
+  simHour: new Date().getHours() + new Date().getMinutes() / 60,
+  previewDayUrl: "/assets/ui/lobby/background_light.png",
+  previewNightUrl: "/assets/ui/lobby/background_dark.png",
+  pickedDayDataUrl: null,
+  pickedNightDataUrl: null,
+  islands: [],
+  defaultIslands: [],
+  selectedIslandKey: "play",
+};
+let sceneEditorState = {
+  sceneType: "rating", // rating | lab
+  editingId: null,
+  name: "",
+  imageUrl: "/assets/nen_23.png",
+  pickedImageDataUrl: null,
+  spots: [],
+  defaultSpots: [],
+  selectedSpotIdx: 0,
+  presets: [],
+  activeId: "default",
 };
 
 let spriteStudioState = {
@@ -1313,7 +1419,9 @@ function studioSubTabsHtml() {
     { key: "tarots", label: "03. Ảnh Thẻ bài Tarot" },
     { key: "backgrounds", label: "04. Phông nền" },
     { key: "orbs", label: "05. Tinh Cầu (Orbs)" },
-    { key: "maps", label: "06. Bản đồ Game (Map Editor)" },
+    { key: "maps", label: "06. Bản đồ Game" },
+    { key: "lobby", label: "07. Sảnh Chờ Ngày/Đêm" },
+    { key: "scenes", label: "08. BXH & Nghiên Cứu" },
   ];
   return `
     <div class="subtab-bar">
@@ -1334,6 +1442,8 @@ async function renderSpriteStudio() {
   if (studioSubTab === "backgrounds") return renderStudioBackgrounds();
   if (studioSubTab === "orbs") return renderStudioOrbs();
   if (studioSubTab === "maps") return renderStudioMaps();
+  if (studioSubTab === "lobby") return renderStudioLobby();
+  if (studioSubTab === "scenes") return renderStudioScenes();
 }
 
 // ── SUB-TAB 1: NPC (QUÁI VẬT & THẦY GIÁO) ───────────────────────
@@ -2086,8 +2196,11 @@ function drawMapPinsAndPath() {
       syncSelectedCellInputs();
       drawMapPinsAndPath();
 
+      const beforeDrag = clonePath(mapEditorState.boardPath);
+      let didDrag = false;
       const rect = stage.getBoundingClientRect();
       const onMove = (me) => {
+        didDrag = true;
         const nx = Math.min(0.98, Math.max(0.02, (me.clientX - rect.left) / rect.width));
         const ny = Math.min(0.98, Math.max(0.02, (me.clientY - rect.top) / rect.height));
         c.x = Number(nx.toFixed(4));
@@ -2098,6 +2211,13 @@ function drawMapPinsAndPath() {
       const onUp = () => {
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
+        if (didDrag) {
+          mapEditorState.undoStack.push({ boardPath: beforeDrag, selectedCell: c.index, reason: `drag #${c.index}` });
+          if (mapEditorState.undoStack.length > 60) mapEditorState.undoStack.shift();
+          mapEditorState.redoStack = [];
+          autoBackupMapCoords();
+          updateMapHistoryButtons();
+        }
       };
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
@@ -2124,8 +2244,8 @@ async function renderStudioMaps() {
   if (!mapEditorState.boardPath.length) {
     const activeObj = mapEditorState.maps.find(m => m.id === mapEditorState.activeMapId) || mapEditorState.maps[0];
     if (activeObj) {
-      mapEditorState.editingId = activeObj.is_custom ? activeObj.id : null;
-      mapEditorState.name = activeObj.is_custom ? activeObj.name : "Map Sự Kiện Mới";
+      mapEditorState.editingId = null; // Luôn mặc định ở chế độ thêm map mới, tránh ghi đè map cũ
+      mapEditorState.name = "";
       mapEditorState.imageUrl = activeObj.image_url + (activeObj.version ? `?v=${activeObj.version}` : "");
       mapEditorState.boardPath = (activeObj.board_path || mapEditorState.defaultBoardPath).map(c => ({ ...c }));
     }
@@ -2172,7 +2292,16 @@ async function renderStudioMaps() {
           <span class="muted">Y:</span>
           <input id="mapCellYInput" type="number" step="0.001" min="0.02" max="0.98" value="${curCell.y}" style="width:86px;min-width:86px" />
         </div>
-        <button id="mapResetCoordsBtn" class="btn btn-ghost btn-sm">↺ Đặt lại 37 tọa độ gốc</button>
+        <div class="toolbar">
+          <button id="mapUndoBtn" class="btn btn-secondary btn-sm" title="Hoàn tác (Ctrl+Z)">↶ Undo (${mapEditorState.undoStack.length})</button>
+          <button id="mapRedoBtn" class="btn btn-secondary btn-sm" title="Làm lại (Ctrl+Y)">↷ Redo (${mapEditorState.redoStack.length})</button>
+          <button id="mapSaveBackupBtn" class="btn btn-ghost btn-sm" title="Lưu mốc Backup vị trí 37 ô">📌 Lưu Backup</button>
+          <button id="mapRestoreBackupBtn" class="btn btn-warning btn-sm" title="Khôi phục bản Backup vị trí 37 ô gần nhất">↺ Khôi phục Backup</button>
+          <button id="mapExportJsonBtn" class="btn btn-ghost btn-sm" title="Tải file JSON backup tọa độ">⬇ JSON</button>
+          <button id="mapImportJsonBtn" class="btn btn-ghost btn-sm" title="Nạp file JSON tọa độ đã backup">⬆ JSON</button>
+          <input id="mapImportJsonFile" type="file" accept=".json,application/json" class="hidden" />
+          <button id="mapResetCoordsBtn" class="btn btn-ghost btn-sm">↺ Tọa độ gốc</button>
+        </div>
       </div>
 
       <div id="mapEditorStage" class="map-stage-wrap">
@@ -2181,11 +2310,11 @@ async function renderStudioMaps() {
       </div>
 
       <div class="toolbar" style="margin-top:12px;justify-content:space-between">
-        <div class="muted">&gt; Kéo thả trực tiếp các chấm tròn trên bản đồ hoặc bật "Chế độ click chấm nhanh" để đặt tọa độ X/Y từng ô.</div>
+        <div class="muted">&gt; ${mapEditorState.editingId ? `Đang chỉnh sửa map ID: <b class="cyan-val">${esc(mapEditorState.editingId)}</b>` : `Chế độ: <b class="accent-green">THÊM MAP MỚI</b> (giữ nguyên toàn bộ map cũ)`}</div>
         <div class="toolbar">
-          <button id="mapNewPresetBtn" class="btn btn-ghost btn-sm">+ Tạo preset mới</button>
-          <button id="mapSaveOnlyBtn" class="btn btn-secondary btn-sm">Lưu vào kho</button>
-          <button id="mapSaveActivateBtn" class="btn btn-primary btn-sm">💾 LƯU &amp; ÁP DỤNG NGAY VÀO GAME</button>
+          ${mapEditorState.editingId ? `<button id="mapUpdateExistingBtn" class="btn btn-secondary btn-sm">💾 Cập nhật map này</button>` : ""}
+          <button id="mapSaveOnlyBtn" class="btn btn-secondary btn-sm">+ Thêm vào kho</button>
+          <button id="mapSaveActivateBtn" class="btn btn-primary btn-sm">➕ THÊM MAP MỚI &amp; ÁP DỤNG</button>
         </div>
       </div>
     </div>
@@ -2223,6 +2352,7 @@ async function renderStudioMaps() {
   // Click trực tiếp lên ảnh bản đồ để đặt tọa độ cho ô đang chọn
   $("mapEditorStage").onclick = (ev) => {
     if (ev.target.classList.contains("map-pin")) return;
+    pushMapUndoSnapshot(`click #${mapEditorState.selectedCell}`);
     const rect = $("mapEditorStage").getBoundingClientRect();
     const nx = Math.min(0.98, Math.max(0.02, (ev.clientX - rect.left) / rect.width));
     const ny = Math.min(0.98, Math.max(0.02, (ev.clientY - rect.top) / rect.height));
@@ -2236,6 +2366,76 @@ async function renderStudioMaps() {
     }
     syncSelectedCellInputs();
     drawMapPinsAndPath();
+    autoBackupMapCoords();
+  };
+
+  $("mapUndoBtn").onclick = performMapUndo;
+  $("mapRedoBtn").onclick = performMapRedo;
+  updateMapHistoryButtons();
+
+  $("mapSaveBackupBtn").onclick = () => {
+    autoBackupMapCoords();
+    showToast("📌 Đã lưu bản Backup 37 tọa độ thành công!");
+  };
+
+  $("mapRestoreBackupBtn").onclick = () => {
+    try {
+      const raw = localStorage.getItem(MAP_BACKUP_KEY);
+      if (!raw) return showToast("Chưa có bản Backup tọa độ nào!", "error");
+      const bkp = JSON.parse(raw);
+      if (!Array.isArray(bkp?.board_path) || bkp.board_path.length !== 37) {
+        return showToast("Dữ liệu Backup không hợp lệ!", "error");
+      }
+      pushMapUndoSnapshot("restore_backup");
+      mapEditorState.boardPath = clonePath(bkp.board_path);
+      syncSelectedCellInputs();
+      drawMapPinsAndPath();
+      showToast(`↺ Đã khôi phục Backup (${fmtDate(bkp.saved_at)})`);
+    } catch {
+      showToast("Lỗi đọc bản Backup tọa độ", "error");
+    }
+  };
+
+  $("mapExportJsonBtn").onclick = () => {
+    const data = {
+      name: $("mapNameInput")?.value?.trim() || mapEditorState.name || "map_coords",
+      exported_at: new Date().toISOString(),
+      board_path: clonePath(mapEditorState.boardPath),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `map_coords_backup_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("⬇ Đã tải file JSON backup 37 tọa độ!");
+  };
+
+  $("mapImportJsonBtn").onclick = () => $("mapImportJsonFile").click();
+  $("mapImportJsonFile").onchange = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    try {
+      const parsed = JSON.parse(await f.text());
+      const arr = Array.isArray(parsed) ? parsed : parsed?.board_path;
+      if (!Array.isArray(arr) || arr.length !== 37) {
+        return showToast("File JSON phải chứa đủ 37 tọa độ ô!", "error");
+      }
+      pushMapUndoSnapshot("import_json");
+      mapEditorState.boardPath = mapEditorState.defaultBoardPath.map((def, i) => ({
+        ...def,
+        x: Number(Math.min(0.98, Math.max(0.02, Number(arr[i]?.x ?? def.x))).toFixed(4)),
+        y: Number(Math.min(0.98, Math.max(0.02, Number(arr[i]?.y ?? def.y))).toFixed(4)),
+      }));
+      syncSelectedCellInputs();
+      drawMapPinsAndPath();
+      autoBackupMapCoords();
+      showToast(`⬆ Đã nạp thành công 37 tọa độ từ ${f.name}!`);
+    } catch {
+      showToast("File JSON không đúng định dạng!", "error");
+    }
+    e.target.value = "";
   };
 
   $("mapAutoAdvanceChk").onchange = (e) => { mapEditorState.autoAdvance = e.target.checked; };
@@ -2247,46 +2447,47 @@ async function renderStudioMaps() {
   $("mapCellXInput").oninput = (e) => {
     const v = Number(e.target.value);
     if (Number.isFinite(v) && mapEditorState.boardPath[mapEditorState.selectedCell]) {
+      pushMapUndoSnapshot(`edit_x #${mapEditorState.selectedCell}`);
       mapEditorState.boardPath[mapEditorState.selectedCell].x = Number(Math.min(0.98, Math.max(0.02, v)).toFixed(4));
       drawMapPinsAndPath();
+      autoBackupMapCoords();
     }
   };
   $("mapCellYInput").oninput = (e) => {
     const v = Number(e.target.value);
     if (Number.isFinite(v) && mapEditorState.boardPath[mapEditorState.selectedCell]) {
+      pushMapUndoSnapshot(`edit_y #${mapEditorState.selectedCell}`);
       mapEditorState.boardPath[mapEditorState.selectedCell].y = Number(Math.min(0.98, Math.max(0.02, v)).toFixed(4));
       drawMapPinsAndPath();
+      autoBackupMapCoords();
     }
   };
   $("mapResetCoordsBtn").onclick = () => {
+    pushMapUndoSnapshot("reset_default");
     mapEditorState.boardPath = mapEditorState.defaultBoardPath.map(c => ({ ...c }));
     syncSelectedCellInputs();
     drawMapPinsAndPath();
-    showToast("Đã đặt lại 37 tọa độ về bản đồ gốc");
+    autoBackupMapCoords();
+    showToast("Đã đặt lại 37 tọa độ về bản đồ gốc (có thể Ctrl+Z để quay lại)");
   };
   $("mapImageFileInput").onchange = async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
     mapEditorState.pickedImageDataUrl = (await readFilesAsDataUrls([f]))[0];
     $("mapStageImg").src = mapEditorState.pickedImageDataUrl;
-    showToast("Đã nạp ảnh bản đồ mới lên trình chỉnh sửa!");
-  };
-  $("mapNewPresetBtn").onclick = () => {
-    mapEditorState.editingId = null;
-    mapEditorState.name = "";
-    mapEditorState.pickedImageDataUrl = null;
-    mapEditorState.imageUrl = "/assets/nen_trochoi.jpg";
-    mapEditorState.boardPath = mapEditorState.defaultBoardPath.map(c => ({ ...c }));
-    renderStudioMaps();
+    showToast("Đã nạp ảnh bản đồ mới — bấm 'Thêm map mới & Áp dụng' để lưu mà không mất map cũ!");
   };
 
-  const doSaveMap = async (activate) => {
+  const doSaveMap = async ({ asNew = true, activate = true }) => {
     const name = $("mapNameInput").value.trim();
     if (!name) return showToast("Vui lòng nhập tên bản đồ!", "error");
+    if (asNew && !mapEditorState.pickedImageDataUrl) {
+      return showToast("Hãy chọn file ảnh cho bản đồ mới!", "error");
+    }
     const resSave = await api("/assets/maps/save", {
       method: "POST",
       body: JSON.stringify({
-        id: mapEditorState.editingId,
+        id: asNew ? null : mapEditorState.editingId,
         name,
         image_data_url: mapEditorState.pickedImageDataUrl,
         board_path: mapEditorState.boardPath,
@@ -2295,15 +2496,728 @@ async function renderStudioMaps() {
     });
     if (!resSave.success) return showToast(resSave.message, "error");
     showToast(resSave.message);
-    mapEditorState.editingId = resSave.map?.id || null;
-    mapEditorState.name = resSave.map?.name || name;
+    mapEditorState.editingId = null;
+    mapEditorState.name = "";
     mapEditorState.pickedImageDataUrl = null;
     mapEditorState.imageUrl = resSave.map?.image_url + (resSave.map?.version ? `?v=${resSave.map.version}` : "");
     renderStudioMaps();
   };
 
-  $("mapSaveOnlyBtn").onclick = () => doSaveMap(false);
-  $("mapSaveActivateBtn").onclick = () => doSaveMap(true);
+  if ($("mapUpdateExistingBtn")) {
+    $("mapUpdateExistingBtn").onclick = () => doSaveMap({ asNew: false, activate: true });
+  }
+  $("mapSaveOnlyBtn").onclick = () => doSaveMap({ asNew: true, activate: false });
+  $("mapSaveActivateBtn").onclick = () => doSaveMap({ asNew: true, activate: true });
+}
+
+// ── SUB-TAB 7: SẢNH CHỜ NGÀY/ĐÊM + MÔ PHỎNG KHÍ QUYỂN 24H ───────
+function computeLobbyAtmosphereCss(hourFloat) {
+  const h = ((hourFloat % 24) + 24) % 24;
+  if (h >= 5 && h < 7.5) {
+    const t = (h - 5) / 2.5, bell = Math.sin(t * Math.PI);
+    return { nightAlpha: 0.85 * (1 - t), tintCss: `rgba(255, 170, 85, ${(0.18 * bell).toFixed(3)})`, blend: "normal", label: "🌅 BÌNH MINH (NẮNG SỚM DỊU)" };
+  }
+  if (h >= 7.5 && h < 10.5) {
+    const t = (h - 7.5) / 3.0;
+    return { nightAlpha: 0, tintCss: `rgba(255, 243, 204, ${(0.08 * (1 - t * 0.5)).toFixed(3)})`, blend: "screen", label: "🌤️ BUỔI SÁNG (NẮNG NHẸ)" };
+  }
+  if (h >= 10.5 && h < 15.5) {
+    const t = (h - 10.5) / 5.0, bell = Math.sin(t * Math.PI);
+    return { nightAlpha: 0, tintCss: `rgba(255, 255, 255, ${(0.03 + 0.07 * bell).toFixed(3)})`, blend: "screen", label: "☀️ BUỔI TRƯA (SÁNG RỰC RỠ)" };
+  }
+  if (h >= 15.5 && h < 18.5) {
+    const t = (h - 15.5) / 3.0, bell = Math.sin(t * Math.PI);
+    return { nightAlpha: 0.55 * t, tintCss: `rgba(255, 107, 53, ${(0.24 * bell).toFixed(3)})`, blend: "normal", label: "🌇 HOÀNG HÔN (CHUYỂN TỐI DẦN)" };
+  }
+  if (h >= 18.5 && h < 20.5) {
+    const t = (h - 18.5) / 2.0;
+    return { nightAlpha: 0.55 + 0.45 * t, tintCss: `rgba(43, 30, 90, ${(0.16 * (1 - t * 0.4)).toFixed(3)})`, blend: "normal", label: "🌆 CHẠNG VẠNG (TỐI DẦN)" };
+  }
+  return { nightAlpha: 1, tintCss: "rgba(10, 25, 54, 0.10)", blend: "normal", label: "🌙 BAN ĐÊM" };
+}
+
+function fmtHourFloat(h) {
+  const hh = Math.floor(h) % 24;
+  const mm = Math.round((h - Math.floor(h)) * 60) % 60;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+function syncLobbyIslandInputs() {
+  const item = (lobbyStudioState.islands || []).find(i => i.key === lobbyStudioState.selectedIslandKey) || lobbyStudioState.islands?.[0];
+  if (!item) return;
+  if ($("lobbyIslandSelect")) $("lobbyIslandSelect").value = item.key;
+  if ($("lobbyIslandXInput")) $("lobbyIslandXInput").value = item.x;
+  if ($("lobbyIslandYInput")) $("lobbyIslandYInput").value = item.y;
+}
+
+function drawLobbyIslandPins() {
+  const stage = $("lobbySimStage");
+  if (!stage) return;
+  stage.querySelectorAll(".lobby-island-pin").forEach(el => el.remove());
+
+  (lobbyStudioState.islands || []).forEach((item) => {
+    const pin = document.createElement("div");
+    pin.className = "lobby-island-pin" + (item.key === lobbyStudioState.selectedIslandKey ? " pin-selected" : "");
+    pin.style.left = `${(item.x * 100).toFixed(3)}%`;
+    pin.style.top = `${(item.y * 100).toFixed(3)}%`;
+    pin.textContent = item.label;
+    pin.title = `${item.label} (X=${item.x}, Y=${item.y}) — Kéo thả để di chuyển`;
+
+    pin.onmousedown = (ev) => {
+      ev.stopPropagation();
+      lobbyStudioState.selectedIslandKey = item.key;
+      syncLobbyIslandInputs();
+      drawLobbyIslandPins();
+      const rect = stage.getBoundingClientRect();
+      const onMove = (me) => {
+        item.x = Number(Math.min(0.96, Math.max(0.04, (me.clientX - rect.left) / rect.width)).toFixed(4));
+        item.y = Number(Math.min(0.96, Math.max(0.04, (me.clientY - rect.top) / rect.height)).toFixed(4));
+        syncLobbyIslandInputs();
+        drawLobbyIslandPins();
+      };
+      const onUp = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    };
+
+    stage.appendChild(pin);
+  });
+}
+
+async function renderStudioLobby() {
+  const res = await api("/assets/lobby");
+  lobbyStudioState.presets = res.presets || [];
+  lobbyStudioState.activeId = res.active_lobby_id || "default";
+  lobbyStudioState.timeMode = res.time_mode || "auto";
+  lobbyStudioState.fixedHour = Number(res.fixed_hour ?? 12);
+  lobbyStudioState.defaultIslands = res.default_islands || [
+    { key: "play", label: "ĐẤU TRƯỜNG TRÍ TUỆ", x: 0.50, y: 0.5393 },
+    { key: "shop", label: "CỬA HÀNG", x: 0.31, y: 0.23 },
+    { key: "rank", label: "XẾP HẠNG", x: 0.12, y: 0.42 },
+    { key: "lab",  label: "NGHIÊN CỨU", x: 0.84, y: 0.44 },
+  ];
+
+  const targetId = lobbyStudioState.previewId || lobbyStudioState.activeId;
+  const previewObj = lobbyStudioState.presets.find(p => p.id === targetId)
+    || lobbyStudioState.presets.find(p => p.id === lobbyStudioState.activeId)
+    || lobbyStudioState.presets[0];
+
+  if (previewObj) {
+    lobbyStudioState.previewId = previewObj.id;
+    if (!lobbyStudioState.pickedDayDataUrl && !lobbyStudioState.pickedNightDataUrl) {
+      const ver = previewObj.version ? `?v=${previewObj.version}` : "";
+      lobbyStudioState.previewDayUrl = previewObj.day_url + ver;
+      lobbyStudioState.previewNightUrl = previewObj.night_url + ver;
+    }
+    if (!lobbyStudioState.islands.length) {
+      lobbyStudioState.islands = (previewObj.islands || lobbyStudioState.defaultIslands).map(i => ({ ...i }));
+    }
+  }
+
+  const curIsland = lobbyStudioState.islands.find(i => i.key === lobbyStudioState.selectedIslandKey)
+    || lobbyStudioState.islands[0]
+    || { key: "play", label: "ĐẤU TRƯỜNG TRÍ TUỆ", x: 0.5, y: 0.5393 };
+
+  setTabHtml(`
+    ${studioSubTabsHtml()}
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>[ MÔ PHỎNG SẢNH 24H &amp; KÉO THẢ VỊ TRÍ 4 KHU VỰC ]</h3>
+        <span class="badge ${lobbyStudioState.timeMode === "auto" ? "badge-online" : "badge-mute"}">
+          ${lobbyStudioState.timeMode === "auto" ? "[CHẾ ĐỘ: TỰ ĐỘNG 24H]" : `[CỐ ĐỊNH DEMO: ${fmtHourFloat(lobbyStudioState.fixedHour)}]`}
+        </span>
+      </div>
+
+      <div class="toolbar" style="margin-bottom:10px;justify-content:space-between">
+        <div class="toolbar">
+          <select id="lobbyIslandSelect" style="min-width:190px">
+            ${lobbyStudioState.islands.map(it => `<option value="${esc(it.key)}" ${it.key === curIsland.key ? "selected" : ""}>📍 ${esc(it.label)}</option>`).join("")}
+          </select>
+          <span class="muted">X:</span>
+          <input id="lobbyIslandXInput" type="number" step="0.001" min="0.04" max="0.96" value="${curIsland.x}" style="width:86px;min-width:86px" />
+          <span class="muted">Y:</span>
+          <input id="lobbyIslandYInput" type="number" step="0.001" min="0.04" max="0.96" value="${curIsland.y}" style="width:86px;min-width:86px" />
+        </div>
+        <div class="toolbar">
+          <button id="lobbyResetIslandsBtn" class="btn btn-ghost btn-sm">↺ Vị trí gốc</button>
+          <button id="lobbySaveIslandsBtn" class="btn btn-primary btn-sm">💾 Lưu vị trí chữ (${esc(previewObj?.name || "Sảnh này")})</button>
+        </div>
+      </div>
+
+      <div id="lobbySimStage" class="map-stage-wrap" style="max-width:680px;margin:0 auto;aspect-ratio:16/9">
+        <img id="lobbySimDayImg" class="map-stage-img" style="object-fit:cover" src="${esc(lobbyStudioState.pickedDayDataUrl || lobbyStudioState.previewDayUrl)}" alt="Lobby Day" />
+        <img id="lobbySimNightImg" class="map-stage-img" style="position:absolute;inset:0;object-fit:cover;transition:opacity 0.15s linear;pointer-events:none" src="${esc(lobbyStudioState.pickedNightDataUrl || lobbyStudioState.previewNightUrl)}" alt="Lobby Night" />
+        <div id="lobbySimTint" style="position:absolute;inset:0;pointer-events:none;transition:background 0.15s linear"></div>
+        <div class="sprite-stage-hud" style="font-size:11px;padding:4px 10px">
+          <span id="lobbySimTimeLabel">--:--</span>
+          <span id="lobbySimPhaseLabel">READY</span>
+        </div>
+      </div>
+
+      <div style="margin-top:12px">
+        <input id="lobbyHourSlider" type="range" min="0" max="23.75" step="0.25" value="${lobbyStudioState.simHour.toFixed(2)}" />
+        <div class="toolbar" style="margin-top:8px;justify-content:space-between">
+          <div class="toolbar">
+            <button class="btn btn-ghost btn-sm" data-sim-hour="6.25">🌅 06:15 Bình minh</button>
+            <button class="btn btn-ghost btn-sm" data-sim-hour="9">🌤️ 09:00 Sáng</button>
+            <button class="btn btn-ghost btn-sm" data-sim-hour="12.5">☀️ 12:30 Trưa</button>
+            <button class="btn btn-ghost btn-sm" data-sim-hour="17.25">🌇 17:15 Hoàng hôn</button>
+            <button class="btn btn-ghost btn-sm" data-sim-hour="19.5">🌆 19:30 Chạng vạng</button>
+            <button class="btn btn-ghost btn-sm" data-sim-hour="22.5">🌙 22:30 Đêm</button>
+          </div>
+          <div class="toolbar">
+            <button id="lobbyApplyAutoTimeBtn" class="btn ${lobbyStudioState.timeMode === "auto" ? "btn-primary" : "btn-secondary"} btn-sm">⏱ Bật Tự động 24h</button>
+            <button id="lobbyApplyFixedTimeBtn" class="btn ${lobbyStudioState.timeMode === "fixed" ? "btn-warning" : "btn-secondary"} btn-sm">📌 Ép giờ này để Demo</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="lobbyEditFormPanel">
+      <div class="panel-head">
+        <h3>${lobbyStudioState.editingId
+          ? `[ SỬA BỘ SẢNH ĐÃ UPLOAD: ${esc(lobbyStudioState.editingName)} ]`
+          : `[ THÊM BỘ SẢNH NGÀY / ĐÊM MỚI (GIÁNG SINH, TẾT, MÙA HÈ...) ]`}</h3>
+        <span class="muted">${lobbyStudioState.editingId
+          ? "Bỏ trống ảnh nếu muốn giữ nguyên ảnh cũ — tự lưu kèm vị trí 4 chữ ở khung trên"
+          : "Lưu kèm luôn vị trí 4 chữ khu vực đang kéo ở khung trên"}</span>
+      </div>
+      <div class="field">
+        <label>TÊN BỘ SẢNH CHỜ</label>
+        <input id="lobbyPresetNameInput" value="${esc(lobbyStudioState.editingName || "")}" placeholder="vd: Sảnh Giáng Sinh 2026, Sảnh Tết..." />
+      </div>
+      <div class="form-grid-2">
+        <div class="field">
+          <label>ẢNH BAN NGÀY (05:00 → 18:30) ${lobbyStudioState.editingId ? "<span class='muted'>(chọn để thay ảnh cũ)</span>" : ""}</label>
+          <input id="lobbyDayFileInput" type="file" accept="image/png,image/webp,image/jpeg" />
+        </div>
+        <div class="field">
+          <label>ẢNH BAN ĐÊM (18:30 → 05:00) ${lobbyStudioState.editingId ? "<span class='muted'>(chọn để thay ảnh cũ)</span>" : ""}</label>
+          <input id="lobbyNightFileInput" type="file" accept="image/png,image/webp,image/jpeg" />
+        </div>
+      </div>
+      <div class="toolbar">
+        ${lobbyStudioState.editingId ? `
+          <button id="lobbyUpdateExistingBtn" class="btn btn-primary btn-sm">💾 CẬP NHẬT BỘ SẢNH NÀY</button>
+          <button id="lobbyCancelEditBtn" class="btn btn-ghost btn-sm">✖ Hủy sửa</button>
+        ` : `
+          <button id="lobbySaveNewBtn" class="btn btn-primary btn-sm">➕ THÊM BỘ SẢNH MỚI &amp; ÁP DỤNG</button>
+          <button id="lobbySaveStockBtn" class="btn btn-secondary btn-sm">+ Lưu vào kho</button>
+        `}
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>[ KHO BỘ SẢNH NGÀY / ĐÊM (${lobbyStudioState.presets.length}) ]</h3>
+        <span class="muted">Đang dùng: <b class="accent-green">${esc(lobbyStudioState.activeId)}</b></span>
+      </div>
+      <div class="orb-pair-grid">
+        ${lobbyStudioState.presets.map(p => {
+          const isActive = p.id === lobbyStudioState.activeId;
+          const isEditing = p.id === lobbyStudioState.editingId;
+          const v = p.version ? `?v=${p.version}` : "";
+          return `
+            <div class="orb-pair-card ${isActive || isEditing ? "selected" : ""}">
+              <div class="orb-pair-head">
+                <strong>${esc(p.name)}</strong>
+                ${isActive ? `<span class="badge badge-online">[ĐANG DÙNG]</span>` : `<span class="badge badge-offline">[SẴN SÀNG]</span>`}
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div>
+                  <img class="bg-thumb" src="${esc(p.day_url + v)}" alt="Day" />
+                  <div class="muted" style="text-align:center;margin-top:3px">☀️ BAN NGÀY</div>
+                </div>
+                <div>
+                  <img class="bg-thumb" src="${esc(p.night_url + v)}" alt="Night" />
+                  <div class="muted" style="text-align:center;margin-top:3px">🌙 BAN ĐÊM</div>
+                </div>
+              </div>
+              <div class="actions-cell">
+                ${!isActive ? `<button class="btn btn-primary btn-sm" data-act="activate-lobby" data-id="${esc(p.id)}">Áp dụng</button>` : ""}
+                <button class="btn btn-secondary btn-sm" data-act="preview-lobby" data-id="${esc(p.id)}">Xem Demo / Sửa vị trí</button>
+                <button class="btn ${isEditing ? "btn-warning" : "btn-secondary"} btn-sm" data-act="edit-lobby" data-id="${esc(p.id)}">✏️ Sửa giao diện</button>
+                ${p.id === "default" && p.has_override ? `<button class="btn btn-ghost btn-sm" data-act="reset-default-lobby">↩ Khôi phục gốc</button>` : ""}
+                ${p.is_custom ? `<button class="btn btn-danger btn-sm" data-act="delete-lobby" data-id="${esc(p.id)}">Xóa</button>` : ""}
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `);
+
+  drawLobbyIslandPins();
+
+  $("lobbySimStage").onclick = (ev) => {
+    if (ev.target.classList.contains("lobby-island-pin")) return;
+    const rect = $("lobbySimStage").getBoundingClientRect();
+    const item = lobbyStudioState.islands.find(i => i.key === lobbyStudioState.selectedIslandKey);
+    if (!item) return;
+    item.x = Number(Math.min(0.96, Math.max(0.04, (ev.clientX - rect.left) / rect.width)).toFixed(4));
+    item.y = Number(Math.min(0.96, Math.max(0.04, (ev.clientY - rect.top) / rect.height)).toFixed(4));
+    syncLobbyIslandInputs();
+    drawLobbyIslandPins();
+  };
+
+  $("lobbyIslandSelect").onchange = (e) => {
+    lobbyStudioState.selectedIslandKey = e.target.value;
+    syncLobbyIslandInputs();
+    drawLobbyIslandPins();
+  };
+  $("lobbyIslandXInput").oninput = (e) => {
+    const v = Number(e.target.value);
+    const item = lobbyStudioState.islands.find(i => i.key === lobbyStudioState.selectedIslandKey);
+    if (Number.isFinite(v) && item) {
+      item.x = Number(Math.min(0.96, Math.max(0.04, v)).toFixed(4));
+      drawLobbyIslandPins();
+    }
+  };
+  $("lobbyIslandYInput").oninput = (e) => {
+    const v = Number(e.target.value);
+    const item = lobbyStudioState.islands.find(i => i.key === lobbyStudioState.selectedIslandKey);
+    if (Number.isFinite(v) && item) {
+      item.y = Number(Math.min(0.96, Math.max(0.04, v)).toFixed(4));
+      drawLobbyIslandPins();
+    }
+  };
+  $("lobbyResetIslandsBtn").onclick = () => {
+    lobbyStudioState.islands = lobbyStudioState.defaultIslands.map(i => ({ ...i }));
+    syncLobbyIslandInputs();
+    drawLobbyIslandPins();
+    showToast("Đã đặt lại vị trí 4 khu vực về mặc định");
+  };
+  $("lobbySaveIslandsBtn").onclick = async () => {
+    const pid = lobbyStudioState.previewId || lobbyStudioState.activeId || "default";
+    const r = await api(`/assets/lobby/${encodeURIComponent(pid)}/islands`, {
+      method: "POST",
+      body: JSON.stringify({ islands: lobbyStudioState.islands }),
+    });
+    showToast(r.message, r.success ? "success" : "error");
+    if (r.success) {
+      lobbyStudioState.islands = [];
+      renderStudioLobby();
+    }
+  };
+
+  const updateSimVisual = (hourVal) => {
+    lobbyStudioState.simHour = Number(hourVal);
+    const atm = computeLobbyAtmosphereCss(lobbyStudioState.simHour);
+    if ($("lobbySimNightImg")) $("lobbySimNightImg").style.opacity = atm.nightAlpha;
+    if ($("lobbySimTint")) {
+      $("lobbySimTint").style.background = atm.tintCss;
+      $("lobbySimTint").style.mixBlendMode = atm.blend;
+    }
+    if ($("lobbySimTimeLabel")) $("lobbySimTimeLabel").textContent = `GIỜ MÔ PHỎNG: ${fmtHourFloat(lobbyStudioState.simHour)} (night=${Math.round(atm.nightAlpha * 100)}%)`;
+    if ($("lobbySimPhaseLabel")) $("lobbySimPhaseLabel").textContent = atm.label;
+  };
+  updateSimVisual(lobbyStudioState.simHour);
+
+  $("lobbyHourSlider").oninput = (e) => updateSimVisual(e.target.value);
+  document.querySelectorAll("[data-sim-hour]").forEach(btn => {
+    btn.onclick = () => {
+      const h = Number(btn.dataset.simHour);
+      $("lobbyHourSlider").value = h;
+      updateSimVisual(h);
+    };
+  });
+
+  $("lobbyApplyAutoTimeBtn").onclick = async () => {
+    const r = await api("/assets/lobby/time-mode", { method: "POST", body: JSON.stringify({ time_mode: "auto" }) });
+    showToast(r.message, r.success ? "success" : "error");
+    renderStudioLobby();
+  };
+  $("lobbyApplyFixedTimeBtn").onclick = async () => {
+    const r = await api("/assets/lobby/time-mode", {
+      method: "POST",
+      body: JSON.stringify({ time_mode: "fixed", fixed_hour: lobbyStudioState.simHour }),
+    });
+    showToast(r.message, r.success ? "success" : "error");
+    renderStudioLobby();
+  };
+
+  $("lobbyDayFileInput").onchange = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    lobbyStudioState.pickedDayDataUrl = (await readFilesAsDataUrls([f]))[0];
+    if ($("lobbySimDayImg")) $("lobbySimDayImg").src = lobbyStudioState.pickedDayDataUrl;
+    showToast("Đã nạp ảnh Sảnh Ban Ngày lên khung mô phỏng 24h!");
+  };
+  $("lobbyNightFileInput").onchange = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    lobbyStudioState.pickedNightDataUrl = (await readFilesAsDataUrls([f]))[0];
+    if ($("lobbySimNightImg")) $("lobbySimNightImg").src = lobbyStudioState.pickedNightDataUrl;
+    showToast("Đã nạp ảnh Sảnh Ban Đêm lên khung mô phỏng 24h!");
+  };
+
+  const doSaveLobby = async ({ asNew = true, activate = true }) => {
+    const name = $("lobbyPresetNameInput").value.trim();
+    if (!name) return showToast("Vui lòng nhập tên bộ sảnh chờ!", "error");
+    if (asNew && (!lobbyStudioState.pickedDayDataUrl || !lobbyStudioState.pickedNightDataUrl)) {
+      return showToast("Vui lòng chọn đủ cả 2 ảnh Ban Ngày và Ban Đêm!", "error");
+    }
+    const r = await api("/assets/lobby/save", {
+      method: "POST",
+      body: JSON.stringify({
+        id: asNew ? null : lobbyStudioState.editingId,
+        name,
+        day_data_url: lobbyStudioState.pickedDayDataUrl,
+        night_data_url: lobbyStudioState.pickedNightDataUrl,
+        islands: lobbyStudioState.islands,
+        activate,
+      }),
+    });
+    if (!r.success) return showToast(r.message, "error");
+    showToast(r.message);
+    lobbyStudioState.pickedDayDataUrl = null;
+    lobbyStudioState.pickedNightDataUrl = null;
+    lobbyStudioState.editingId = null;
+    lobbyStudioState.editingName = "";
+    lobbyStudioState.previewId = r.preset?.id || null;
+    lobbyStudioState.islands = [];
+    renderStudioLobby();
+  };
+
+  if ($("lobbyUpdateExistingBtn")) {
+    $("lobbyUpdateExistingBtn").onclick = () => doSaveLobby({ asNew: false, activate: true });
+  }
+  if ($("lobbyCancelEditBtn")) {
+    $("lobbyCancelEditBtn").onclick = () => {
+      lobbyStudioState.editingId = null;
+      lobbyStudioState.editingName = "";
+      lobbyStudioState.pickedDayDataUrl = null;
+      lobbyStudioState.pickedNightDataUrl = null;
+      renderStudioLobby();
+    };
+  }
+  if ($("lobbySaveNewBtn")) $("lobbySaveNewBtn").onclick = () => doSaveLobby({ asNew: true, activate: true });
+  if ($("lobbySaveStockBtn")) $("lobbySaveStockBtn").onclick = () => doSaveLobby({ asNew: true, activate: false });
+}
+
+// ── SUB-TAB 8: BẢNG XẾP HẠNG (3 BỤC) & PHÒNG NGHIÊN CỨU (6 SPOT) ─
+function drawSceneEditorPins() {
+  const stage = $("sceneEditorStage");
+  if (!stage) return;
+  stage.querySelectorAll(".map-pin").forEach(el => el.remove());
+
+  (sceneEditorState.spots || []).forEach((s, idx) => {
+    const pin = document.createElement("div");
+    let cls = "map-pin";
+    if (sceneEditorState.sceneType === "rating") {
+      if (s.id === 1) cls += " pin-start";
+      else if (s.id === 2) cls += " pin-teacher";
+      else cls += " pin-chest";
+    } else {
+      if (s.id === 3) cls += " pin-monster"; // Phù Thủy
+      else cls += " pin-teacher";
+    }
+    if (idx === sceneEditorState.selectedSpotIdx) cls += " pin-selected";
+    pin.className = cls;
+    pin.style.width = "28px";
+    pin.style.height = "28px";
+    pin.style.marginLeft = "-14px";
+    pin.style.marginTop = "-14px";
+    pin.style.left = `${(s.x * 100).toFixed(3)}%`;
+    pin.style.top = `${(s.y * 100).toFixed(3)}%`;
+    pin.textContent = sceneEditorState.sceneType === "lab" && s.id === 3 ? "W" : String(s.id);
+    pin.title = `${s.label} (${s.x}, ${s.y})`;
+
+    pin.onmousedown = (ev) => {
+      ev.stopPropagation();
+      sceneEditorState.selectedSpotIdx = idx;
+      syncSceneSpotInputs();
+      drawSceneEditorPins();
+      const rect = stage.getBoundingClientRect();
+      const onMove = (me) => {
+        s.x = Number(Math.min(0.98, Math.max(0.02, (me.clientX - rect.left) / rect.width)).toFixed(4));
+        s.y = Number(Math.min(0.98, Math.max(0.02, (me.clientY - rect.top) / rect.height)).toFixed(4));
+        syncSceneSpotInputs();
+        drawSceneEditorPins();
+      };
+      const onUp = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    };
+
+    stage.appendChild(pin);
+  });
+}
+
+function syncSceneSpotInputs() {
+  const s = sceneEditorState.spots?.[sceneEditorState.selectedSpotIdx];
+  if (!s) return;
+  if ($("sceneSpotSelect")) $("sceneSpotSelect").value = String(sceneEditorState.selectedSpotIdx);
+  if ($("sceneSpotXInput")) $("sceneSpotXInput").value = s.x;
+  if ($("sceneSpotYInput")) $("sceneSpotYInput").value = s.y;
+}
+
+async function renderStudioScenes() {
+  const st = sceneEditorState.sceneType || "rating";
+  const res = await api(`/assets/scenes/${st}`);
+  if (!res || res.success === false || !Array.isArray(res.presets)) {
+    showToast("Server chưa nạp API mới — hãy khởi động lại `node server.js` rồi tải lại trang!", "error");
+    return;
+  }
+  sceneEditorState.presets = res.presets || [];
+  sceneEditorState.activeId = res.active_id || "default";
+  sceneEditorState.defaultSpots = res.default_spots || [];
+
+  if (!sceneEditorState.spots.length) {
+    const activeObj = sceneEditorState.presets.find(p => p.id === sceneEditorState.activeId) || sceneEditorState.presets[0];
+    if (activeObj) {
+      sceneEditorState.editingId = null;
+      sceneEditorState.name = "";
+      sceneEditorState.imageUrl = activeObj.image_url + (activeObj.version ? `?v=${activeObj.version}` : "");
+      sceneEditorState.spots = (activeObj.spots || sceneEditorState.defaultSpots).map(s => ({ ...s }));
+      sceneEditorState.selectedSpotIdx = 0;
+    }
+  }
+
+  const curSpot = sceneEditorState.spots[sceneEditorState.selectedSpotIdx] || { id: 1, x: 0.5, y: 0.6, label: "Spot" };
+
+  setTabHtml(`
+    ${studioSubTabsHtml()}
+
+    <div class="toolbar" style="margin-bottom:4px">
+      <button class="btn ${st === "rating" ? "btn-primary" : "btn-secondary"} btn-sm" data-act="switch-scene-type" data-type="rating">🏆 Bảng Vàng Xếp Hạng (3 bục)</button>
+      <button class="btn ${st === "lab" ? "btn-primary" : "btn-secondary"} btn-sm" data-act="switch-scene-type" data-type="lab">🧪 Phòng Nghiên Cứu (6 vị trí + Phù Thủy)</button>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>[ TRÌNH CHỈNH NỀN &amp; TỌA ĐỘ: ${esc(res.label || st)} ]</h3>
+        <span class="muted">${st === "rating" ? "Kéo thả 3 chốt #1 (Quán Quân), #2, #3 vào đúng tâm mặt bục" : "Kéo thả chốt W (Phù Thủy) và các chốt 1,2,4,5,6 vào đúng tảng đá"}</span>
+      </div>
+
+      <div class="form-grid-2" style="margin-bottom:12px">
+        <div class="field" style="margin-bottom:0">
+          <label>TÊN GIAO DIỆN MỚI</label>
+          <input id="scenePresetNameInput" value="${esc(sceneEditorState.name)}" placeholder="vd: BXH Giáng Sinh, Nghiên Cứu Tết..." />
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>UPLOAD ẢNH NỀN MỚI (16:9 — PNG/JPG/WEBP)</label>
+          <input id="sceneBgFileInput" type="file" accept="image/png,image/webp,image/jpeg" />
+        </div>
+      </div>
+
+      <div class="toolbar" style="margin-bottom:10px;justify-content:space-between">
+        <div class="toolbar">
+          <select id="sceneSpotSelect" style="min-width:170px">
+            ${sceneEditorState.spots.map((s, idx) => `<option value="${idx}" ${idx === sceneEditorState.selectedSpotIdx ? "selected" : ""}>${esc(s.label)}</option>`).join("")}
+          </select>
+          <span class="muted">X:</span>
+          <input id="sceneSpotXInput" type="number" step="0.001" min="0.02" max="0.98" value="${curSpot.x}" style="width:86px;min-width:86px" />
+          <span class="muted">Y:</span>
+          <input id="sceneSpotYInput" type="number" step="0.001" min="0.02" max="0.98" value="${curSpot.y}" style="width:86px;min-width:86px" />
+        </div>
+        <button id="sceneResetSpotsBtn" class="btn btn-ghost btn-sm">↺ Tọa độ gốc</button>
+      </div>
+
+      <div id="sceneEditorStage" class="map-stage-wrap" style="max-width:760px;margin:0 auto">
+        <img id="sceneStageImg" class="map-stage-img" style="object-fit:cover" src="${esc(sceneEditorState.pickedImageDataUrl || sceneEditorState.imageUrl)}" alt="Scene Preview" />
+      </div>
+
+      <div class="toolbar" style="margin-top:12px;justify-content:space-between">
+        <div class="muted">&gt; ${sceneEditorState.editingId ? `Đang sửa preset: <b class="cyan-val">${esc(sceneEditorState.editingId)}</b>` : `Chế độ: <b class="accent-green">THÊM MỚI</b> (giữ nguyên toàn bộ preset cũ)`}</div>
+        <div class="toolbar">
+          ${sceneEditorState.editingId ? `<button id="sceneUpdateBtn" class="btn btn-secondary btn-sm">💾 Cập nhật preset này</button>` : ""}
+          <button id="sceneSaveStockBtn" class="btn btn-secondary btn-sm">+ Thêm vào kho</button>
+          <button id="sceneSaveActivateBtn" class="btn btn-primary btn-sm">➕ THÊM MỚI &amp; ÁP DỤNG</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>[ KHO GIAO DIỆN ${esc((res.label || "").toUpperCase())} (${sceneEditorState.presets.length}) ]</h3>
+        <span class="muted">Đang dùng: <b class="accent-green">${esc(sceneEditorState.activeId)}</b></span>
+      </div>
+      <div class="asset-card-grid">
+        ${sceneEditorState.presets.map(p => {
+          const isActive = p.id === sceneEditorState.activeId;
+          const thumb = p.image_url + (p.version ? `?v=${p.version}` : "");
+          return `
+            <div class="asset-item-card ${isActive ? "selected" : ""}">
+              <img class="bg-thumb" src="${esc(thumb)}" alt="${esc(p.name)}" />
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
+                <strong>${esc(p.name)}</strong>
+                ${isActive ? `<span class="badge badge-online">[ĐANG DÙNG]</span>` : `<span class="badge badge-offline">[SẴN SÀNG]</span>`}
+              </div>
+              <div class="actions-cell">
+                ${!isActive ? `<button class="btn btn-primary btn-sm" data-act="activate-scene-preset" data-id="${esc(p.id)}">Áp dụng</button>` : ""}
+                <button class="btn btn-secondary btn-sm" data-act="edit-scene-preset" data-id="${esc(p.id)}">Chỉnh tọa độ</button>
+                ${p.is_custom ? `<button class="btn btn-danger btn-sm" data-act="delete-scene-preset" data-id="${esc(p.id)}">Xóa</button>` : ""}
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `);
+
+  drawSceneEditorPins();
+
+  $("sceneEditorStage").onclick = (ev) => {
+    if (ev.target.classList.contains("map-pin")) return;
+    const rect = $("sceneEditorStage").getBoundingClientRect();
+    const s = sceneEditorState.spots[sceneEditorState.selectedSpotIdx];
+    if (!s) return;
+    s.x = Number(Math.min(0.98, Math.max(0.02, (ev.clientX - rect.left) / rect.width)).toFixed(4));
+    s.y = Number(Math.min(0.98, Math.max(0.02, (ev.clientY - rect.top) / rect.height)).toFixed(4));
+    syncSceneSpotInputs();
+    drawSceneEditorPins();
+  };
+
+  $("sceneSpotSelect").onchange = (e) => {
+    sceneEditorState.selectedSpotIdx = Number(e.target.value);
+    syncSceneSpotInputs();
+    drawSceneEditorPins();
+  };
+  $("sceneSpotXInput").oninput = (e) => {
+    const v = Number(e.target.value);
+    if (Number.isFinite(v) && sceneEditorState.spots[sceneEditorState.selectedSpotIdx]) {
+      sceneEditorState.spots[sceneEditorState.selectedSpotIdx].x = Number(Math.min(0.98, Math.max(0.02, v)).toFixed(4));
+      drawSceneEditorPins();
+    }
+  };
+  $("sceneSpotYInput").oninput = (e) => {
+    const v = Number(e.target.value);
+    if (Number.isFinite(v) && sceneEditorState.spots[sceneEditorState.selectedSpotIdx]) {
+      sceneEditorState.spots[sceneEditorState.selectedSpotIdx].y = Number(Math.min(0.98, Math.max(0.02, v)).toFixed(4));
+      drawSceneEditorPins();
+    }
+  };
+  $("sceneResetSpotsBtn").onclick = () => {
+    sceneEditorState.spots = sceneEditorState.defaultSpots.map(s => ({ ...s }));
+    syncSceneSpotInputs();
+    drawSceneEditorPins();
+    showToast("Đã đặt lại tọa độ gốc");
+  };
+  $("sceneBgFileInput").onchange = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    sceneEditorState.pickedImageDataUrl = (await readFilesAsDataUrls([f]))[0];
+    $("sceneStageImg").src = sceneEditorState.pickedImageDataUrl;
+    showToast("Đã nạp ảnh nền mới — kéo các chốt vào đúng vị trí rồi bấm Lưu!");
+  };
+
+  const doSaveScene = async ({ asNew = true, activate = true }) => {
+    const name = $("scenePresetNameInput").value.trim();
+    if (!name) return showToast("Vui lòng nhập tên giao diện!", "error");
+    if (asNew && !sceneEditorState.pickedImageDataUrl) {
+      return showToast("Hãy chọn ảnh nền mới!", "error");
+    }
+    const r = await api(`/assets/scenes/${st}/save`, {
+      method: "POST",
+      body: JSON.stringify({
+        id: asNew ? null : sceneEditorState.editingId,
+        name,
+        image_data_url: sceneEditorState.pickedImageDataUrl,
+        spots: sceneEditorState.spots,
+        activate,
+      }),
+    });
+    if (!r.success) return showToast(r.message, "error");
+    showToast(r.message);
+    sceneEditorState.editingId = null;
+    sceneEditorState.name = "";
+    sceneEditorState.pickedImageDataUrl = null;
+    sceneEditorState.spots = [];
+    renderStudioScenes();
+  };
+
+  if ($("sceneUpdateBtn")) $("sceneUpdateBtn").onclick = () => doSaveScene({ asNew: false, activate: true });
+  $("sceneSaveStockBtn").onclick = () => doSaveScene({ asNew: true, activate: false });
+  $("sceneSaveActivateBtn").onclick = () => doSaveScene({ asNew: true, activate: true });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  11. SYSTEM CONSOLE (LIVE TAIL MỌI TÁC ĐỘNG TOÀN HỆ THỐNG)
+// ═══════════════════════════════════════════════════════════════
+let consoleCategory = "ALL";
+let cacheConsoleLogs = [];
+
+async function renderSystemConsole(category = consoleCategory, search = "") {
+  consoleCategory = category || "ALL";
+  const qs = new URLSearchParams({ category: consoleCategory, search, limit: 250 }).toString();
+  const res = await api(`/console/logs?${qs}`);
+  cacheConsoleLogs = res.logs || [];
+
+  const cats = ["ALL", "CHAT", "GAME", "ROOM", "SHOP", "PAYMENT", "AUTH", "SECURITY", "ADMIN"];
+  const fmtTime = (ts) => new Date(ts).toLocaleTimeString("en-GB", { hour12: false });
+
+  setTabHtml(`
+    <div class="panel">
+      <div class="panel-head">
+        <h3>[ $ tail -f /var/log/cotyphu-system.log ]</h3>
+        <div class="toolbar">
+          <span class="muted">buffered: <b class="cyan-val">${res.total_buffered || 0}</b> / 1000</span>
+          <button id="consoleExportBtn" class="btn btn-secondary btn-sm">⬇ Xuất .log</button>
+          <button id="consoleClearBtn" class="btn btn-danger btn-sm">Xóa đệm</button>
+        </div>
+      </div>
+
+      <div class="toolbar" style="margin-bottom:10px;justify-content:space-between">
+        <div class="toolbar">
+          ${cats.map(c => `
+            <button class="btn ${consoleCategory === c ? "btn-primary" : "btn-ghost"} btn-sm" data-act="console-cat" data-cat="${c}">
+              ${c}
+            </button>
+          `).join("")}
+        </div>
+        <div class="toolbar">
+          <input id="consoleSearchInput" type="text" placeholder="lọc user, IP, chat, action..." value="${esc(search)}" />
+          <button id="consoleSearchBtn" class="btn btn-secondary btn-sm">LỌC</button>
+        </div>
+      </div>
+
+      <div id="consoleTerminalBox" class="console-terminal">
+        ${cacheConsoleLogs.length === 0
+          ? `<div class="empty-state">&gt; Chưa có sự kiện nào trong bộ đệm. Hãy thử chat, mua đồ, tung xúc xắc hoặc đăng nhập ở trang game...</div>`
+          : [...cacheConsoleLogs].reverse().map(l => `
+            <div class="console-line">
+              <span class="console-ts">${fmtTime(l.ts)}</span>
+              <span class="console-cat cat-${esc(l.category)}">[${esc(l.category)}]</span>
+              <span class="cyan-val">${esc(l.ip)}</span>
+              <span>${l.user_id ? `<strong>${esc(l.username || `u#${l.user_id}`)}</strong> <span class="muted">#${l.user_id}</span>` : `<span class="muted">${esc(l.username || "system")}</span>`}</span>
+              <div>
+                <span style="color:${l.level === "ERR" ? "var(--red)" : l.level === "WARN" ? "var(--amber)" : "var(--text)"}"><strong>${esc(l.action)}</strong></span>
+                ${l.detail ? ` <span class="console-detail">→ ${esc(l.detail)}</span>` : ""}
+              </div>
+            </div>
+          `).join("")}
+      </div>
+    </div>
+  `);
+
+  $("consoleSearchBtn").onclick = () => renderSystemConsole(consoleCategory, $("consoleSearchInput").value);
+  $("consoleSearchInput").onkeydown = (e) => { if (e.key === "Enter") $("consoleSearchBtn").click(); };
+  $("consoleClearBtn").onclick = async () => {
+    const r = await api("/console/clear", { method: "POST" });
+    showToast(r.message || "Đã xóa đệm Console");
+    renderSystemConsole(consoleCategory, $("consoleSearchInput")?.value || "");
+  };
+  $("consoleExportBtn").onclick = () => {
+    const lines = cacheConsoleLogs.map(l =>
+      `${new Date(l.ts).toISOString()} [${l.category}] [${l.level}] ip=${l.ip} user=${l.user_id || "-"} ${l.action} ${l.detail ? "-> " + l.detail : ""}`
+    );
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `cotyphu_system_${Date.now()}.log`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("⬇ Đã tải file nhật ký .log!");
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2432,6 +3346,102 @@ document.addEventListener("click", async (e) => {
       showToast(res.message, res.success ? "success" : "error");
       if (mapEditorState.editingId === mapId) mapEditorState.editingId = null;
       renderStudioMaps();
+    } else if (act === "activate-lobby") {
+      const lid = btn.dataset.id;
+      const res = await api(`/assets/lobby/${encodeURIComponent(lid)}/activate`, { method: "POST" });
+      showToast(res.message, res.success ? "success" : "error");
+      lobbyStudioState.pickedDayDataUrl = null;
+      lobbyStudioState.pickedNightDataUrl = null;
+      lobbyStudioState.previewId = btn.dataset.id;
+      lobbyStudioState.islands = [];
+      renderStudioLobby();
+    } else if (act === "preview-lobby") {
+      const lid = btn.dataset.id;
+      const found = lobbyStudioState.presets.find(p => p.id === lid);
+      if (found) {
+        const v = found.version ? `?v=${found.version}` : "";
+        lobbyStudioState.previewId = found.id;
+        lobbyStudioState.pickedDayDataUrl = null;
+        lobbyStudioState.pickedNightDataUrl = null;
+        lobbyStudioState.previewDayUrl = found.day_url + v;
+        lobbyStudioState.previewNightUrl = found.night_url + v;
+        lobbyStudioState.islands = (found.islands || lobbyStudioState.defaultIslands).map(i => ({ ...i }));
+        renderStudioLobby();
+      }
+    } else if (act === "edit-lobby") {
+      const lid = btn.dataset.id;
+      const found = lobbyStudioState.presets.find(p => p.id === lid);
+      if (found) {
+        const v = found.version ? `?v=${found.version}` : "";
+        lobbyStudioState.editingId = found.id;
+        lobbyStudioState.editingName = found.name;
+        lobbyStudioState.previewId = found.id;
+        lobbyStudioState.pickedDayDataUrl = null;
+        lobbyStudioState.pickedNightDataUrl = null;
+        lobbyStudioState.previewDayUrl = found.day_url + v;
+        lobbyStudioState.previewNightUrl = found.night_url + v;
+        lobbyStudioState.islands = (found.islands || lobbyStudioState.defaultIslands).map(i => ({ ...i }));
+        await renderStudioLobby();
+        $("lobbyEditFormPanel")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    } else if (act === "reset-default-lobby") {
+      if (!confirm("Khôi phục Sảnh Mặc Định về ảnh và vị trí gốc ban đầu?")) return;
+      const res = await api("/assets/lobby/default/reset", { method: "POST" });
+      showToast(res.message, res.success ? "success" : "error");
+      lobbyStudioState.editingId = null;
+      lobbyStudioState.editingName = "";
+      lobbyStudioState.previewId = "default";
+      lobbyStudioState.islands = [];
+      renderStudioLobby();
+    } else if (act === "delete-lobby") {
+      const lid = btn.dataset.id;
+      if (!confirm("Xóa vĩnh viễn bộ sảnh chờ này?")) return;
+      const res = await api(`/assets/lobby/${encodeURIComponent(lid)}`, { method: "DELETE" });
+      showToast(res.message, res.success ? "success" : "error");
+      if (lobbyStudioState.editingId === lid) {
+        lobbyStudioState.editingId = null;
+        lobbyStudioState.editingName = "";
+      }
+      lobbyStudioState.previewId = null;
+      lobbyStudioState.islands = [];
+      renderStudioLobby();
+    } else if (act === "console-cat") {
+      consoleCategory = btn.dataset.cat || "ALL";
+      renderSystemConsole(consoleCategory, $("consoleSearchInput")?.value || "");
+    } else if (act === "switch-scene-type") {
+      sceneEditorState.sceneType = btn.dataset.type || "rating";
+      sceneEditorState.editingId = null;
+      sceneEditorState.name = "";
+      sceneEditorState.imageUrl = sceneEditorState.sceneType === "lab" ? "/assets/nen_2.png" : "/assets/nen_23.png";
+      sceneEditorState.pickedImageDataUrl = null;
+      sceneEditorState.spots = [];
+      sceneEditorState.selectedSpotIdx = 0;
+      renderStudioScenes();
+    } else if (act === "activate-scene-preset") {
+      const pid = btn.dataset.id;
+      const r = await api(`/assets/scenes/${sceneEditorState.sceneType}/${encodeURIComponent(pid)}/activate`, { method: "POST" });
+      showToast(r.message, r.success ? "success" : "error");
+      sceneEditorState.spots = [];
+      renderStudioScenes();
+    } else if (act === "edit-scene-preset") {
+      const pid = btn.dataset.id;
+      const found = sceneEditorState.presets.find(p => p.id === pid);
+      if (found) {
+        sceneEditorState.editingId = found.is_custom ? found.id : null;
+        sceneEditorState.name = found.is_custom ? found.name : "";
+        sceneEditorState.imageUrl = found.image_url + (found.version ? `?v=${found.version}` : "");
+        sceneEditorState.pickedImageDataUrl = null;
+        sceneEditorState.spots = (found.spots || sceneEditorState.defaultSpots).map(s => ({ ...s }));
+        sceneEditorState.selectedSpotIdx = 0;
+        renderStudioScenes();
+      }
+    } else if (act === "delete-scene-preset") {
+      const pid = btn.dataset.id;
+      if (!confirm("Xóa vĩnh viễn giao diện này?")) return;
+      const r = await api(`/assets/scenes/${sceneEditorState.sceneType}/${encodeURIComponent(pid)}`, { method: "DELETE" });
+      showToast(r.message, r.success ? "success" : "error");
+      sceneEditorState.spots = [];
+      renderStudioScenes();
     }
   } catch (err) {
     showToast(err.message || "Có lỗi xảy ra", "error");
@@ -2490,6 +3500,23 @@ $("loginForm").onsubmit = async (e) => {
     $("loginError").classList.remove("hidden");
   }
 };
+
+// Phím tắt toàn cục Ctrl+Z (Undo) và Ctrl+Y / Ctrl+Shift+Z (Redo) cho Visual Map Editor
+document.addEventListener("keydown", (e) => {
+  if (currentTab !== "sprites" || studioSubTab !== "maps") return;
+  const tag = document.activeElement?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA") return;
+  const isMod = e.ctrlKey || e.metaKey;
+  if (!isMod) return;
+  const key = (e.key || "").toLowerCase();
+  if (key === "z" && !e.shiftKey) {
+    e.preventDefault();
+    performMapUndo();
+  } else if (key === "y" || (key === "z" && e.shiftKey)) {
+    e.preventDefault();
+    performMapRedo();
+  }
+});
 
 // Khởi động đồng hồ HUD & khôi phục phiên đăng nhập
 startHudClock();

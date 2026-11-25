@@ -28,13 +28,14 @@ export function drawMicVectorIcon(g, cx, cy, scale = 1, active = false) {
 }
 
 export default class ChatWidget {
-  constructor(scene, { channel, socket, depth = 200, myId = null, enableMic = false }) {
+  constructor(scene, { channel, socket, depth = 200, myId = null, enableMic = false, onEmojiMessage = null }) {
     this.scene     = scene;
     this.channel   = channel;
     this.socket    = socket;
     this.depth     = depth;
     this.myId      = myId ? Number(myId) : null;
     this.enableMic = !!enableMic;
+    this.onEmojiMessage = typeof onEmojiMessage === "function" ? onEmojiMessage : null;
 
     this._objects     = [];
     this._msgObjs     = []; // text objects trong vùng chat (bị mask)
@@ -48,6 +49,8 @@ export default class ChatWidget {
     this._scrollThumb = null;
     this._isDragging  = false;
     this._unsubVoice  = null;
+    this._emojiPickerEl = null;
+    this._emojiOutsideHandler = null;
   }
 
   build(x, y, w, h) {
@@ -56,10 +59,11 @@ export default class ChatWidget {
     const SCROLL_W = 8;
     const INPUT_H  = 40;
     const MSG_H    = h - INPUT_H;
+    const EMOJI_W  = 36;
     const SEND_W   = 52;
     const MIC_W    = this.enableMic ? 42 : 0;
     const MIC_GAP  = this.enableMic ? 4 : 0;
-    const INPUT_W  = w - SEND_W - MIC_W - MIC_GAP;
+    const INPUT_W  = w - EMOJI_W - SEND_W - MIC_W - MIC_GAP;
     const D        = this.depth;
 
     this._MSG_H   = MSG_H;
@@ -80,8 +84,8 @@ export default class ChatWidget {
     this._maskGfx = maskGfx;
     this._clipMask = maskGfx.createGeometryMask();
 
-    // chatBox dimensions
-    const LINE_H = 18;
+    // chatBox dimensions (LINE_H = 22 để emoji 20x20 sắc nét không bị cắt mép)
+    const LINE_H = 22;
     this._chatBox = {
       x: x + 8,
       y: y + 6,
@@ -162,8 +166,49 @@ export default class ChatWidget {
     inputZone.on("pointerdown", () => this._focusInput());
     this._push(inputZone);
 
+    // ── Nút chọn Emoji (50 emoji 96x96 sắc nét) ───────────────────
+    const emojiX = x + INPUT_W;
+    const emojiCX = emojiX + EMOJI_W / 2;
+    const emojiCY = inputY + INPUT_H / 2;
+    const emojiG = this.scene.add.graphics().setDepth(D);
+    const drawEmojiBtn = (hover) => {
+      emojiG.clear();
+      emojiG.fillStyle(hover ? 0x163259 : 0x081a34, 0.95);
+      emojiG.fillRect(emojiX, inputY, EMOJI_W, INPUT_H);
+      emojiG.lineStyle(1.5, hover ? 0x38bdf8 : 0x2255aa, 0.7);
+      emojiG.strokeRect(emojiX, inputY, EMOJI_W, INPUT_H);
+    };
+    drawEmojiBtn(false);
+    this._push(emojiG);
+
+    const emojiBtnKey = "chat_emoji_sm_50";
+    let emojiBtnImg = null;
+    const placeEmojiIcon = () => {
+      if (emojiBtnImg || !emojiG?.active || !this.scene?.textures?.exists(emojiBtnKey)) return;
+      emojiBtnImg = this.scene.add.image(emojiCX, emojiCY, emojiBtnKey)
+        .setDisplaySize(24, 24).setDepth(D + 1);
+      this._push(emojiBtnImg);
+    };
+    if (this.scene.textures.exists(emojiBtnKey)) {
+      placeEmojiIcon();
+    } else {
+      this.scene.load.image(emojiBtnKey, "assets/resources/Emoji/PNG/thumbs_40/50.png");
+      this.scene.load.once(`filecomplete-image-${emojiBtnKey}`, placeEmojiIcon);
+      this.scene.load.start();
+    }
+
+    const emojiZone = this.scene.add.zone(emojiCX, emojiCY, EMOJI_W, INPUT_H)
+      .setInteractive({ cursor: "pointer" }).setDepth(D + 2);
+    emojiZone.on("pointerover", () => { drawEmojiBtn(true); emojiBtnImg?.setDisplaySize(27, 27); });
+    emojiZone.on("pointerout",  () => { drawEmojiBtn(false); emojiBtnImg?.setDisplaySize(24, 24); });
+    emojiZone.on("pointerdown", (_ptr, _lx, _ly, ev) => {
+      ev?.stopPropagation?.();
+      this._toggleEmojiPicker();
+    });
+    this._push(emojiZone);
+
     // ── Nút Gửi ───────────────────────────────────────────────────
-    const sendX = x + INPUT_W;
+    const sendX = emojiX + EMOJI_W;
     const sendG = this.scene.add.graphics().setDepth(D);
     const drawSend = (hover) => {
       sendG.clear();
@@ -286,6 +331,7 @@ export default class ChatWidget {
   }
 
   destroy() {
+    this._closeEmojiPicker();
     if (this._unsubVoice) {
       try { this._unsubVoice(); } catch {}
       this._unsubVoice = null;
@@ -334,8 +380,121 @@ export default class ChatWidget {
     this._updateScrollbar();
   }
 
+  _ensureEmojiTexture(id) {
+    const key = `chat_emoji_sm_${id}`;
+    if (this.scene?.textures?.exists(key)) return key;
+    if (!this._loadingEmojiKeys) this._loadingEmojiKeys = new Set();
+    if (!this._loadingEmojiKeys.has(key) && this.scene?.load) {
+      this._loadingEmojiKeys.add(key);
+      this.scene.load.image(key, `assets/resources/Emoji/PNG/thumbs_40/${id}.png`);
+      this.scene.load.once(`filecomplete-image-${key}`, () => {
+        this._loadingEmojiKeys.delete(key);
+        if (this._chatBox) this._renderMessages();
+      });
+      this.scene.load.start();
+    }
+    return null;
+  }
+
+  _toggleEmojiPicker() {
+    if (this._emojiPickerEl) {
+      this._closeEmojiPicker();
+      return;
+    }
+
+    const canvas = this.scene?.game?.canvas;
+    const rect = canvas ? canvas.getBoundingClientRect() : { left: 20, top: 20, width: window.innerWidth, height: window.innerHeight };
+    const scaleX = rect.width / (this.scene?.scale?.width || rect.width || 1);
+    const scaleY = rect.height / (this.scene?.scale?.height || rect.height || 1);
+
+    const pickerW = 248;
+    const pickerH = 226;
+    const anchorLeft = rect.left + (this._x + this._w - 90) * scaleX - pickerW / 2;
+    const anchorTop  = rect.top + (this._y + this._MSG_H) * scaleY - pickerH - 8;
+
+    const clampedLeft = Math.max(8, Math.min(window.innerWidth - pickerW - 8, anchorLeft));
+    const clampedTop  = Math.max(8, Math.min(window.innerHeight - pickerH - 8, anchorTop));
+
+    const el = document.createElement("div");
+    el.style.cssText = `
+      position: fixed; left: ${clampedLeft}px; top: ${clampedTop}px;
+      width: ${pickerW}px; max-height: ${pickerH}px; overflow-y: auto;
+      background: rgba(6, 20, 42, 0.96); border: 1.5px solid #38bdf8;
+      border-radius: 10px; padding: 8px; z-index: 99990;
+      box-shadow: 0 14px 36px rgba(0,0,0,0.65);
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;
+      backdrop-filter: blur(6px);
+    `;
+
+    for (let id = 1; id <= 50; id++) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.title = `Emoji #${id} (Click gửi ngay • Shift+Click chèn vào ô chat)`;
+      btn.style.cssText = `
+        background: rgba(255,255,255,0.04); border: 1px solid transparent;
+        border-radius: 6px; padding: 3px; cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+      `;
+      const img = document.createElement("img");
+      img.src = `/assets/resources/Emoji/PNG/thumbs_40/${id}.png`;
+      img.alt = `e${id}`;
+      img.loading = "lazy";
+      img.style.cssText = `
+        width: 34px; height: 34px; object-fit: contain; display: block;
+        image-rendering: -webkit-optimize-contrast;
+      `;
+      btn.appendChild(img);
+      btn.onmouseenter = () => {
+        btn.style.background = "rgba(56, 189, 248, 0.2)";
+        btn.style.borderColor = "rgba(56, 189, 248, 0.65)";
+        btn.style.transform = "scale(1.14)";
+      };
+      btn.onmouseleave = () => {
+        btn.style.background = "rgba(255,255,255,0.04)";
+        btn.style.borderColor = "transparent";
+        btn.style.transform = "scale(1)";
+      };
+      btn.onclick = (ev) => {
+        ev.stopPropagation();
+        const token = `[e:${id}]`;
+        if (ev.shiftKey) {
+          this._inputText = (this._inputText + " " + token).trim().slice(0, 200);
+          this._syncInput();
+          this._focusInput();
+        } else {
+          this.socket?.emit(`chat:${this.channel}:send`, { message: token });
+          this._scrollOffset = 0;
+          this._closeEmojiPicker();
+        }
+      };
+      el.appendChild(btn);
+    }
+
+    document.body.appendChild(el);
+    this._emojiPickerEl = el;
+
+    this._emojiOutsideHandler = (ev) => {
+      if (this._emojiPickerEl && !this._emojiPickerEl.contains(ev.target)) {
+        this._closeEmojiPicker();
+      }
+    };
+    setTimeout(() => window.addEventListener("pointerdown", this._emojiOutsideHandler), 60);
+  }
+
+  _closeEmojiPicker() {
+    if (this._emojiOutsideHandler) {
+      window.removeEventListener("pointerdown", this._emojiOutsideHandler);
+      this._emojiOutsideHandler = null;
+    }
+    if (this._emojiPickerEl) {
+      this._emojiPickerEl.remove();
+      this._emojiPickerEl = null;
+    }
+  }
+
   _renderMessages() {
-    // Xóa text objects cũ
+    // Xóa text/emoji objects cũ
     this._msgObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
     this._msgObjs = [];
 
@@ -343,24 +502,61 @@ export default class ChatWidget {
     const total = this._allMessages.length;
     const vis   = this._visibleLines;
 
-    // Tính index bắt đầu hiển thị
-    // scrollOffset=0 → hiện bottom, scrollOffset=max → hiện top
     const maxScroll  = Math.max(0, total - vis);
     const startIdx   = maxScroll - this._scrollOffset;
     const endIdx     = Math.min(total, startIdx + vis);
+    const emojiRe    = /\[e:(\d{1,2})\]/g;
 
     for (let i = startIdx; i < endIdx; i++) {
-      const m    = this._allMessages[i];
+      const m     = this._allMessages[i];
       const lineY = cb.y + (i - startIdx) * cb.lineH;
+      const maxTextW = cb.w - (m.tsStr ? 52 : 0);
 
-      const msg = this.scene.add.text(cb.x, lineY, m.text, {
-        fontFamily: "Signika", fontSize: "13px", color: m.color,
-        wordWrap: { width: cb.w - (m.tsStr ? 52 : 0) }
-      }).setDepth(this.depth + 1).setMask(this._clipMask);
-      this._msgObjs.push(msg);
+      if (emojiRe.test(m.text)) {
+        emojiRe.lastIndex = 0;
+        let curX = cb.x;
+        let lastIdx = 0;
+        let match;
+        while ((match = emojiRe.exec(m.text)) !== null) {
+          const before = m.text.slice(lastIdx, match.index);
+          if (before) {
+            const tObj = this.scene.add.text(curX, lineY + 2, before, {
+              fontFamily: "Signika", fontSize: "13px", color: m.color,
+            }).setDepth(this.depth + 1).setMask(this._clipMask);
+            this._msgObjs.push(tObj);
+            curX += tObj.width;
+          }
+          const eid = Number(match[1]);
+          if (eid >= 1 && eid <= 50) {
+            const texKey = this._ensureEmojiTexture(eid);
+            if (texKey) {
+              const eImg = this.scene.add.image(curX + 11, lineY + cb.lineH / 2, texKey)
+                .setDisplaySize(20, 20)
+                .setDepth(this.depth + 1)
+                .setMask(this._clipMask);
+              this._msgObjs.push(eImg);
+            }
+            curX += 24;
+          }
+          lastIdx = match.index + match[0].length;
+        }
+        const after = m.text.slice(lastIdx);
+        if (after) {
+          const tAfter = this.scene.add.text(curX, lineY + 2, after, {
+            fontFamily: "Signika", fontSize: "13px", color: m.color,
+          }).setDepth(this.depth + 1).setMask(this._clipMask);
+          this._msgObjs.push(tAfter);
+        }
+      } else {
+        const msg = this.scene.add.text(cb.x, lineY + 2, m.text, {
+          fontFamily: "Signika", fontSize: "13px", color: m.color,
+          wordWrap: { width: maxTextW }
+        }).setDepth(this.depth + 1).setMask(this._clipMask);
+        this._msgObjs.push(msg);
+      }
 
       if (m.tsStr) {
-        const ts = this.scene.add.text(cb.x + cb.w, lineY, m.tsStr, {
+        const ts = this.scene.add.text(cb.x + cb.w, lineY + 3, m.tsStr, {
           fontFamily: "Signika", fontSize: "11px", color: "#6688aa"
         }).setOrigin(1, 0).setDepth(this.depth + 1).setMask(this._clipMask);
         this._msgObjs.push(ts);
@@ -442,6 +638,10 @@ export default class ChatWidget {
       const isMe = this.myId && Number(data.user_id) === this.myId;
       const label = isMe ? `[Bạn] ${data.message}` : `[${data.name}] ${data.message}`;
       this._appendLine(label, isMe ? "#aaddff" : "#ffffff", data.time);
+      const em = String(data.message || "").match(/\[e:(\d{1,2})\]/);
+      if (em && this.onEmojiMessage) {
+        this.onEmojiMessage(Number(data.user_id), Number(em[1]));
+      }
     };
     this._onHistory = (history) => {
       history.forEach(d => {

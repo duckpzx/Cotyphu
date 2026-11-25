@@ -4,6 +4,7 @@ import { createAdminService } from "../services/admin.service.js";
 import securityService from "../services/security.service.js";
 import adminRepo from "../repositories/admin.repo.js";
 import assetUploadService from "../services/assetUpload.service.js";
+import systemConsoleService from "../services/systemConsole.service.js";
 
 /**
  * Tạo Express Router cho toàn bộ REST API của Admin Dashboard (/api/admin/*).
@@ -491,9 +492,15 @@ export function createAdminRouter(deps) {
     try {
       const result = assetUploadService.saveCustomMap(req.body || {});
       if (result.success) {
+        const activeMatches = Object.keys(deps?.gameStates || {}).length;
+        if (activeMatches > 0 && result.active_map_id === result.map?.id) {
+          result.message += ` (Hiện có ${activeMatches} trận đang đấu vẫn giữ map cũ để không gián đoạn)`;
+        }
+        result.active_matches = activeMatches;
         await adminRepo.logAudit(req.adminUser.id, "SAVE_GAME_MAP", "map", result.map?.id, {
           name: result.map?.name,
           activated: result.active_map_id === result.map?.id,
+          active_matches: activeMatches,
         });
       }
       res.status(result.success ? 200 : 400).json(result);
@@ -507,7 +514,12 @@ export function createAdminRouter(deps) {
     try {
       const result = assetUploadService.activateMap(req.params.id);
       if (result.success) {
-        await adminRepo.logAudit(req.adminUser.id, "ACTIVATE_GAME_MAP", "map", req.params.id);
+        const activeMatches = Object.keys(deps?.gameStates || {}).length;
+        if (activeMatches > 0) {
+          result.message += ` (Hiện có ${activeMatches} trận đang đấu vẫn giữ nguyên map cũ để tránh gián đoạn)`;
+        }
+        result.active_matches = activeMatches;
+        await adminRepo.logAudit(req.adminUser.id, "ACTIVATE_GAME_MAP", "map", req.params.id, { active_matches: activeMatches });
       }
       res.status(result.success ? 200 : 400).json(result);
     } catch (err) {
@@ -526,6 +538,140 @@ export function createAdminRouter(deps) {
     } catch (err) {
       console.error("DELETE /api/admin/assets/maps/:id error:", err);
       res.status(500).json({ success: false, message: "Lỗi xóa bản đồ" });
+    }
+  });
+
+  // ── LOBBY DAY / NIGHT THEMES & 24H ATMOSPHERE ────────────────────
+  router.get("/assets/lobby", (req, res) => {
+    res.json({ success: true, ...assetUploadService.listLobbyPresets() });
+  });
+
+  router.post("/assets/lobby/save", async (req, res) => {
+    try {
+      const result = assetUploadService.saveLobbyPreset(req.body || {});
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "SAVE_LOBBY_THEME", "lobby", result.preset?.id, { name: result.preset?.name });
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/assets/lobby/save error:", err);
+      res.status(500).json({ success: false, message: "Lỗi lưu sảnh chờ" });
+    }
+  });
+
+  router.post("/assets/lobby/:id/activate", async (req, res) => {
+    try {
+      const result = assetUploadService.activateLobbyPreset(req.params.id);
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "ACTIVATE_LOBBY_THEME", "lobby", req.params.id);
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/assets/lobby/:id/activate error:", err);
+      res.status(500).json({ success: false, message: "Lỗi áp dụng sảnh chờ" });
+    }
+  });
+
+  router.post("/assets/lobby/time-mode", async (req, res) => {
+    try {
+      const result = assetUploadService.setLobbyTimeMode(req.body || {});
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "SET_LOBBY_TIME_MODE", "lobby", result.time_mode, { fixed_hour: result.fixed_hour });
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/assets/lobby/time-mode error:", err);
+      res.status(500).json({ success: false, message: "Lỗi cài đặt khung giờ sảnh" });
+    }
+  });
+
+  router.post("/assets/lobby/default/reset", async (req, res) => {
+    try {
+      const result = assetUploadService.resetDefaultLobby();
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "RESET_DEFAULT_LOBBY", "lobby", "default");
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/assets/lobby/default/reset error:", err);
+      res.status(500).json({ success: false, message: "Lỗi khôi phục Sảnh Mặc Định" });
+    }
+  });
+
+  router.post("/assets/lobby/:id/islands", async (req, res) => {
+    try {
+      const result = assetUploadService.updateLobbyIslands(req.params.id, req.body?.islands);
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "UPDATE_LOBBY_ISLANDS", "lobby", req.params.id);
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("POST /api/admin/assets/lobby/:id/islands error:", err);
+      res.status(500).json({ success: false, message: "Lỗi lưu vị trí khu vực sảnh" });
+    }
+  });
+
+  router.delete("/assets/lobby/:id", async (req, res) => {
+    try {
+      const result = assetUploadService.deleteLobbyPreset(req.params.id);
+      if (result.success) {
+        await adminRepo.logAudit(req.adminUser.id, "DELETE_LOBBY_THEME", "lobby", req.params.id);
+      }
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      console.error("DELETE /api/admin/assets/lobby/:id error:", err);
+      res.status(500).json({ success: false, message: "Lỗi xóa bộ sảnh" });
+    }
+  });
+
+  // ── SYSTEM CONSOLE (LIVE ACTIVITY TAIL) ──────────────────────────
+  router.get("/console/logs", (req, res) => {
+    res.json(systemConsoleService.queryLogs(req.query));
+  });
+
+  router.post("/console/clear", (req, res) => {
+    res.json(systemConsoleService.clearLogs());
+  });
+
+  // ── RATING (BXH) & LAB (NGHIÊN CỨU) VISUAL SCENE EDITOR ──────────
+  router.get("/assets/scenes/:sceneType", (req, res) => {
+    const r = assetUploadService.listScenePresets(req.params.sceneType);
+    res.status(r.success ? 200 : 400).json(r);
+  });
+
+  router.post("/assets/scenes/:sceneType/save", async (req, res) => {
+    try {
+      const r = assetUploadService.saveScenePreset(req.params.sceneType, req.body || {});
+      if (r.success) {
+        await adminRepo.logAudit(req.adminUser.id, "SAVE_SCENE_THEME", req.params.sceneType, r.preset?.id, { name: r.preset?.name });
+      }
+      res.status(r.success ? 200 : 400).json(r);
+    } catch (err) {
+      res.status(500).json({ success: false, message: "Lỗi lưu cấu hình màn hình" });
+    }
+  });
+
+  router.post("/assets/scenes/:sceneType/:id/activate", async (req, res) => {
+    try {
+      const r = assetUploadService.activateScenePreset(req.params.sceneType, req.params.id);
+      if (r.success) {
+        await adminRepo.logAudit(req.adminUser.id, "ACTIVATE_SCENE_THEME", req.params.sceneType, req.params.id);
+      }
+      res.status(r.success ? 200 : 400).json(r);
+    } catch (err) {
+      res.status(500).json({ success: false, message: "Lỗi áp dụng giao diện" });
+    }
+  });
+
+  router.delete("/assets/scenes/:sceneType/:id", async (req, res) => {
+    try {
+      const r = assetUploadService.deleteScenePreset(req.params.sceneType, req.params.id);
+      if (r.success) {
+        await adminRepo.logAudit(req.adminUser.id, "DELETE_SCENE_THEME", req.params.sceneType, req.params.id);
+      }
+      res.status(r.success ? 200 : 400).json(r);
+    } catch (err) {
+      res.status(500).json({ success: false, message: "Lỗi xóa giao diện" });
     }
   });
 
