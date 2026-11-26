@@ -14,6 +14,7 @@ import RatingScene from "./scenes/RatingScene.js";
 import LabScene from "./scenes/LabScene.js";
 
 import { SERVER_URL } from "./config.js";
+import { initSnowEffect } from "./utils/snowEffect.js";
 
 // ── CLEAN URL: Remove tracking params ─────────────────────────────
 // Zalo và các platform khác thêm tracking params gây lỗi CORS
@@ -51,6 +52,7 @@ window.onload = async function () {
   }
 
   console.log('✅ All dependencies loaded');
+  initSnowEffect("root-game");
 
   // ── Auto-login: kiểm tra token còn hợp lệ không ──────────────
   let startScene = "LoginScene";

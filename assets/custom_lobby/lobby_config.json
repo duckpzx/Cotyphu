@@ -1,7 +1,7 @@
 {
   "active_lobby_id": "lobby_1795603574104",
-  "time_mode": "fixed",
-  "fixed_hour": 22.5,
+  "time_mode": "auto",
+  "fixed_hour": 12,
   "default_islands": null,
   "default_override": null,
   "presets": [

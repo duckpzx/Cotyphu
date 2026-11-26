@@ -6,6 +6,7 @@
 import PlayerProfilePanel from "./PlayerProfilePanel.js";
 import { playTabSound } from "../../utils/clickSound.js";
 import { renderAvatarBadge } from "../../utils/avatarBadge.js";
+import { drawCreamModalPanel, drawCreamInnerBox } from "../../utils/creamPanel.js";
 
 export default class FriendPanel {
   /**
@@ -108,30 +109,18 @@ export default class FriendPanel {
       .setInteractive().setDepth(D - 1));
     overlayZone.on("pointerdown", () => this.destroy());
 
-    // ── Bóng đổ mềm nhiều lớp (giống box-shadow CSS của Nạp Tiền) ──
-    const shadow = push(this.scene.add.graphics().setDepth(D));
-    [
-      { pad: 14, dy: 12, a: 0.08 },
-      { pad: 9,  dy: 9,  a: 0.12 },
-      { pad: 5,  dy: 6,  a: 0.16 },
-      { pad: 2,  dy: 3,  a: 0.22 },
-    ].forEach(({ pad, dy, a }) => {
-      shadow.fillStyle(0x000000, a);
-      shadow.fillRoundedRect(L - pad, T - pad + dy, W + pad * 2, H + pad * 2, R + pad * 0.5);
+    // ── Panel ngoài đồng bộ Nạp Tiền (tái sử dụng creamPanel.js) ──
+    drawCreamModalPanel(this.scene, {
+      left: L,
+      top: T,
+      width: W,
+      height: H,
+      radius: R,
+      depth: D,
+      title: null,
+      onClose: () => this.destroy(),
+      push,
     });
-
-    // ── Nền giấy kem vàng (đồng bộ 100% .topup-panel Nạp Tiền) ──
-    const bg = push(this.scene.add.graphics().setDepth(D + 1));
-    bg.fillGradientStyle(0xfaf1d6, 0xfaf1d6, 0xedd9a3, 0xedd9a3, 1);
-    bg.fillRoundedRect(L, T, W, H, R);
-    // Viền trắng sáng 3.8px ngoài cùng
-    bg.lineStyle(3.8, 0xffffff, 1);
-    bg.strokeRoundedRect(L, T, W, H, R);
-    // Vòng viền vàng nâu mảnh ôm sát mép ngoài viền trắng (giống 0 0 0 2px rgba(154,106,26,0.45))
-    bg.lineStyle(2, 0x9a6a1a, 0.48);
-    bg.strokeRoundedRect(L - 2.6, T - 2.6, W + 5.2, H + 5.2, R + 2.4);
-    // Viền đứt nét vàng bên trong (giống inset: 9px; border: 1.8px dashed)
-    this._drawInnerDash(bg, L, T, W, H, R);
 
     // Zone chặn click lan xuống overlay
     push(this.scene.add.zone(L + W / 2, T + H / 2, W, H)
@@ -174,19 +163,7 @@ export default class FriendPanel {
     this._drawTabs(TAB_START, TAB_Y, TAB_W, TAB_H, TAB_GAP);
     this._tabMeta = { TAB_START, TAB_Y, TAB_W, TAB_H, TAB_GAP };
 
-    // ── Nút X (close_btn nhô ra góc trên phải — kiểu Chat) ───────
-    const closeR = 20;
-    const closeX = L + W;
-    const closeY = T;
-    const closeBtn = push(this.scene.add.image(closeX, closeY, "close_btn")
-      .setDisplaySize(closeR * 2.2, closeR * 2.2).setDepth(D + 6));
-    const closeZone = push(this.scene.add.zone(closeX, closeY, closeR * 2.6, closeR * 2.6)
-      .setInteractive({ cursor: "pointer" }).setDepth(D + 7));
-    closeZone.on("pointerover",  () => closeBtn.setAlpha(0.8));
-    closeZone.on("pointerout",   () => closeBtn.setAlpha(1));
-    closeZone.on("pointerdown",  () => this.destroy());
-
-    // ── 2 khung nội dung kem sáng (y phong cách Nạp Tiền) ────────
+    // ── 2 khung nội dung kem sáng (tái sử dụng drawCreamInnerBox) ──
     const BOX_X    = L + 22;
     const BOX_W    = W - 44;
     const TOP_BOX_Y = T + 22;
@@ -194,18 +171,14 @@ export default class FriendPanel {
     const MAIN_BOX_Y = TOP_BOX_Y + TOP_BOX_H + 12;
     const MAIN_BOX_H = H - (MAIN_BOX_Y - T) - 22;
 
-    const innerBoxG = push(this.scene.add.graphics().setDepth(D + 1));
-    // Khung trên (Sắp xếp + Tìm kiếm — giống .topup-amount-box)
-    innerBoxG.fillStyle(0xfffaea, 0.88);
-    innerBoxG.fillRoundedRect(BOX_X, TOP_BOX_Y, BOX_W, TOP_BOX_H, 14);
-    innerBoxG.lineStyle(1.5, 0xc49a3a, 0.48);
-    innerBoxG.strokeRoundedRect(BOX_X, TOP_BOX_Y, BOX_W, TOP_BOX_H, 14);
-
-    // Khung chính dưới (Danh sách — giống .topup-main-box)
-    innerBoxG.fillStyle(0xfffbee, 0.92);
-    innerBoxG.fillRoundedRect(BOX_X, MAIN_BOX_Y, BOX_W, MAIN_BOX_H, 14);
-    innerBoxG.lineStyle(1.5, 0xc49a3a, 0.52);
-    innerBoxG.strokeRoundedRect(BOX_X, MAIN_BOX_Y, BOX_W, MAIN_BOX_H, 14);
+    drawCreamInnerBox(this.scene, {
+      left: BOX_X, top: TOP_BOX_Y, width: BOX_W, height: TOP_BOX_H,
+      radius: 14, depth: D + 1, fillColor: 0xfffaea, fillAlpha: 0.88, borderAlpha: 0.48, push,
+    });
+    drawCreamInnerBox(this.scene, {
+      left: BOX_X, top: MAIN_BOX_Y, width: BOX_W, height: MAIN_BOX_H,
+      radius: 14, depth: D + 1, fillColor: 0xfffbee, fillAlpha: 0.92, borderAlpha: 0.52, push,
+    });
 
     // ── Toolbar bên trong khung trên ─────────────────────────────
     const PAD   = 36;

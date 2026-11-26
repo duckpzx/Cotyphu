@@ -1,5 +1,7 @@
 import db from "../config/db.js";
 
+let _lastWorldCleanAt = 0;
+
 const chatRepo = {
   /**
    * Lưu tin nhắn vào DB
@@ -14,14 +16,23 @@ const chatRepo = {
 
   /**
    * Lấy lịch sử chat (mới nhất trước)
+   * Riêng Chat Thế Giới (channel = 'world') chỉ lưu & hiển thị tin nhắn trong ngày hiện tại (CURDATE()).
    */
   async getHistory({ channel, channel_id = null, limit = 50 }) {
+    const isWorld = channel === "world";
+    if (isWorld && Date.now() - _lastWorldCleanAt > 60_000) {
+      _lastWorldCleanAt = Date.now();
+      this.cleanWorldChat().catch(() => {});
+    }
+
+    const dayFilter = isWorld ? "AND DATE(cm.created_at) = CURDATE()" : "";
     const [rows] = await db.query(
       `SELECT cm.id, cm.channel, cm.channel_id, cm.user_id, cm.message, cm.created_at,
               u.name AS user_name
        FROM chat_messages cm
        JOIN users u ON u.id = cm.user_id
        WHERE cm.channel = ? AND (cm.channel_id = ? OR (cm.channel_id IS NULL AND ? IS NULL))
+       ${dayFilter}
        ORDER BY cm.created_at DESC
        LIMIT ?`,
       [channel, channel_id, channel_id, limit]
@@ -30,12 +41,13 @@ const chatRepo = {
   },
 
   /**
-   * Xóa tin nhắn world chat cũ hơn 24h (gọi định kỳ)
+   * Xóa tin nhắn Chat Thế Giới của các ngày cũ (chỉ giữ lại trong ngày hiện tại)
    */
   async cleanWorldChat() {
-    await db.query(
-      `DELETE FROM chat_messages WHERE channel = 'world' AND created_at < NOW() - INTERVAL 24 HOUR`
+    const [res] = await db.query(
+      `DELETE FROM chat_messages WHERE channel = 'world' AND DATE(created_at) < CURDATE()`
     );
+    return res?.affectedRows || 0;
   },
 
   /**
