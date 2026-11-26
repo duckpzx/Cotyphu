@@ -12,6 +12,8 @@ import PlayerProfilePanel from "./components/PlayerProfilePanel.js";
 import voiceChat          from "../utils/voiceChatManager.js";
 import { extractEmojiId, showCharacterEmojiBubble } from "../utils/emojiBubble.js";
 import { renderAvatarBadge } from "../utils/avatarBadge.js";
+import { drawCreamModalPanel } from "../utils/creamPanel.js";
+import { createDemoMockSocket, mountBoardDemoSandbox } from "../utils/boardDemoSandbox.js";
 import {
   playBoardBuySound, playBoardErrSound, playBoardHunterSound,
   playBoardIncreaseSound, playBoardTeacherSound, playBoardSkillSound,
@@ -3746,6 +3748,13 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
     const { width, height } = this.scale;
 
     let playerData = getPlayerData(this);
+    if (!playerData && data?.demoMode) {
+      playerData = {
+        token: "demo_token",
+        user: { id: 1, name: data.name || "Đức Phạm", active_avatar_id: 1, ecoin: 100000 },
+      };
+      this.registry.set("playerData", playerData);
+    }
     if (!playerData) { this.scene.start("LoginScene"); return; }
 
     setupClickSound(this);
@@ -3789,15 +3798,21 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
     this.currentIndex = this.currentIndex || 0;
 
     const token = playerData?.token;
-    this.socket = io(SERVER_URL, {
-      transports:['websocket','polling'], 
-      reconnection:true, 
-      reconnectionAttempts:10, 
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      timeout:20000,
-      auth:{ token }
-    });
+    this._isDemoMode = Boolean(data?.demoMode);
+    if (this._isDemoMode) {
+      this.socket = createDemoMockSocket();
+      mountBoardDemoSandbox(this, this.socket);
+    } else {
+      this.socket = io(SERVER_URL, {
+        transports:['websocket','polling'],
+        reconnection:true,
+        reconnectionAttempts:10,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout:20000,
+        auth:{ token }
+      });
+    }
 
     // ── Flag reconnect (vào lại từ ván đang dở) ───────────────────
     this._isReconnecting = !!(data?._reconnecting);
@@ -4243,18 +4258,22 @@ this.input.keyboard.on("keydown-Y", () => {
       avaBg.strokeCircle(avaCX, avaCY, AVA_R - 5 * minRatio);
 
       // ===== Avatar người chơi đang trang bị (thay cho quả tinh cầu) =====
-      const myProfile = getActiveProfile?.();
-      const fallbackMyAvatar = (Number(gmPlayer?.user_id) === Number(this._myUserId?.()))
-        ? (myProfile?.active_avatar_id || getPlayerData?.()?.user?.active_avatar_id || 1)
-        : 1;
+      let fallbackMyAvatar = 1;
+      try {
+        if (Number(gmPlayer?.user_id) === Number(this._myUserId?.())) {
+          const pdLocal = getPlayerData(this);
+          const profLocal = getActiveProfile(this);
+          fallbackMyAvatar = Number(pdLocal?.user?.active_avatar_id || profLocal?.active_avatar_id || 1);
+        }
+      } catch (_) {}
       const avatarId = Number(gmPlayer?.active_avatar_id || fallbackMyAvatar || 1);
       const avaOrb = renderAvatarBadge(this, {
         x: avaCX,
         y: avaCY,
-        size: Math.round(AVA_R * 1.92),
+        size: Math.round(AVA_R * 1.88),
         avatarId,
-        depth: DEPTH + 2,
-        glow: true,
+        depth: DEPTH + 2.5,
+        glow: false,
       });
 
       // ===== Zone click vào icon/avatar người chơi để xem Profile & Kết bạn =====
@@ -5886,298 +5905,380 @@ this.input.keyboard.on("keydown-Y", () => {
   _showBuildPanel(data) {
     const { width, height } = this.scale;
     const S = this.minRatio;
-    const D = 3050; // Cao hơn _darkOverlay (3000) để panel luôn sáng nổi bật trên nền tối
+    const D = 3050;
 
     if (this._buildPanelObjs) {
-      this._buildPanelObjs.forEach(o => { try { o?.destroy(); } catch(e){} });
+      this._buildPanelObjs.forEach(o => { try { o?.destroy(); } catch (e) {} });
     }
     this._buildPanelObjs = [];
     if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
 
-    // Làm tối map
     this._startDarkMapEffect?.();
 
     const shell = { D, addObj: (o) => { this._buildPanelObjs.push(o); return o; } };
     const push  = (o) => shell.addObj(o);
 
-    const mode      = data.mode || "build"; // "build" | "upgrade" | "buyout"
-    const targetLv  = Math.max(1, Math.min(2, Number(data.target_level || 1)));
-    const curLv     = Number(data.current_level || 0);
-    const canAfford = data.can_afford !== false;
+    const mode        = data.mode || "build"; // "build" | "upgrade" | "buyout"
+    const curLv       = Number(data.current_level || 0);
+    const orbHex      = this._planetColorToHex(data.planet_color);
+    const orbKey1     = this._hexToOrbKey(orbHex, 1);
+    const orbKey2     = this._hexToOrbKey(orbHex, 2);
+    const myPlayer    = (this.gamePlayers || []).find(p => Number(p.user_id) === Number(this._myUserId?.()));
+    const playerCash  = Number(data.player_cash ?? myPlayer?.cash ?? 0);
 
-    // ── Màu đồng bộ theo planet_color của người chơi ────────────────
-    const orbHex   = this._planetColorToHex(data.planet_color);
-    const orbKey   = this._hexToOrbKey(orbHex, targetLv);
-    const r0 = ((orbHex >> 16) & 0xff), g0 = ((orbHex >> 8) & 0xff), b0 = (orbHex & 0xff);
-    const bgDark  = ((Math.floor(r0 * 0.18) << 16) | (Math.floor(g0 * 0.18) << 8) | Math.floor(b0 * 0.18));
-    const bgMid   = ((Math.floor(r0 * 0.12) << 16) | (Math.floor(g0 * 0.12) << 8) | Math.floor(b0 * 0.12));
-    const borderC = mode === "upgrade" ? 0xffd700 : mode === "buyout" ? 0xc084fc : orbHex;
-    const borderI = ((Math.floor(r0 * 0.6 + 255 * 0.4) << 16) | (Math.floor(g0 * 0.6 + 255 * 0.4) << 8) | Math.floor(b0 * 0.6 + 255 * 0.4));
+    const lv1Cost     = Number(data.lv1_cost ?? data.build_cost ?? 0);
+    const lv2Cost     = Number(data.lv2_cost ?? data.build_cost ?? 0);
+    const lv1Rent     = Number(data.lv1_rent ?? data.current_rent ?? data.next_rent ?? 0);
+    const lv2Rent     = Number(data.lv2_rent ?? data.next_rent ?? 0);
+    const lv2Unlocked = mode === "upgrade" ? true : Boolean(data.lv2_unlocked);
+    const unlockHint  = data.lv2_unlock_reason || "Qua vòng 1 hoặc sở hữu 2 ô";
 
-    // ── Kích thước panel ────────────────────────────────────────────
-    const PW  = Math.min(width * 0.90, 580 * S);
-    const PH  = 375 * S;
-    const PCX = width / 2;
-    const PCY = height - PH / 2 - 165 * S;
-    const RAD = 24 * S;
+    // ── Kích thước & vị trí Panel giấy kem vàng (lớn, rõ nét đúng chuẩn ảnh mẫu) ──
+    const isTwoCards = mode === "build" || mode === "upgrade";
+    const PW   = Math.min(width * 0.80, (isTwoCards ? 1120 : 780) * S);
+    const PH   = Math.min(height * 0.58, (isTwoCards ? 510 : 450) * S);
+    const PCX  = width / 2;
+    const PCY  = height - PH / 2 - 28 * S;
+    const LEFT = PCX - PW / 2;
+    const TOP  = PCY - PH / 2;
+    const RAD  = Math.round(24 * S);
 
-    // ── Overlay tối map ──────────────────────────────────────────────
-    push(this.add.rectangle(width/2, height/2, width, height, 0x000000, 0.45).setDepth(D));
+    // ── Overlay tối mờ toàn bàn cờ ───────────────────────────────────
+    push(this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.42).setDepth(D));
 
-    // ── Nền panel màu đồng bộ planet_color ──────────────────────────
-    const panelG = push(this.add.graphics().setDepth(D + 1));
-    panelG.fillStyle(0x000000, 0.45);
-    panelG.fillRoundedRect(PCX - PW/2 + 5*S, PCY - PH/2 + 7*S, PW, PH, RAD);
-    panelG.fillStyle(bgDark, 0.84);
-    panelG.fillRoundedRect(PCX - PW/2, PCY - PH/2, PW, PH, RAD);
-    panelG.fillStyle(bgMid, 0.30);
-    panelG.fillRoundedRect(PCX - PW/2, PCY - PH/2, PW, PH * 0.42, RAD);
-    panelG.lineStyle(3*S, borderC, 1);
-    panelG.strokeRoundedRect(PCX - PW/2, PCY - PH/2, PW, PH, RAD);
-    panelG.lineStyle(1.5*S, borderI, 0.22);
-    panelG.strokeRoundedRect(PCX - PW/2 + 5*S, PCY - PH/2 + 5*S, PW - 10*S, PH - 10*S, RAD - 3*S);
+    const sendDecline = () => {
+      if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
+      this.socket.emit("game:build_response", { room_id: this.gameRoomId, cell_index: data.cell_index, accept: false });
+      this._closeBuildPanel();
+    };
 
-    // ── Layout grid từ trên xuống ────────────────────────────────────
-    const TOP        = PCY - PH/2;
-    const PAD        = 18 * S;
-    const ROW_TIMER  = TOP + 7*S;
-    const ROW_TITLE  = TOP + PAD + 20*S;
-    const ROW_ORB    = TOP + PH * 0.38;
-    const ROW_PRICE  = TOP + PH * 0.63;
-    const ROW_RENT   = TOP + PH * 0.74;
-    const ROW_BTN    = TOP + PH - PAD - 22*S;
+    const sendAccept = (chosenLevel = 1) => {
+      if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
+      this.socket.emit("game:build_response", {
+        room_id: this.gameRoomId,
+        cell_index: data.cell_index,
+        accept: true,
+        level: chosenLevel,
+      });
+      this._closeBuildPanel();
+    };
 
-    // ── Timer bar ────────────────────────────────────────────────────
-    const TIMER_SECS = 12;
-    const TBAR_W = PW - 56*S;
-    const TBAR_H = 7 * S;
-    const TBAR_X = PCX - PW/2 + 10*S;
-    const TBAR_Y = ROW_TIMER;
+    // ── Khung Panel giấy kem vàng + viền trắng + nét đứt + nút X đỏ bóng ──
+    drawCreamModalPanel(this, {
+      left: LEFT,
+      top: TOP,
+      width: PW,
+      height: PH,
+      radius: RAD,
+      depth: D + 1,
+      title: null,
+      onClose: sendDecline,
+      push,
+    });
+
+    // ── Thanh đếm ngược xanh lá phía trên-trái ngoài mép bảng (giống ảnh mẫu) ──
+    const TIMER_SECS = Number(data.time_limit || 15);
+    const TBAR_W = PW * 0.42;
+    const TBAR_H = 12 * S;
+    const TBAR_X = LEFT + 18 * S;
+    const TBAR_Y = TOP - 22 * S;
 
     const timerBg = push(this.add.graphics().setDepth(D + 3));
-    timerBg.fillStyle(0x000000, 0.3);
+    timerBg.fillStyle(0x111827, 0.68);
     timerBg.fillRoundedRect(TBAR_X, TBAR_Y, TBAR_W, TBAR_H, TBAR_H / 2);
+    timerBg.lineStyle(1.8 * S, 0x000000, 0.6);
+    timerBg.strokeRoundedRect(TBAR_X, TBAR_Y, TBAR_W, TBAR_H, TBAR_H / 2);
 
     const timerFill = push(this.add.graphics().setDepth(D + 4));
     const drawTimerBar = (frac) => {
       timerFill.clear();
-      const col = frac > 0.5 ? 0x44dd88 : frac > 0.25 ? 0xffcc00 : 0xff4444;
+      const col = frac > 0.45 ? 0x84cc16 : frac > 0.2 ? 0xfacc15 : 0xef4444;
       timerFill.fillStyle(col, 1);
-      timerFill.fillRoundedRect(TBAR_X, TBAR_Y, Math.max(TBAR_W * frac, TBAR_H), TBAR_H, TBAR_H / 2);
+      timerFill.fillRoundedRect(TBAR_X + 1.5, TBAR_Y + 1.5, Math.max(TBAR_H, (TBAR_W - 3) * frac), TBAR_H - 3, TBAR_H / 2);
     };
     drawTimerBar(1);
 
-    const timerTxt = push(this.add.text(TBAR_X, TBAR_Y - 1*S, `${TIMER_SECS}s`, {
-      fontFamily: "Signika", fontSize: Math.floor(9*S) + "px", color: "#aaccaa"
-    }).setOrigin(0, 1).setDepth(D + 4));
-
     let secsLeft = TIMER_SECS;
     this._buildTimer = this.time.addEvent({
-      delay: 1000, repeat: TIMER_SECS - 1,
+      delay: 1000,
+      repeat: TIMER_SECS - 1,
       callback: () => {
         secsLeft--;
-        drawTimerBar(secsLeft / TIMER_SECS);
-        timerTxt.setText(`${secsLeft}s`);
-        if (secsLeft <= 0) {
-          this.socket.emit("game:build_response", { room_id: this.gameRoomId, cell_index: data.cell_index, accept: false });
-          this._closeBuildPanel();
-        }
-      }
+        drawTimerBar(Math.max(0, secsLeft / TIMER_SECS));
+        if (secsLeft <= 0) sendDecline();
+      },
     });
 
-    // ── Tiêu đề pill theo mode & cấp ────────────────────────────────
-    let titleStr = "ĐẶT TINH CẦU • LV.1";
-    if (mode === "upgrade") {
-      titleStr = "NÂNG CẤP TINH CẦU • LV.2";
-    } else if (mode === "buyout") {
-      titleStr = `THÂU TÓM NHÀ • LV.${curLv}`;
+    // ── Hàng trên: Tiền mặt trong hộp kem (trái) + Thanh pill xanh dương "ĐẶT TINH CẦU" (giữa) ──
+    const HEADER_Y = TOP + 58 * S;
+
+    // Tiền mặt bên trái (nền pill kem giống ảnh mẫu)
+    const COIN_SZ  = 46 * S;
+    const cashX    = LEFT + 34 * S;
+    const cashText = Number(playerCash).toLocaleString("en-US");
+    const cashPillW = Math.max(210 * S, COIN_SZ + cashText.length * 19 * S + 34 * S);
+    const cashPillH = 52 * S;
+    const cashBg = push(this.add.graphics().setDepth(D + 3));
+    cashBg.fillStyle(0xdccda4, 0.72);
+    cashBg.fillRoundedRect(cashX, HEADER_Y - cashPillH / 2, cashPillW, cashPillH, 14 * S);
+    cashBg.lineStyle(1.5 * S, 0xc4b07e, 0.75);
+    cashBg.strokeRoundedRect(cashX, HEADER_Y - cashPillH / 2, cashPillW, cashPillH, 14 * S);
+
+    if (this.textures.exists("coin")) {
+      push(this.add.image(cashX + 12 * S + COIN_SZ / 2, HEADER_Y, "coin")
+        .setDisplaySize(COIN_SZ, COIN_SZ).setDepth(D + 4));
     }
-
-    const titleY = ROW_TITLE;
-    const tc1 = ((Math.floor(r0 * 0.45 + 20) << 16) | (Math.floor(g0 * 0.45 + 10) << 8) | Math.floor(b0 * 0.45 + 30));
-    const titleBg = push(this.add.graphics().setDepth(D + 2));
-    const pillW = Math.min(PW - 80*S, 310*S);
-    titleBg.fillStyle(tc1, 1);
-    titleBg.fillRoundedRect(PCX - pillW/2, titleY - 16*S, pillW, 32*S, 16*S);
-    titleBg.lineStyle(2*S, borderC, 0.9);
-    titleBg.strokeRoundedRect(PCX - pillW/2, titleY - 16*S, pillW, 32*S, 16*S);
-
-    push(this.add.text(PCX, titleY, titleStr, {
-      fontFamily: "Signika", fontSize: Math.floor(17*S) + "px",
-      color: mode === "upgrade" ? "#ffe066" : "#ffffff",
+    push(this.add.text(cashX + 12 * S + COIN_SZ + 10 * S, HEADER_Y, cashText, {
+      fontFamily: "Signika",
+      fontSize: Math.floor(32 * S) + "px",
+      color: "#ffffff",
       fontStyle: "bold",
-      stroke: "#00000055", strokeThickness: 2,
-      shadow: { offsetX: 0, offsetY: 1, color: "#00000077", blur: 4, fill: true }
-    }).setOrigin(0.5).setDepth(D + 3));
+      stroke: "#4a2400",
+      strokeThickness: 5 * S,
+    }).setOrigin(0, 0.5).setDepth(D + 4));
 
-    // ── Nút X — nửa trong nửa ngoài góc phải trên ───────────────────
-    const CLOSE_SIZE = 60*S;
-    const CLOSE_X    = PCX + PW/2;
-    const CLOSE_Y    = PCY - PH/2;
-
-    if (this.textures.exists("close_btn")) {
-      const closeImg = push(this.add.image(CLOSE_X, CLOSE_Y, "close_btn")
-        .setDisplaySize(CLOSE_SIZE, CLOSE_SIZE).setDepth(D + 10)
-        .setInteractive({ useHandCursor: true }));
-      closeImg.on("pointerover",  () => closeImg.setDisplaySize(CLOSE_SIZE * 1.1, CLOSE_SIZE * 1.1));
-      closeImg.on("pointerout",   () => closeImg.setDisplaySize(CLOSE_SIZE, CLOSE_SIZE));
-      closeImg.on("pointerdown",  () => {
-        if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
-        this.socket.emit("game:build_response", { room_id: this.gameRoomId, cell_index: data.cell_index, accept: false });
-        this._closeBuildPanel();
-      });
-    } else {
-      const closeG = push(this.add.graphics().setDepth(D + 10));
-      closeG.fillStyle(0xdd1111, 1);
-      closeG.fillCircle(CLOSE_X, CLOSE_Y, CLOSE_SIZE / 2);
-      closeG.lineStyle(3*S, 0xffffff, 0.9);
-      closeG.strokeCircle(CLOSE_X, CLOSE_Y, CLOSE_SIZE / 2);
-      const closeTxt = push(this.add.text(CLOSE_X, CLOSE_Y, "✕", {
-        fontFamily: "Signika", fontSize: Math.floor(22*S) + "px",
-        color: "#ffffff", fontStyle: "bold", stroke: "#880000", strokeThickness: 3
-      }).setOrigin(0.5).setDepth(D + 11).setInteractive({ useHandCursor: true }));
-      closeTxt.on("pointerdown", () => {
-        if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
-        this.socket.emit("game:build_response", { room_id: this.gameRoomId, cell_index: data.cell_index, accept: false });
-        this._closeBuildPanel();
-      });
-    }
-
-    // ── Orb trung tâm phát sáng (dùng orb có cánh khi Lv >= 2) ────────
-    const ORB_CX = PCX;
-    const ORB_CY = ROW_ORB;
-    const ORB_SIZE = 90*S;
-
-    const aura2 = push(this.add.graphics().setDepth(D + 2));
-    aura2.fillStyle(targetLv >= 2 ? 0xffd700 : orbHex, targetLv >= 2 ? 0.22 : 0.18);
-    aura2.fillCircle(ORB_CX, ORB_CY, ORB_SIZE * 0.65);
-    this.tweens.add({ targets: aura2, alpha: { from: 0.9, to: 0.3 }, duration: 1100, repeat: -1, yoyo: true, ease: "Sine.easeInOut" });
-
-    const aura1 = push(this.add.graphics().setDepth(D + 3));
-    aura1.fillStyle(0xffffff, 0.12);
-    aura1.fillCircle(ORB_CX, ORB_CY, ORB_SIZE * 0.50);
-    this.tweens.add({ targets: aura1, alpha: { from: 0.4, to: 0.9 }, duration: 900, repeat: -1, yoyo: true, ease: "Sine.easeInOut" });
-
-    const orbShadow = push(this.add.ellipse(ORB_CX, ORB_CY + ORB_SIZE * 0.46, ORB_SIZE * 0.72, ORB_SIZE * 0.16, targetLv >= 2 ? 0xffd700 : orbHex, 0.30).setDepth(D + 2));
-
-    const texSrc = this.textures.exists(orbKey) ? this.textures.get(orbKey).getSourceImage() : null;
-    const orbDispW = targetLv >= 2 ? 148 * S : ORB_SIZE;
-    const orbAspect = texSrc ? (texSrc.height / texSrc.width) : 1;
-    const orbImg = push(this.add.image(ORB_CX, ORB_CY, orbKey)
-      .setDisplaySize(orbDispW, orbDispW * orbAspect).setDepth(D + 4));
-
-    const floatObjs = [aura1, aura2, orbShadow, orbImg];
-    if (targetLv >= 2) {
-      const crownBadge = push(this.add.text(ORB_CX, ORB_CY - 46*S, "🪽 TỐI ĐA • MIỄN THÂU TÓM", {
-        fontFamily: "Signika", fontSize: Math.floor(11*S) + "px",
-        color: "#ffe066", fontStyle: "bold",
-        backgroundColor: "#0c4a6ecc", padding: { left: 6, right: 6, top: 2, bottom: 2 },
-        stroke: "#000000", strokeThickness: 2
-      }).setOrigin(0.5).setDepth(D + 5));
-      floatObjs.push(crownBadge);
-    }
-
-    const floatBase = floatObjs.map(o => o.y);
-    let floatDir = -1, floatY = 0;
-    this.time.addEvent({
-      delay: 16,
-      repeat: -1,
-      callback: () => {
-        floatY += floatDir * 0.04;
-        if (floatY <= -6) floatDir = 1;
-        if (floatY >= 0)  floatDir = -1;
-        floatObjs.forEach((o, i) => { o.y = floatBase[i] + floatY; });
-      }
-    });
-
-    // ── Giá + vị trí căn giữa, cùng font, thẳng hàng ───────────────
-    const INFO_Y    = ROW_PRICE;
-    const COIN_SIZE = 32*S;
-    const INFO_FONT = Math.floor(20*S) + "px";
-    const priceStr  = this._formatMoney(data.build_cost);
-    const locStr    = `Vị Trí: Ô ${data.cell_index}`;
-
-    const _tp = this.add.text(0, -9999, priceStr, { fontFamily: "Signika", fontSize: INFO_FONT, fontStyle: "bold" });
-    const _tl = this.add.text(0, -9999, locStr,   { fontFamily: "Signika", fontSize: INFO_FONT, fontStyle: "bold" });
-    const priceW = _tp.width, locW = _tl.width;
-    _tp.destroy(); _tl.destroy();
-
-    const SEP        = 14*S;
-    const totalInfoW = COIN_SIZE + 6*S + priceW + SEP + locW;
-    const iX         = PCX - totalInfoW / 2;
-
-    push(this.add.image(iX + COIN_SIZE/2, INFO_Y, "coin")
-      .setDisplaySize(COIN_SIZE, COIN_SIZE).setDepth(D + 3));
-    push(this.add.text(iX + COIN_SIZE + 6*S, INFO_Y, priceStr, {
-      fontFamily: "Signika", fontSize: INFO_FONT,
-      color: canAfford ? "#ffffff" : "#ff6666", fontStyle: "bold",
-      stroke: "#3a1a0088", strokeThickness: 2,
-      shadow: { offsetX: 0, offsetY: 1, color: "#00000088", blur: 3, fill: true }
-    }).setOrigin(0, 0.5).setDepth(D + 3));
-    push(this.add.text(iX + COIN_SIZE + 6*S + priceW + SEP, INFO_Y, locStr, {
-      fontFamily: "Signika", fontSize: INFO_FONT,
-      color: "#ffffff", fontStyle: "bold",
-      stroke: "#3a1a0088", strokeThickness: 2,
-      shadow: { offsetX: 0, offsetY: 1, color: "#00000088", blur: 3, fill: true }
-    }).setOrigin(0, 0.5).setDepth(D + 3));
-
-    // ── Dòng preview tiền thuê & combo chuỗi ─────────────────────────
-    let rentSubStr = "";
-    const nextRentStr = this._formatMoney(data.next_rent || 0);
-    const curRentStr  = this._formatMoney(data.current_rent || 0);
-    const comboStr    = Number(data.combo_bonus || 0) > 0 ? ` • 🔗 Chuỗi +${data.combo_bonus}%` : "";
-    if (mode === "upgrade") {
-      rentSubStr = `Tiền thuê: ${curRentStr} → ${nextRentStr}${comboStr}`;
-    } else if (mode === "buyout") {
-      rentSubStr = `Mua lại từ ${data.owner_name || "đối thủ"} • Thuê mới: ${nextRentStr}${comboStr}`;
-    } else {
-      rentSubStr = `Tiền thuê Cấp 1: ${nextRentStr}/lượt${comboStr}`;
-    }
-    push(this.add.text(PCX, ROW_RENT, rentSubStr, {
-      fontFamily: "Signika", fontSize: Math.floor(14*S) + "px",
-      color: Number(data.combo_bonus || 0) > 0 ? "#fde047" : "#bae6fd",
-      fontStyle: "bold",
-      stroke: "#000000cc", strokeThickness: 2,
-    }).setOrigin(0.5).setDepth(D + 3));
-
-    // ── Nút hành động / BỎ QUA ──────────────────────────────────────
-    const BTN_W = 140*S, BTN_H = 40*S;
-    const BTN_Y = ROW_BTN;
-    const BTN_GAP = 16*S;
-    const BTN_BUY_X  = PCX - BTN_W/2 - BTN_GAP/2;
-    const BTN_SKIP_X = PCX + BTN_W/2 + BTN_GAP/2;
-
-    const actionLabel = !canAfford
-      ? "KHÔNG ĐỦ TIỀN"
-      : mode === "upgrade"
-      ? "NÂNG CẤP"
+    // Tiêu đề pill xanh dương bóng (giống hệt ảnh mẫu)
+    const titleStr = mode === "upgrade"
+      ? "NÂNG CẤP TINH CẦU"
       : mode === "buyout"
-      ? "THÂU TÓM"
-      : "MUA";
+        ? `THÂU TÓM NHÀ • LV.${curLv}`
+        : "ĐẶT TINH CẦU";
+    const PILL_W = Math.min(PW * 0.44, 410 * S);
+    const PILL_H = 58 * S;
+    const PILL_R = 14 * S;
+    const pillG = push(this.add.graphics().setDepth(D + 3));
+    pillG.fillStyle(0x035388, 0.38);
+    pillG.fillRoundedRect(PCX - PILL_W / 2 + 2 * S, HEADER_Y - PILL_H / 2 + 5 * S, PILL_W, PILL_H, PILL_R);
+    pillG.fillGradientStyle(0x2cc6fb, 0x2cc6fb, 0x0584c7, 0x0584c7, 1);
+    pillG.fillRoundedRect(PCX - PILL_W / 2, HEADER_Y - PILL_H / 2, PILL_W, PILL_H, PILL_R);
+    pillG.fillStyle(0xffffff, 0.28);
+    pillG.fillRoundedRect(PCX - PILL_W / 2 + 8 * S, HEADER_Y - PILL_H / 2 + 5 * S, PILL_W - 16 * S, PILL_H * 0.38, PILL_R - 4 * S);
+    pillG.lineStyle(2.5 * S, 0x026aa7, 1);
+    pillG.strokeRoundedRect(PCX - PILL_W / 2, HEADER_Y - PILL_H / 2, PILL_W, PILL_H, PILL_R);
 
-    const btnC1 = !canAfford ? 0x555555 : mode === "buyout" ? 0x9333ea : mode === "upgrade" ? 0xf59e0b : 0x22cc55;
-    const btnC2 = !canAfford ? 0x333333 : mode === "buyout" ? 0x6b21a8 : mode === "upgrade" ? 0xb45309 : 0x118833;
+    push(this.add.text(PCX, HEADER_Y, titleStr, {
+      fontFamily: "Signika",
+      fontSize: Math.floor(30 * S) + "px",
+      color: "#ffffff",
+      fontStyle: "bold",
+      stroke: "#034572",
+      strokeThickness: 4 * S,
+    }).setOrigin(0.5).setDepth(D + 4));
 
-    this._buildModalBtn(shell, BTN_BUY_X, BTN_Y, BTN_W, BTN_H, btnC1, btnC2, actionLabel, () => {
-      if (!canAfford) {
-        this._showToast("❌ Không đủ tiền mặt!", "#ff5555", 1600);
-        return;
-      }
-      if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
-      this.socket.emit("game:build_response", { room_id: this.gameRoomId, cell_index: data.cell_index, accept: true });
-      this._closeBuildPanel();
-    });
-    this._buildModalBtn(shell, BTN_SKIP_X, BTN_Y, BTN_W, BTN_H, 0xcc3322, 0x881111, "BỎ QUA", () => {
-      if (this._buildTimer) { this._buildTimer.destroy(); this._buildTimer = null; }
-      this.socket.emit("game:build_response", { room_id: this.gameRoomId, cell_index: data.cell_index, accept: false });
-      this._closeBuildPanel();
-    });
+    // Helper vẽ ổ khóa vàng 3D lớn, rõ nét giống ảnh mẫu
+    const drawPadlock = (lx, ly, rScale) => {
+      const g = push(this.add.graphics().setDepth(D + 7));
+      const bw = 54 * rScale, bh = 46 * rScale;
+      g.lineStyle(9 * rScale, 0x4b5563, 1);
+      g.beginPath();
+      g.arc(lx, ly - bh * 0.42, bw * 0.31, Math.PI, 0, false);
+      g.strokePath();
+      g.lineStyle(4.5 * rScale, 0xe5e7eb, 1);
+      g.beginPath();
+      g.arc(lx, ly - bh * 0.42, bw * 0.31, Math.PI, 0, false);
+      g.strokePath();
+      g.fillStyle(0x000000, 0.32);
+      g.fillRoundedRect(lx - bw / 2 + 2.5 * rScale, ly - bh * 0.32 + 4 * rScale, bw, bh, 9 * rScale);
+      g.fillGradientStyle(0xfef08a, 0xfef08a, 0xd97706, 0xd97706, 1);
+      g.fillRoundedRect(lx - bw / 2, ly - bh * 0.32, bw, bh, 9 * rScale);
+      g.lineStyle(2.8 * rScale, 0x92400e, 1);
+      g.strokeRoundedRect(lx - bw / 2, ly - bh * 0.32, bw, bh, 9 * rScale);
+      g.fillStyle(0x78350f, 1);
+      g.fillCircle(lx, ly + bh * 0.08, 5.5 * rScale);
+      g.fillTriangle(lx, ly + bh * 0.08, lx - 4.2 * rScale, ly + bh * 0.42, lx + 4.2 * rScale, ly + bh * 0.42);
+      return g;
+    };
 
-    // ── Slide-in từ dưới ────────────────────────────────────────────
-    this._buildPanelObjs.forEach(o => { if (o?.y !== undefined) o.y += PH * 0.6; });
+    if (isTwoCards) {
+      // ── 2 THẺ TINH CẦU LỚN (CẤP 1 & CẤP 2) ĐÚNG TỶ LỆ ẢNH MẪU ──────
+      const CARD_GAP = 38 * S;
+      const CARD_W   = Math.min(460 * S, (PW - 84 * S - CARD_GAP) / 2);
+      const CARD_H   = PH - 142 * S;
+      const CARD_Y   = TOP + 108 * S;
+      const CARD_R   = 16 * S;
+      const HDR_H    = 52 * S;
+      const FOOT_H   = 44 * S;
+
+      const cardsSpec = [
+        {
+          lv: 1,
+          title: "Tinh cầu cấp 1",
+          orbKey: orbKey1,
+          cost: lv1Cost,
+          rent: lv1Rent,
+          unlocked: true,
+          owned: mode === "upgrade",
+          canAfford: playerCash >= lv1Cost,
+          subHint: mode === "upgrade" ? "✓ Đang sở hữu" : `Thuê: ${this._formatMoney(lv1Rent)} / lượt`,
+        },
+        {
+          lv: 2,
+          title: "Tinh cầu cấp 2",
+          orbKey: orbKey2,
+          cost: lv2Cost,
+          rent: lv2Rent,
+          unlocked: lv2Unlocked,
+          owned: false,
+          canAfford: lv2Unlocked && playerCash >= lv2Cost,
+          subHint: lv2Unlocked ? `🪽 Miễn thâu tóm • Thuê: ${this._formatMoney(lv2Rent)}` : `🔒 ${unlockHint}`,
+        },
+      ];
+
+      const totalW = CARD_W * 2 + CARD_GAP;
+      const startX = PCX - totalW / 2;
+
+      cardsSpec.forEach((c, idx) => {
+        const cx = startX + idx * (CARD_W + CARD_GAP);
+        const midX = cx + CARD_W / 2;
+        const isGray = !c.unlocked || c.owned;
+        const cardG = push(this.add.graphics().setDepth(D + 3));
+
+        const drawCard = (hover = false) => {
+          cardG.clear();
+          // Bóng thẻ
+          cardG.fillStyle(0x000000, 0.18);
+          cardG.fillRoundedRect(cx + 3 * S, CARD_Y + 5 * S, CARD_W, CARD_H, CARD_R);
+
+          // Thân thẻ chính (xanh dương sáng khi mở khóa, xám bạc khi khóa/đang sở hữu)
+          if (isGray) {
+            cardG.fillGradientStyle(0x9ca3af, 0x9ca3af, 0xb6bec8, 0xb6bec8, 1);
+            cardG.fillRoundedRect(cx, CARD_Y, CARD_W, CARD_H, CARD_R);
+          } else {
+            cardG.fillGradientStyle(hover ? 0x3ba6ec : 0x2992dc, hover ? 0x3ba6ec : 0x2992dc, hover ? 0x7ad0ff : 0x56bcf7, hover ? 0x7ad0ff : 0x56bcf7, 1);
+            cardG.fillRoundedRect(cx, CARD_Y, CARD_W, CARD_H, CARD_R);
+          }
+
+          // Dải xanh dương đậm đáy thẻ (giống dải xanh dưới cùng trong ảnh mẫu)
+          cardG.fillGradientStyle(isGray ? 0x3b93d1 : 0x1a7cc4, isGray ? 0x3b93d1 : 0x1a7cc4, isGray ? 0x2574b0 : 0x1262a3, isGray ? 0x2574b0 : 0x1262a3, 1);
+          cardG.fillRoundedRect(cx, CARD_Y + CARD_H - FOOT_H, CARD_W, FOOT_H, { tl: 0, tr: 0, bl: CARD_R, br: CARD_R });
+
+          // Thanh tiêu đề xanh lá mạ đầu thẻ (giống hệt ảnh mẫu)
+          cardG.fillGradientStyle(0xa5e028, 0xa5e028, 0x5fa60b, 0x5fa60b, 1);
+          cardG.fillRoundedRect(cx, CARD_Y, CARD_W, HDR_H, { tl: CARD_R, tr: CARD_R, bl: 0, br: 0 });
+          cardG.fillStyle(0xffffff, 0.25);
+          cardG.fillRoundedRect(cx + 8 * S, CARD_Y + 4 * S, CARD_W - 16 * S, HDR_H * 0.36, 7 * S);
+
+          // Viền thẻ ngoài
+          cardG.lineStyle(hover ? 3.5 * S : 2.5 * S, hover ? 0xffe066 : (isGray ? 0x64748b : 0x1778bc), 1);
+          cardG.strokeRoundedRect(cx, CARD_Y, CARD_W, CARD_H, CARD_R);
+        };
+        drawCard(false);
+
+        // Chữ tiêu đề thẻ: "Tinh cầu cấp 1" / "Tinh cầu cấp 2" (lớn, rõ nét)
+        push(this.add.text(midX, CARD_Y + HDR_H / 2, c.title, {
+          fontFamily: "Signika",
+          fontSize: Math.floor(28 * S) + "px",
+          color: "#ffffff",
+          fontStyle: "bold",
+          stroke: "#2d4c0e",
+          strokeThickness: 4.5 * S,
+        }).setOrigin(0.5).setDepth(D + 5));
+
+        // Ảnh Tinh Cầu lớn chính giữa thẻ
+        const bodyTop = CARD_Y + HDR_H;
+        const bodyH   = CARD_H - HDR_H - FOOT_H;
+        const orbY    = bodyTop + bodyH * 0.42;
+        const texSrc  = this.textures.exists(c.orbKey) ? this.textures.get(c.orbKey).getSourceImage() : null;
+        const dispW   = (c.lv >= 2 ? 195 : 128) * S;
+        const aspect  = texSrc ? (texSrc.height / texSrc.width) : 1;
+        const orbImg  = push(this.add.image(midX, orbY, c.orbKey)
+          .setDisplaySize(dispW, dispW * aspect).setDepth(D + 5));
+        if (isGray) {
+          orbImg.setTint(0x9ca3af).setAlpha(0.88);
+        }
+
+        // Ổ khóa vàng 3D khi Tinh cầu cấp 2 chưa mở khóa
+        if (!c.unlocked) {
+          drawPadlock(midX + 30 * S, orbY + 6 * S, S);
+        }
+
+        // Hàng "Giá gốc:    25,000" nằm ngay trên dải xanh đáy thẻ (lớn, chuẩn ảnh mẫu)
+        const priceY = CARD_Y + CARD_H - FOOT_H - 24 * S;
+        push(this.add.text(cx + 22 * S, priceY, "Giá gốc:", {
+          fontFamily: "Signika",
+          fontSize: Math.floor(25 * S) + "px",
+          color: "#ffffff",
+          fontStyle: "bold",
+          stroke: "#0f172a",
+          strokeThickness: 4 * S,
+        }).setOrigin(0, 0.5).setDepth(D + 5));
+
+        const costColor = !c.unlocked
+          ? "#f1f5f9"
+          : c.owned
+            ? "#d1fae5"
+            : c.canAfford
+              ? "#ffe63b"
+              : "#ff7b7b";
+        push(this.add.text(cx + CARD_W - 22 * S, priceY, Number(c.cost).toLocaleString("en-US"), {
+          fontFamily: "Signika",
+          fontSize: Math.floor(28 * S) + "px",
+          color: costColor,
+          fontStyle: "bold",
+          stroke: "#3a1a00",
+          strokeThickness: 4.5 * S,
+        }).setOrigin(1, 0.5).setDepth(D + 5));
+
+        // Dòng thông tin tiền thuê / điều kiện mở khóa nằm gọn giữa dải xanh đáy thẻ
+        push(this.add.text(midX, CARD_Y + CARD_H - FOOT_H / 2, c.subHint, {
+          fontFamily: "Signika",
+          fontSize: Math.floor(19 * S) + "px",
+          color: !c.unlocked ? "#fef08a" : "#ffffff",
+          fontStyle: "bold",
+          stroke: "#0c2238",
+          strokeThickness: 3 * S,
+        }).setOrigin(0.5).setDepth(D + 5));
+
+        // Click trực tiếp vào thẻ để chọn xây / nâng cấp
+        const zone = push(this.add.zone(midX, CARD_Y + CARD_H / 2, CARD_W, CARD_H)
+          .setDepth(D + 8).setInteractive({ useHandCursor: !isGray }));
+        zone.on("pointerover", () => { if (!isGray) drawCard(true); });
+        zone.on("pointerout",  () => { if (!isGray) drawCard(false); });
+        zone.on("pointerup", () => {
+          if (c.owned) return;
+          if (!c.unlocked) {
+            this._showToast(`🔒 ${unlockHint} để mở Tinh cầu cấp 2!`, "#fde047", 2000);
+            this.tweens.add({ targets: orbImg, x: midX + 6 * S, duration: 50, yoyo: true, repeat: 2 });
+            return;
+          }
+          if (!c.canAfford) {
+            this._showToast("❌ Không đủ tiền mặt!", "#ff6666", 1700);
+            return;
+          }
+          sendAccept(c.lv);
+        });
+      });
+    } else {
+      // ── MODE BUYOUT (THÂU TÓM NHÀ ĐỐI THỦ) — ĐỒNG BỘ GIẤY KEM VÀNG ──
+      const canAfford = data.can_afford !== false;
+      const orbY = TOP + PH * 0.44;
+      const orbImg = push(this.add.image(PCX, orbY, orbKey1)
+        .setDisplaySize(90 * S, 90 * S).setDepth(D + 4));
+      push(this.add.text(PCX, TOP + PH * 0.68,
+        `Mua lại từ ${data.owner_name || "đối thủ"} • Giá: ${Number(data.build_cost || 0).toLocaleString("en-US")}`, {
+          fontFamily: "Signika", fontSize: Math.floor(18 * S) + "px",
+          color: "#4a2000", fontStyle: "bold",
+        }).setOrigin(0.5).setDepth(D + 4));
+
+      const BTN_W = 150 * S, BTN_H = 42 * S, BTN_Y = TOP + PH - 42 * S;
+      this._buildModalBtn(shell, PCX - BTN_W / 2 - 12 * S, BTN_Y, BTN_W, BTN_H,
+        canAfford ? 0x9333ea : 0x6b7280, canAfford ? 0x6b21a8 : 0x4b5563,
+        canAfford ? "THÂU TÓM" : "KHÔNG ĐỦ TIỀN", () => {
+          if (!canAfford) { this._showToast("❌ Không đủ tiền mặt!", "#ff5555", 1600); return; }
+          sendAccept(1);
+        });
+      this._buildModalBtn(shell, PCX + BTN_W / 2 + 12 * S, BTN_Y, BTN_W, BTN_H,
+        0xcc3322, 0x881111, "BỎ QUA", sendDecline);
+      this.tweens.add({ targets: orbImg, y: orbY - 5 * S, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    }
+
+    // ── Slide-in mượt từ dưới lên ────────────────────────────────────
+    this._buildPanelObjs.forEach(o => { if (o?.y !== undefined) o.y += PH * 0.55; });
     this.tweens.add({
       targets: this._buildPanelObjs.filter(o => o?.y !== undefined),
-      y: `-=${PH * 0.6}`, duration: 320, ease: "Back.easeOut"
+      y: `-=${PH * 0.55}`,
+      duration: 280,
+      ease: "Back.easeOut",
     });
   }
 

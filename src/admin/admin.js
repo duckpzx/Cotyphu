@@ -253,8 +253,16 @@ async function loadTab(tab, { silent = false } = {}) {
 async function renderOverview() {
   const res = await api("/overview");
   const s = res.stats || {};
+  const w = res.weather || { mode: "snow", density: 72 };
   const logs = res.recent_logs || [];
   const onlinePct = s.total_users > 0 ? Math.min(100, Math.round((s.online_users / s.total_users) * 100)) : 0;
+
+  const weatherModes = [
+    { id: "none",  label: "Tắt hiệu ứng" },
+    { id: "snow",  label: "❄️ Tuyết Rơi (Giáng Sinh)" },
+    { id: "peach", label: "🌸 Hoa Đào (Mùa Xuân / Tết)" },
+    { id: "both",  label: "✨ Kết Hợp Cả Hai" },
+  ];
 
   setTabHtml(`
     <div class="kpi-grid">
@@ -312,6 +320,24 @@ async function renderOverview() {
       </div>
     </div>
 
+    <div class="panel" style="margin-bottom:14px">
+      <div class="panel-head" style="flex-wrap:wrap;gap:10px">
+        <h3>[ HIỆU ỨNG THỜI TIẾT TOÀN GAME (MỌI SCENE) ]</h3>
+        <span class="muted">đồng bộ tự động cho tất cả người chơi (lưu MySQL weather_settings)</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px">
+        ${weatherModes.map(m => `
+          <button type="button" class="btn ${w.mode === m.id ? "btn-primary" : "btn-ghost"} btn-sm" data-weather-mode="${m.id}">
+            ${m.label}
+          </button>
+        `).join("")}
+        <label style="margin-left:auto;display:inline-flex;align-items:center;gap:8px;font-size:12px">
+          <span class="muted">Mật độ: <b id="ovWeatherDensityVal" class="cyan-val">${Number(w.density || 72)}</b></span>
+          <input id="ovWeatherDensity" type="range" min="25" max="115" value="${Number(w.density || 72)}" style="width:120px;accent-color:var(--cyan)" />
+        </label>
+      </div>
+    </div>
+
     <div class="panel">
       <div class="panel-head">
         <h3>[ LIVE AUDIT TAIL ]</h3>
@@ -320,6 +346,34 @@ async function renderOverview() {
       ${renderAuditTableHtml(logs)}
     </div>
   `);
+
+  let activeWeatherMode = w.mode || "snow";
+  const saveWeather = async (nextMode, nextDensity) => {
+    try {
+      const r = await api("/weather", {
+        method: "PUT",
+        body: JSON.stringify({ mode: nextMode, density: Number(nextDensity || 72) }),
+      });
+      if (r.success) {
+        activeWeatherMode = r.mode;
+        showToast(`Đã áp dụng thời tiết: ${weatherModes.find(x => x.id === r.mode)?.label || r.mode}`);
+        renderOverview();
+      }
+    } catch (err) {
+      showToast(err.message || "Lỗi lưu hiệu ứng thời tiết", "error");
+    }
+  };
+  document.querySelectorAll("[data-weather-mode]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      saveWeather(btn.dataset.weatherMode, $("ovWeatherDensity")?.value || 72);
+    });
+  });
+  $("ovWeatherDensity")?.addEventListener("input", (e) => {
+    if ($("ovWeatherDensityVal")) $("ovWeatherDensityVal").textContent = e.target.value;
+  });
+  $("ovWeatherDensity")?.addEventListener("change", (e) => {
+    saveWeather(activeWeatherMode, e.target.value);
+  });
 
   document.querySelectorAll("[data-jump-tab]").forEach(card => {
     card.addEventListener("click", () => {

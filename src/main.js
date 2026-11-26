@@ -16,9 +16,12 @@ import LabScene from "./scenes/LabScene.js";
 import { SERVER_URL } from "./config.js";
 import { initSnowEffect } from "./utils/snowEffect.js";
 
-// ── CLEAN URL: Remove tracking params ─────────────────────────────
-// Zalo và các platform khác thêm tracking params gây lỗi CORS
-if (window.location.search) {
+// ── CHECK DEMO SANDBOX MODE (?demo=board) ─────────────────────────
+const urlParams = new URLSearchParams(window.location.search);
+const isDemoBoard = urlParams.get("demo") === "board";
+
+// ── CLEAN URL: Remove tracking params (giữ lại ?demo=board khi test UI) ──
+if (window.location.search && !isDemoBoard) {
   const cleanUrl = window.location.origin + window.location.pathname;
   window.history.replaceState({}, document.title, cleanUrl);
   console.log("🧹 Cleaned tracking params from URL");
@@ -119,6 +122,17 @@ window.onload = async function () {
 
   // Start đúng scene
   game.events.once("ready", () => {
+    if (isDemoBoard) {
+      game.scene.stop("LoginScene");
+      game.scene.start("BoardScene", {
+        demoMode: true,
+        name: "Đức Phạm",
+        characterName: "Dark_Oracle",
+        skin: 1,
+        roomData: { id: "demo_room", match_mode: "solo_2", bet_ecoin: 5000 },
+      });
+      return;
+    }
     if (startScene !== "LoginScene") {
       game.scene.stop("LoginScene");
       // Auto-login → qua SplashScene để lấy interaction trước khi play nhạc

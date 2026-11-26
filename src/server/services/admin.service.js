@@ -5,6 +5,7 @@ import jwt from "jsonwebtoken";
 import adminRepo from "../repositories/admin.repo.js";
 import userRepo from "../repositories/user.repo.js";
 import assetUploadService from "./assetUpload.service.js";
+import weatherConfigService from "./weatherConfig.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -127,6 +128,7 @@ export function createAdminService({ io, gameStates, onlineUserSockets, clearRoo
 
       const totalAvatars = countPngFiles("assets/resources/Avatar/PNG/thumbs_96");
       const totalEmojis = countPngFiles("assets/resources/Emoji/PNG/thumbs_40");
+      const weather = await weatherConfigService.getConfig().catch(() => ({ mode: "snow", density: 72 }));
 
       return {
         success: true,
@@ -143,6 +145,7 @@ export function createAdminService({ io, gameStates, onlineUserSockets, clearRoo
           total_avatars: totalAvatars,
           total_emojis: totalEmojis,
         },
+        weather: { mode: weather.mode, density: weather.density },
         recent_logs: recentLogs,
       };
     },

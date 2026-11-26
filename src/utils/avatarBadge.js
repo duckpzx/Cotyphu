@@ -173,6 +173,7 @@ export function renderAvatarBadge(scene, {
 
   return {
     setAvatar,
+    getMainImage: () => mainImg,
     destroy: () => {
       destroyed = true;
       try { glowImg?.destroy(); } catch (_) {}

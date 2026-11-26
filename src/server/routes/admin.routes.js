@@ -7,6 +7,7 @@ import assetUploadService from "../services/assetUpload.service.js";
 import systemConsoleService from "../services/systemConsole.service.js";
 import payosService from "../services/payos.service.js";
 import audioConfigService from "../services/audioConfig.service.js";
+import weatherConfigService from "../services/weatherConfig.service.js";
 
 /**
  * Tạo Express Router cho toàn bộ REST API của Admin Dashboard (/api/admin/*).
@@ -792,6 +793,31 @@ export function createAdminRouter(deps) {
     } catch (err) {
       console.error("DELETE /api/admin/assets/audio/:trackId error:", err);
       res.status(500).json({ success: false, message: "Lỗi khôi phục âm thanh mặc định" });
+    }
+  });
+
+  // ── WEATHER EFFECT CONFIG (TUYẾT RƠI / HOA ĐÀO TOÀN GAME) ────────
+  router.get("/weather", async (req, res) => {
+    try {
+      res.json(await weatherConfigService.getConfig({ bypassCache: true }));
+    } catch (err) {
+      res.status(500).json({ success: false, message: "Lỗi tải cấu hình thời tiết" });
+    }
+  });
+
+  router.put("/weather", async (req, res) => {
+    try {
+      const r = await weatherConfigService.saveConfig(req.body || {}, { io: deps.io });
+      if (r.success) {
+        await adminRepo.logAudit(req.adminUser.id, "UPDATE_WEATHER_EFFECT", "weather_settings", 1, {
+          mode: r.mode,
+          density: r.density,
+        });
+      }
+      res.json(r);
+    } catch (err) {
+      console.error("PUT /api/admin/weather error:", err);
+      res.status(500).json({ success: false, message: "Lỗi lưu hiệu ứng thời tiết" });
     }
   });
 

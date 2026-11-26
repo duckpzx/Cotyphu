@@ -34,6 +34,7 @@ import securityService, { extractClientIp, extractUserAgent } from "./src/server
 import assetUploadService from "./src/server/services/assetUpload.service.js";
 import payosService, { TOPUP_PACKAGES } from "./src/server/services/payos.service.js";
 import audioConfigService from "./src/server/services/audioConfig.service.js";
+import weatherConfigService from "./src/server/services/weatherConfig.service.js";
 import systemConsoleService from "./src/server/services/systemConsole.service.js";
 
 const SECRET = process.env.JWT_SECRET;
@@ -950,6 +951,7 @@ async function initGameState(room_id, sockets, bet_ecoin = 5000, match_mode = "s
         planet_color: colorPool[i % colorPool.length],
         cash: bet_ecoin * 20,
         index: 0,
+        laps: 0,
         slot_index: slotIndex,
         team_id: teamId,
 
@@ -2901,6 +2903,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     cur.index = idx;
 
     if (didPassStart) {
+      cur.laps = (cur.laps || 0) + 1;
       let bonus = Math.floor(gs.bet_ecoin * 4);
       if (cur.skill?.passive_type === "start_bonus_percent") {
         bonus = Math.floor(bonus * (1 + (cur.skill.passive_value || 15) / 100));
@@ -3428,22 +3431,39 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     }
     }
 
-    // Ô trống => hỏi xây Cấp 1
+    // Ô trống => hỏi đặt Tinh cầu (Cấp 1 luôn mở; Cấp 2 mở khi qua vòng 1 HOẶC sở hữu >= 2 ô)
     if (!cell) {
-      const promptCost = getPropertyActionCost(gs, cur, 1);
-      const previewRent = computeCellRent(gs, idx, { level: 1, owner_user_id: cur.user_id }, 1, cur.user_id);
+      const lv1Cost = getPropertyActionCost(gs, cur, 1);
+      const lv2Cost = lv1Cost + getPropertyActionCost(gs, cur, 2);
+      const previewRent1 = computeCellRent(gs, idx, { level: 1, owner_user_id: cur.user_id }, 1, cur.user_id);
+      const previewRent2 = computeCellRent(gs, idx, { level: 2, owner_user_id: cur.user_id }, 2, cur.user_id);
+      const ownedCells = Object.values(gs.cellStates || {}).filter(
+        c => Number(c.owner_user_id) === Number(cur.user_id)
+      ).length;
+      const lv2Unlocked = (cur.laps || 0) >= 1 || ownedCells >= 2;
+
       const buildPromptPayload = {
         mode: "build",
         cell_index: idx,
-        build_cost: promptCost,
+        build_cost: lv1Cost,
+        lv1_cost: lv1Cost,
+        lv2_cost: lv2Cost,
+        lv1_rent: previewRent1.rent,
+        lv2_rent: previewRent2.rent,
+        lv2_unlocked: lv2Unlocked,
+        lv2_unlock_reason: "Qua vòng 1 hoặc sở hữu 2 ô",
+        laps: cur.laps || 0,
+        owned_cells: ownedCells,
+        player_cash: cur.cash || 0,
         planet_color: cur.planet_color,
         current_level: 0,
         target_level: 1,
         current_rent: 0,
-        next_rent: previewRent.rent,
-        chain_len: previewRent.chainLen,
-        combo_bonus: previewRent.comboBonusPercent,
-        can_afford: (cur.cash || 0) >= promptCost,
+        next_rent: previewRent1.rent,
+        chain_len: previewRent1.chainLen,
+        combo_bonus: previewRent1.comboBonusPercent,
+        can_afford: (cur.cash || 0) >= lv1Cost,
+        can_afford_lv2: lv2Unlocked && (cur.cash || 0) >= lv2Cost,
         time_limit: 15,
       };
       gs._pendingPrompt = { type: "build", user_id: cur.user_id, data: buildPromptPayload };
@@ -3474,6 +3494,12 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
           mode: "upgrade",
           cell_index: idx,
           build_cost: upgradeCost,
+          lv1_cost: Number(cell.build_cost || getPropertyActionCost(gs, cur, 1)),
+          lv2_cost: upgradeCost,
+          lv1_rent: curRentInfo.rent,
+          lv2_rent: nextRentInfo.rent,
+          lv2_unlocked: true,
+          player_cash: cur.cash || 0,
           planet_color: cur.planet_color,
           current_level: curLevel,
           target_level: nextLevel,
@@ -3674,7 +3700,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
   });
 
   // ── GAME BUILD RESPONSE ──────────────────────────────────────────
-  socket.on("game:build_response", ({ room_id, cell_index, accept }) => {
+  socket.on("game:build_response", ({ room_id, cell_index, accept, level = 1 }) => {
     const gs = gameStates[room_id];
     if (!gs || gs.phase !== "RESOLVING") return;
 
@@ -3692,26 +3718,40 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
     if (accept) {
       const existing = gs.cellStates[idx];
 
-      // ── TRƯỜNG HỢP 1: MUA MỚI CẤP 1 ──────────────────────────────
+      // ── TRƯỜNG HỢP 1: MUA MỚI CẤP 1 HOẶC ĐẶT THẲNG CẤP 2 (khi đã mở khóa) ──
       if (!existing) {
-        const actualBuildCost = getPropertyActionCost(gs, cur, 1);
+        const ownedCells = Object.values(gs.cellStates || {}).filter(
+          c => Number(c.owner_user_id) === Number(cur.user_id)
+        ).length;
+        const lv2Unlocked = (cur.laps || 0) >= 1 || ownedCells >= 2;
+        const requestedLv = Number(level) === 2 ? 2 : 1;
+        if (requestedLv === 2 && !lv2Unlocked) {
+          socket.emit("game:error", { message: "Cần qua vòng 1 hoặc sở hữu 2 ô để đặt Tinh cầu cấp 2!" });
+          setTimeout(() => endTurn(room_id), 400);
+          return;
+        }
+
+        const lv1Cost = getPropertyActionCost(gs, cur, 1);
+        const actualBuildCost = requestedLv === 2
+          ? (lv1Cost + getPropertyActionCost(gs, cur, 2))
+          : lv1Cost;
         if ((cur.cursed_turns || 0) > 0) cur.cursed_turns = 0;
 
         if ((cur.cash || 0) < actualBuildCost) {
-          socket.emit("game:error", { message: "Không đủ tiền để xây tinh cầu!" });
+          socket.emit("game:error", { message: "Không đủ tiền để đặt tinh cầu!" });
           setTimeout(() => endTurn(room_id), 400);
           return;
         }
 
         cur.cash -= actualBuildCost;
-        addCharEnergy(cur, 15);
+        addCharEnergy(cur, requestedLv === 2 ? 25 : 15);
 
         gs.cellStates[idx] = {
           owner_user_id: socket.user_id,
           planet_color: cur.planet_color,
           build_cost: actualBuildCost,
           total_invested: actualBuildCost,
-          level: 1,
+          level: requestedLv,
         };
 
         io.to(`room_${room_id}`).to(`game_${room_id}`).emit("game:cell_built", {
@@ -3724,7 +3764,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
           planet_color: cur.planet_color,
           build_cost: actualBuildCost,
           total_invested: actualBuildCost,
-          level: 1,
+          level: requestedLv,
         });
         emitCharSkillState(room_id);
       }
@@ -4361,6 +4401,15 @@ app.get("/api/audio-config", async (req, res) => {
   }
 });
 
+// ── PUBLIC WEATHER EFFECT CONFIG (Tuyết rơi / Hoa đào toàn game) ─
+app.get("/api/weather-config", async (req, res) => {
+  try {
+    res.json(await weatherConfigService.getConfig());
+  } catch (err) {
+    res.json({ success: true, mode: "snow", density: 72 });
+  }
+});
+
 // ── PAYOS REAL-MONEY TOP-UP & WEBHOOK ──────────────────────────
 app.get("/api/payment/packages", async (req, res) => {
   try {
@@ -4429,6 +4478,7 @@ server.listen(3000, "0.0.0.0", () => {
   securityService.init();
   payosService.ensurePaymentSchema();
   audioConfigService.ensureAudioSchema();
+  weatherConfigService.ensureWeatherSchema();
 
   // ── Dọn dẹp các phòng bị kẹt khi server restart ──────────────
   db.query(

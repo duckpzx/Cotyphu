@@ -7,28 +7,28 @@
         "name": "Giáng sinh 2",
         "is_custom": true,
         "image_url": "/assets/custom_scenes/rating_1795618883581.png",
-        "version": 1795618883612,
+        "version": 1795659131353,
         "spots": [
           {
             "id": 1,
             "x": 0.5018,
-            "y": 0.592,
+            "y": 0.5716,
             "label": "Hạng 1 (Quán Quân)"
           },
           {
             "id": 2,
-            "x": 0.236,
-            "y": 0.6388,
+            "x": 0.2334,
+            "y": 0.6161,
             "label": "Hạng 2 (Trái)"
           },
           {
             "id": 3,
-            "x": 0.765,
-            "y": 0.6411,
+            "x": 0.7676,
+            "y": 0.6207,
             "label": "Hạng 3 (Phải)"
           }
         ],
-        "updated_at": "2026-11-25T15:01:23.612Z"
+        "updated_at": "2026-11-26T02:12:11.353Z"
       },
       {
         "id": "rating_1795617016617",

@@ -7,6 +7,7 @@ import { tarotLevelKey, tarotImagePath } from "../utils/tarotLevel.js";
 import { setupClickSound, playTabSound, playOutSound, isMusicEnabled, getAudioTrackUrl, getAudioTrackVolume, isAudioTrackEnabled } from "../utils/clickSound.js";
 import { openPayosTopUpFlow } from "../utils/payosModal.js";
 import { renderAvatarBadge } from "../utils/avatarBadge.js";
+import { createSettingsButton } from "../utils/settingsBar.js";
 
 // ── Helper: tính trạng thái khí quyển 24h mượt mà (Bình minh → Sáng → Trưa → Hoàng hôn → Đêm) ──
 function computeLobbyAtmosphere(hourFloat) {
@@ -87,6 +88,9 @@ export default class LobbyScene extends Phaser.Scene {
     this.load.image("add_friend", "assets/ui/shared/friend.png");
     this.load.image("icon_search", "assets/ui/shared/icon_search.png");
     this.load.image("lobby_return", "assets/ui/shared/return.png");
+    this.load.image("icon_setting", "assets/ui/shared/setting.png");
+    this.load.image("icon_sound",   "assets/ui/shared/sound.png");
+    this.load.image("icon_music",   "assets/ui/shared/music.png");
 
     // Nhạc sảnh
     if (!this.cache.audio.exists("lobby_bgm")) {
@@ -119,6 +123,9 @@ export default class LobbyScene extends Phaser.Scene {
       this._bgm.stop();
     }
     setupClickSound(this);
+
+    // Nút Cài Đặt (Âm thanh / Nhạc nền) góc trên phải đồng bộ với Phòng Chờ
+    createSettingsButton(this, { x: width - 46, y: 46, size: 58, depth: 80 });
 
     // ===== NỀN SẢNH CHUYỂN CẢNH KHÍ QUYỂN 24 GIỜ (DAY ↔ NIGHT CROSSFADE) =====
     const lCfg = this._lobbyConfig;
