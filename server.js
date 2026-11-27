@@ -35,6 +35,7 @@ import assetUploadService from "./src/server/services/assetUpload.service.js";
 import payosService, { TOPUP_PACKAGES } from "./src/server/services/payos.service.js";
 import audioConfigService from "./src/server/services/audioConfig.service.js";
 import weatherConfigService from "./src/server/services/weatherConfig.service.js";
+import supportService from "./src/server/services/support.service.js";
 import systemConsoleService from "./src/server/services/systemConsole.service.js";
 
 const SECRET = process.env.JWT_SECRET;
@@ -4406,7 +4407,139 @@ app.get("/api/weather-config", async (req, res) => {
   try {
     res.json(await weatherConfigService.getConfig());
   } catch (err) {
-    res.json({ success: true, mode: "snow", density: 72 });
+    res.json({ success: true, mode: "snow", density: 48 });
+  }
+});
+
+// ── THÔNG BÁO CHẠY CHỮ CHAT THẾ GIỚI (ADMIN BROADCAST) ──────────────
+const DEFAULT_WORLD_ANNOUNCEMENT = "🔥 [HỆ THỐNG] CHÀO MỪNG ĐẾN VỚI CHAT THẾ GIỚI — CỜ TỶ PHÚ ONLINE • GIAO LƯU VĂN MINH & CHÚC BẠN CHƠI VUI! 🔥";
+app.get("/api/world-announcement", async (_req, res) => {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS world_announcement_settings (
+        id TINYINT NOT NULL PRIMARY KEY,
+        message VARCHAR(400) NOT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    const [[row]] = await db.query("SELECT message FROM world_announcement_settings WHERE id = 1 LIMIT 1");
+    res.json({ success: true, message: row?.message || DEFAULT_WORLD_ANNOUNCEMENT });
+  } catch {
+    res.json({ success: true, message: DEFAULT_WORLD_ANNOUNCEMENT });
+  }
+});
+
+// ── DEMO SANDBOX 1v1 VS BOT AI (?demo=board) ──────────────────────
+app.post("/api/demo/start-match", async (req, res) => {
+  try {
+    const [users] = await db.query(
+      "SELECT id, username, name, ecoin, active_avatar_id FROM users ORDER BY id ASC LIMIT 10"
+    );
+    if (!users || users.length < 2) {
+      return res.status(400).json({ success: false, message: "Cần ít nhất 2 tài khoản trong DB để tạo trận Demo!" });
+    }
+    const p1 = users[0];
+    const p2 = users[Math.floor(1 + Math.random() * (users.length - 1))];
+
+    // Dùng roomId kiểu số nguyên dương (vì game:request_state / game:roll_dice dùng Number(room_id))
+    const roomId = Number(`9${Date.now().toString().slice(-6)}`);
+    const demoSockets = [
+      {
+        id: `demo_p1_${roomId}`,
+        user_id: p1.id,
+        player_name: p1.name || p1.username,
+        character_name: "Dark_Oracle",
+        skin_id: 1,
+        slot_index: 0,
+      },
+      {
+        id: `demo_bot_${roomId}`,
+        user_id: p2.id,
+        player_name: `${p2.name || p2.username} [BOT]`,
+        character_name: "Dark_Oracle",
+        skin_id: 2,
+        slot_index: 1,
+      },
+    ];
+
+    const gs = await initGameState(roomId, demoSockets, 5000, "solo_2");
+    // Đảm bảo P1 đi trước và P2 luôn là Bot AI AFK
+    if (gs?.players?.length >= 2) {
+      if (Number(gs.players[0].user_id) !== Number(p1.id)) {
+        gs.players.reverse();
+        gs.players.forEach((pl, idx) => { pl.turn_order = idx + 1; });
+      }
+      const botPlayer = gs.players.find(pl => Number(pl.user_id) === Number(p2.id));
+      if (botPlayer) {
+        botPlayer.is_bot_controlled = true;
+        botPlayer.is_connected = false;
+        // Dọn bot demo cũ và đăng ký bot mới vào `players` để BoardScene render nhân vật Bot đi bộ trên bàn cờ
+        Object.keys(players).forEach(k => {
+          if (k.startsWith("demo_bot_")) delete players[k];
+        });
+        players[botPlayer.socket_id] = {
+          id: botPlayer.socket_id,
+          user_id: botPlayer.user_id,
+          name: botPlayer.name,
+          characterName: (botPlayer.characterName || "Dark_Oracle").replace(/ /g, "_"),
+          skin: Number(botPlayer.skin || 2),
+          index: Number(botPlayer.index || 0),
+          planet_color: botPlayer.planet_color,
+          active_tarot_ids: botPlayer.active_tarot_ids || [],
+        };
+      }
+    }
+
+    const token = jwt.sign(
+      { id: p1.id, username: p1.username, name: p1.name || p1.username },
+      SECRET,
+      { expiresIn: "1d" }
+    );
+
+    console.log(`🧪 [DEMO] Started live 1v1 Bot match room=${roomId} | P1=${p1.name} vs BOT=${p2.name}`);
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: p1.id,
+        username: p1.username,
+        name: p1.name || p1.username,
+        ecoin: Number(p1.ecoin || 100000),
+        active_avatar_id: Number(p1.active_avatar_id || 1),
+      },
+      roomData: {
+        id: roomId,
+        match_mode: "solo_2",
+        bet_ecoin: 5000,
+      },
+    });
+  } catch (err) {
+    console.error("POST /api/demo/start-match error:", err);
+    res.status(500).json({ success: false, message: "Lỗi khởi tạo trận Demo" });
+  }
+});
+
+app.post("/api/demo/toggle-afk", (req, res) => {
+  try {
+    const { room_id, user_id } = req.body || {};
+    const rid = Number(room_id);
+    const gs = gameStates[rid] || gameStates[room_id];
+    if (!gs) return res.status(404).json({ success: false, message: "Không tìm thấy phòng demo" });
+    const p = gs.players.find(pl => Number(pl.user_id) === Number(user_id));
+    if (!p) return res.status(404).json({ success: false, message: "Không tìm thấy người chơi" });
+
+    p.is_bot_controlled = !p.is_bot_controlled;
+    io.to(`room_${rid}`).to(`game_${rid}`).emit("game:bot_status", {
+      user_id: p.user_id,
+      name: p.name,
+      is_bot_controlled: p.is_bot_controlled,
+    });
+    if (p.is_bot_controlled) {
+      resumeBotIfCurrentTurn(rid, p);
+    }
+    res.json({ success: true, is_bot_controlled: p.is_bot_controlled });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Lỗi bật/tắt Bot AI" });
   }
 });
 
@@ -4445,7 +4578,7 @@ app.get("/api/payment/status/:orderCode", async (req, res) => {
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
     if (!token) return res.status(401).json({ success: false, message: "Thiếu token" });
     const decoded = jwt.verify(token, SECRET);
-    const result = await payosService.getOrderStatus(decoded.id, req.params.orderCode);
+    const result = await payosService.getOrderStatus(decoded.id, req.params.orderCode, { io, onlineUserSockets });
     res.json(result);
   } catch (err) {
     res.status(401).json({ success: false, message: "Token không hợp lệ" });
@@ -4465,6 +4598,80 @@ const handlePayosWebhookRoute = async (req, res) => {
 app.post("/api/payment/payos-webhook", handlePayosWebhookRoute);
 app.post("/api/payment/webhook/payos", handlePayosWebhookRoute);
 
+// ── PLAYER SUPPORT CENTER (TIER 0 AI + TIER 1 DIAGNOSTICS + TIER 2 TICKETS) ─
+const getSupportAuthUser = (req) => {
+  const authHeader = req.headers.authorization || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!token) return null;
+  try { return jwt.verify(token, SECRET); } catch { return null; }
+};
+
+app.get("/api/support/diagnostics", async (req, res) => {
+  const u = getSupportAuthUser(req);
+  if (!u) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+  try { res.json(await supportService.runDiagnostics(u.id)); }
+  catch (err) { res.status(500).json({ success: false, message: "Lỗi chẩn đoán hệ thống" }); }
+});
+
+app.post("/api/support/ai-ask", async (req, res) => {
+  const u = getSupportAuthUser(req);
+  if (!u) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+  try { res.json(await supportService.askSupportAI(u.id, req.body?.question)); }
+  catch (err) { res.status(500).json({ success: false, message: "Lỗi trợ lý AI" }); }
+});
+
+app.get("/api/support/tickets", async (req, res) => {
+  const u = getSupportAuthUser(req);
+  if (!u) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+  try { res.json(await supportService.listUserTickets(u.id)); }
+  catch (err) { res.status(500).json({ success: false, message: "Lỗi tải danh sách phiếu" }); }
+});
+
+app.post("/api/support/tickets", async (req, res) => {
+  const u = getSupportAuthUser(req);
+  if (!u) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+  try {
+    const r = await supportService.createTicket(u.id, req.body || {});
+    res.status(r.success ? 201 : 400).json(r);
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Lỗi tạo phiếu hỗ trợ" });
+  }
+});
+
+app.get("/api/support/tickets/:id", async (req, res) => {
+  const u = getSupportAuthUser(req);
+  if (!u) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+  try { res.json(await supportService.getTicketDetail(req.params.id, { userId: u.id, isAdmin: false })); }
+  catch (err) { res.status(500).json({ success: false, message: "Lỗi tải chi tiết phiếu" }); }
+});
+
+app.post("/api/support/tickets/:id/reply", async (req, res) => {
+  const u = getSupportAuthUser(req);
+  if (!u) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+  try {
+    const r = await supportService.replyTicket(req.params.id, {
+      senderRole: "USER",
+      senderId: u.id,
+      senderName: u.name || u.username || "Người chơi",
+      message: req.body?.message,
+    }, { io, onlineUserSockets });
+    res.status(r.success ? 200 : 400).json(r);
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Lỗi gửi tin nhắn" });
+  }
+});
+
+app.post("/api/support/tickets/:id/rate", async (req, res) => {
+  const u = getSupportAuthUser(req);
+  if (!u) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+  try {
+    const r = await supportService.rateTicket(req.params.id, u.id, req.body || {});
+    res.status(r.success ? 200 : 400).json(r);
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Lỗi gửi đánh giá CSAT" });
+  }
+});
+
 // ── ADMIN DASHBOARD API & PAGE ─────────────────────────────────
 app.use("/api/admin", createAdminRouter({ io, gameStates, onlineUserSockets, clearRoomBotTimers }));
 app.get("/admin", (req, res) => {
@@ -4479,6 +4686,7 @@ server.listen(3000, "0.0.0.0", () => {
   payosService.ensurePaymentSchema();
   audioConfigService.ensureAudioSchema();
   weatherConfigService.ensureWeatherSchema();
+  supportService.ensureSupportSchema();
 
   // ── Dọn dẹp các phòng bị kẹt khi server restart ──────────────
   db.query(

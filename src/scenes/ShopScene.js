@@ -503,8 +503,6 @@ export default class ShopScene extends Phaser.Scene {
         openPayosTopUpFlow({
             scene: this,
             token,
-            amountVnd: 50000,
-            packageId: "pkg_50k",
             onPaid: (newEcoin, added) => {
                 this.playerEcoin = newEcoin;
                 this._refreshEcoinUI();

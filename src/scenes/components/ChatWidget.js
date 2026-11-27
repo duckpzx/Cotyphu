@@ -51,6 +51,10 @@ export default class ChatWidget {
     this._unsubVoice  = null;
     this._emojiPickerEl = null;
     this._emojiOutsideHandler = null;
+    this._bannerTimer = null;
+    this._bannerMaskGfx = null;
+    this._bannerTextObj = null;
+    this._onWorldAnnouncement = null;
   }
 
   build(x, y, w, h) {
@@ -61,6 +65,7 @@ export default class ChatWidget {
     const PAD_BOT  = 8;
     const PILL_H   = 32;
     const INPUT_H  = PILL_H + PAD_BOT + 6; // vùng đáy chứa ô pill + nút tròn
+    const BANNER_H = this.channel === "world" ? 30 : 0;
     const MSG_H    = h - INPUT_H;
     const BTN_D    = 32;
     const BTN_GAP  = 7;
@@ -84,28 +89,104 @@ export default class ChatWidget {
     panelBg.fillTriangle(chX - 4, chY - 2, chX + 4, chY - 2, chX, chY + 3);
     this._push(panelBg);
 
+    // ── Thanh Thông Báo Chạy Chữ Gradient Nổi (chỉ hiện ở Chat Thế Giới) ──
+    if (BANNER_H > 0) {
+      const bx = x + 6;
+      const by = y + 5;
+      const bw = w - 26;
+      const bh = BANNER_H - 4;
+      const bannerBg = this.scene.add.graphics().setDepth(D + 1);
+      bannerBg.fillStyle(0x2e0814, 0.82);
+      bannerBg.fillRoundedRect(bx, by, bw, bh, 8);
+      bannerBg.lineStyle(1.2, 0xff5a36, 0.72);
+      bannerBg.strokeRoundedRect(bx, by, bw, bh, 8);
+      this._push(bannerBg);
+
+      const bMaskG = this.scene.make.graphics({ add: false });
+      bMaskG.fillStyle(0xffffff);
+      bMaskG.fillRect(bx + 6, by, bw - 12, bh);
+      this._bannerMaskGfx = bMaskG;
+      const bMask = bMaskG.createGeometryMask();
+
+      const defaultBanner = "🔥 [HỆ THỐNG] CHÀO MỪNG ĐẾN VỚI CHAT THẾ GIỚI — CỜ TỶ PHÚ ONLINE • GIAO LƯU VĂN MINH & CHÚC BẠN CHƠI VUI! 🔥";
+      const bText = this.scene.add.text(bx + bw / 2, by + bh / 2, defaultBanner, {
+        fontFamily: "Signika",
+        fontSize: "13.5px",
+        fontStyle: "bold",
+        color: "#ff5c4d",
+        stroke: "#2b0509",
+        strokeThickness: 3.5,
+      }).setOrigin(0, 0.5).setDepth(D + 2).setMask(bMask);
+      bText.setShadow(0, 0, "#ff3b3b", 8, true, true);
+      this._bannerTextObj = bText;
+      this._push(bText);
+
+      const applyGradientAndMarquee = (msg) => {
+        if (!this._bannerTextObj?.active) return;
+        const clean = String(msg || defaultBanner).trim() || defaultBanner;
+        this._bannerTextObj.setText(clean);
+        // Tạo chữ Gradient nổi Đỏ → Cam → Vàng Kim → Đỏ Hồng
+        try {
+          const tw = Math.max(180, this._bannerTextObj.width || 300);
+          const grad = this._bannerTextObj.context.createLinearGradient(0, 0, tw, 0);
+          grad.addColorStop(0,    "#ff3838");
+          grad.addColorStop(0.28, "#ff9f1a");
+          grad.addColorStop(0.55, "#fff200");
+          grad.addColorStop(0.82, "#ff6b35");
+          grad.addColorStop(1,    "#ff3838");
+          this._bannerTextObj.setFill(grad);
+        } catch {}
+
+        // Đặt vị trí khởi đầu & chạy chữ mượt qua lại / marquee
+        this._bannerTextObj.x = bx + bw - 10;
+      };
+
+      applyGradientAndMarquee(defaultBanner);
+      this._setWorldBanner = applyGradientAndMarquee;
+
+      this._bannerTimer = this.scene.time.addEvent({
+        delay: 25,
+        loop: true,
+        callback: () => {
+          if (!this._bannerTextObj?.active) return;
+          this._bannerTextObj.x -= 1.25;
+          if (this._bannerTextObj.x + this._bannerTextObj.width < bx + 6) {
+            this._bannerTextObj.x = bx + bw - 6;
+          }
+        },
+      });
+
+      // Tải thông báo mới nhất từ Admin (nếu có)
+      fetch("/api/world-announcement")
+        .then(r => r.json())
+        .then(d => { if (d?.success && d.message) applyGradientAndMarquee(d.message); })
+        .catch(() => {});
+    }
+
     // ── Mask để clip tin nhắn ──────────────────────────────────────
+    const msgTopY = y + 6 + BANNER_H;
+    const msgAreaH = Math.max(40, MSG_H - 8 - BANNER_H);
     const maskGfx = this.scene.make.graphics({ add: false });
     maskGfx.fillStyle(0xffffff);
-    maskGfx.fillRect(x + 6, y + 6, w - SCROLL_W - 18, MSG_H - 8);
+    maskGfx.fillRect(x + 6, msgTopY, w - SCROLL_W - 18, msgAreaH);
     this._maskGfx = maskGfx;
     this._clipMask = maskGfx.createGeometryMask();
 
-    // chatBox dimensions (LINE_H = 22 để emoji 20x20 sắc nét không bị cắt mép)
-    const LINE_H = 22;
+    // chatBox dimensions (LINE_H = 34 ở Chat Thế Giới để Emoji 32x32 to rõ, sắc nét)
+    const LINE_H = this.channel === "world" ? 34 : 26;
     this._chatBox = {
       x: x + 10,
-      y: y + 8,
+      y: msgTopY + 2,
       w: w - SCROLL_W - 24,
-      h: MSG_H - 12,
+      h: msgAreaH - 4,
       lineH: LINE_H,
     };
-    this._visibleLines = Math.floor(this._chatBox.h / LINE_H);
+    this._visibleLines = Math.max(1, Math.floor(this._chatBox.h / LINE_H));
 
     // ── Scrollbar track ────────────────────────────────────────────
     const sbX = x + w - SCROLL_W - 5;
-    const sbY = y + 20;
-    const sbH = Math.max(24, MSG_H - 24);
+    const sbY = msgTopY + 6;
+    const sbH = Math.max(24, msgAreaH - 12);
     this._sbX = sbX; this._sbY = sbY; this._sbH = sbH;
 
     const sbTrack = this.scene.add.graphics().setDepth(D + 1);
@@ -362,6 +443,14 @@ export default class ChatWidget {
 
   destroy() {
     this._closeEmojiPicker();
+    if (this._bannerTimer) {
+      try { this._bannerTimer.remove(false); } catch {}
+      this._bannerTimer = null;
+    }
+    if (this._bannerMaskGfx) {
+      try { this._bannerMaskGfx.destroy(); } catch {}
+      this._bannerMaskGfx = null;
+    }
     if (this._unsubVoice) {
       try { this._unsubVoice(); } catch {}
       this._unsubVoice = null;
@@ -542,6 +631,9 @@ export default class ChatWidget {
       const lineY = cb.y + (i - startIdx) * cb.lineH;
       const maxTextW = cb.w - (m.tsStr ? 52 : 0);
 
+      const emojiSize = this.channel === "world" ? 32 : 24;
+      const lineMidY = lineY + cb.lineH / 2;
+
       if (emojiRe.test(m.text)) {
         emojiRe.lastIndex = 0;
         let curX = cb.x;
@@ -550,9 +642,9 @@ export default class ChatWidget {
         while ((match = emojiRe.exec(m.text)) !== null) {
           const before = m.text.slice(lastIdx, match.index);
           if (before) {
-            const tObj = this.scene.add.text(curX, lineY + 2, before, {
-              fontFamily: "Signika", fontSize: "13px", color: m.color,
-            }).setDepth(this.depth + 1).setMask(this._clipMask);
+            const tObj = this.scene.add.text(curX, lineMidY, before, {
+              fontFamily: "Signika", fontSize: "13.5px", color: m.color,
+            }).setOrigin(0, 0.5).setDepth(this.depth + 1).setMask(this._clipMask);
             this._msgObjs.push(tObj);
             curX += tObj.width;
           }
@@ -560,35 +652,35 @@ export default class ChatWidget {
           if (eid >= 1 && eid <= 50) {
             const texKey = this._ensureEmojiTexture(eid);
             if (texKey) {
-              const eImg = this.scene.add.image(curX + 11, lineY + cb.lineH / 2, texKey)
-                .setDisplaySize(20, 20)
+              const eImg = this.scene.add.image(curX + emojiSize / 2 + 2, lineMidY, texKey)
+                .setDisplaySize(emojiSize, emojiSize)
                 .setDepth(this.depth + 1)
                 .setMask(this._clipMask);
               this._msgObjs.push(eImg);
             }
-            curX += 24;
+            curX += emojiSize + 5;
           }
           lastIdx = match.index + match[0].length;
         }
         const after = m.text.slice(lastIdx);
         if (after) {
-          const tAfter = this.scene.add.text(curX, lineY + 2, after, {
-            fontFamily: "Signika", fontSize: "13px", color: m.color,
-          }).setDepth(this.depth + 1).setMask(this._clipMask);
+          const tAfter = this.scene.add.text(curX, lineMidY, after, {
+            fontFamily: "Signika", fontSize: "13.5px", color: m.color,
+          }).setOrigin(0, 0.5).setDepth(this.depth + 1).setMask(this._clipMask);
           this._msgObjs.push(tAfter);
         }
       } else {
-        const msg = this.scene.add.text(cb.x, lineY + 2, m.text, {
-          fontFamily: "Signika", fontSize: "13px", color: m.color,
+        const msg = this.scene.add.text(cb.x, lineMidY, m.text, {
+          fontFamily: "Signika", fontSize: "13.5px", color: m.color,
           wordWrap: { width: maxTextW }
-        }).setDepth(this.depth + 1).setMask(this._clipMask);
+        }).setOrigin(0, 0.5).setDepth(this.depth + 1).setMask(this._clipMask);
         this._msgObjs.push(msg);
       }
 
       if (m.tsStr) {
-        const ts = this.scene.add.text(cb.x + cb.w, lineY + 3, m.tsStr, {
+        const ts = this.scene.add.text(cb.x + cb.w, lineMidY, m.tsStr, {
           fontFamily: "Signika", fontSize: "11px", color: "#6688aa"
-        }).setOrigin(1, 0).setDepth(this.depth + 1).setMask(this._clipMask);
+        }).setOrigin(1, 0.5).setDepth(this.depth + 1).setMask(this._clipMask);
         this._msgObjs.push(ts);
       }
     }
@@ -684,9 +776,15 @@ export default class ChatWidget {
     this._onError = (data) => {
       this._appendLine(`⚠ ${data.message}`, "#ff8888");
     };
+    this._onWorldAnnouncement = (data) => {
+      if (this.channel === "world" && data?.message && this._setWorldBanner) {
+        this._setWorldBanner(data.message);
+      }
+    };
     this.socket.on(`chat:${this.channel}:message`, this._onMessage);
     this.socket.on(`chat:${this.channel}:history`, this._onHistory);
     this.socket.on("chat:error", this._onError);
+    if (this.channel === "world") this.socket.on("world:announcement", this._onWorldAnnouncement);
     if (this.channel === "world") this.socket.emit("chat:world:join");
     if (this.channel === "room")  this.socket.emit("chat:room:history:get");
   }
@@ -696,5 +794,6 @@ export default class ChatWidget {
     if (this._onMessage) this.socket.off(`chat:${this.channel}:message`, this._onMessage);
     if (this._onHistory) this.socket.off(`chat:${this.channel}:history`, this._onHistory);
     if (this._onError)   this.socket.off("chat:error", this._onError);
+    if (this._onWorldAnnouncement) this.socket.off("world:announcement", this._onWorldAnnouncement);
   }
 }

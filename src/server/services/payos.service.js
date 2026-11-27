@@ -769,13 +769,103 @@ const payosService = {
     return { httpStatus: 200, payload: { success: true, order_code: Number(order.order_code), ecoin: newEcoin } };
   },
 
-  async getOrderStatus(userId, orderCode) {
+  async _syncSingleOrderWithPayos(order, { io, onlineUserSockets } = {}) {
+    if (!order || order.status !== "PENDING") return null;
+    try {
+      const cfg = await this.getEffectiveConfig();
+      if (!cfg.clientId || !cfg.apiKey) return null;
+      const lookupId = order.payment_link_id || order.order_code;
+      const payRes = await fetch(`https://api-merchant.payos.vn/v2/payment-requests/${lookupId}`, {
+        method: "GET",
+        headers: {
+          "x-client-id": cfg.clientId,
+          "x-api-key": cfg.apiKey,
+        },
+      });
+      const payJson = await payRes.json().catch(() => null);
+      const pData = payJson?.data;
+      if (!payRes.ok || payJson?.code !== "00" || !pData) return null;
+
+      const pStatus = String(pData.status || "").toUpperCase();
+      const paidAmt = Number(pData.amountPaid || pData.amount || 0);
+      if (pStatus === "PAID" && paidAmt >= Number(order.amount_vnd)) {
+        const [upd] = await db.query(
+          `UPDATE payment_orders
+           SET status = 'PAID', paid_amount_vnd = ?, exception_reason = NULL, exception_detail = NULL,
+               payos_reference = ?, paid_at = NOW()
+           WHERE id = ? AND status = 'PENDING'`,
+          [paidAmt, pData.transactions?.[0]?.reference || pData.id || null, order.id]
+        );
+        if (upd.affectedRows > 0) {
+          await db.query(
+            "UPDATE users SET ecoin = COALESCE(ecoin, 0) + ? WHERE id = ?",
+            [Number(order.ecoin_amount), Number(order.user_id)]
+          );
+          const [[uRow]] = await db.query("SELECT ecoin FROM users WHERE id = ? LIMIT 1", [Number(order.user_id)]);
+          const newEcoin = Number(uRow?.ecoin || 0);
+          console.log(
+            `✅ [PAYOS-SYNC] PAID order #${order.order_code} (${order.transfer_code}) | user=${order.user_id} | +${Number(order.ecoin_amount).toLocaleString()} Ecoin -> balance=${newEcoin.toLocaleString()}`
+          );
+          this._emitPaidSocket(order, newEcoin, { io, onlineUserSockets });
+          return { status: "PAID", ecoin: newEcoin, paid_at: new Date() };
+        }
+        return { status: "PAID" };
+      }
+      if (pStatus === "CANCELLED" || pStatus === "EXPIRED") {
+        await db.query("UPDATE payment_orders SET status = ? WHERE id = ? AND status = 'PENDING'", [pStatus, order.id]).catch(() => {});
+        return { status: pStatus };
+      }
+    } catch (err) {
+      console.warn("⚠️ [PAYOS-SYNC] poll error:", err.message);
+    }
+    return null;
+  },
+
+  async syncRecentPendingOrders({ io, onlineUserSockets } = {}) {
+    const [pending] = await db.query(
+      `SELECT id, order_code, transfer_code, user_id, package_id, amount_vnd, ecoin_amount, status, payment_link_id
+       FROM payment_orders
+       WHERE status = 'PENDING' AND payment_link_id IS NOT NULL AND created_at >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
+       ORDER BY id DESC
+       LIMIT 8`
+    ).catch(() => [[]]);
+    let synced = 0;
+    for (const ord of pending || []) {
+      const r = await this._syncSingleOrderWithPayos(ord, { io, onlineUserSockets });
+      if (r?.status === "PAID") synced++;
+    }
+    return synced;
+  },
+
+  async getOrderStatus(userId, orderCode, { io, onlineUserSockets } = {}) {
     const [rows] = await db.query(
-      "SELECT order_code, transfer_code, user_id, package_id, amount_vnd, ecoin_amount, status, paid_at FROM payment_orders WHERE order_code = ? AND user_id = ? LIMIT 1",
+      "SELECT id, order_code, transfer_code, user_id, package_id, amount_vnd, ecoin_amount, status, payment_link_id, paid_at FROM payment_orders WHERE order_code = ? AND user_id = ? LIMIT 1",
       [Number(orderCode), Number(userId)]
     );
     const order = rows[0];
     if (!order) return { success: false, message: "Không tìm thấy đơn nạp" };
+
+    // Dự phòng cực quan trọng khi chạy localhost (payOS không gọi được Webhook về localhost):
+    // Chủ động đối soát trạng thái trực tiếp từ API payOS mỗi khi client polling!
+    if (order.status === "PENDING") {
+      const synced = await this._syncSingleOrderWithPayos(order, { io, onlineUserSockets });
+      if (synced?.status) {
+        order.status = synced.status;
+        if (synced.paid_at) order.paid_at = synced.paid_at;
+        if (synced.ecoin !== undefined) {
+          return {
+            success: true,
+            status: "PAID",
+            order_code: order.order_code,
+            transfer_code: order.transfer_code,
+            amount_vnd: Number(order.amount_vnd),
+            ecoin_amount: Number(order.ecoin_amount),
+            ecoin: synced.ecoin,
+            paid_at: order.paid_at,
+          };
+        }
+      }
+    }
 
     let currentEcoin = null;
     if (order.status === "PAID") {
@@ -799,6 +889,9 @@ const payosService = {
    * Thống kê doanh thu + lịch sử giao dịch + top nạp cho Admin Dashboard.
    */
   async getAdminOverviewAndOrders({ status = "all", search = "", limit = 100 } = {}) {
+    // Chủ động đối soát nhanh các đơn PENDING vừa tạo (hữu ích khi chạy localhost không nhận được Webhook)
+    await this.syncRecentPendingOrders().catch(() => {});
+
     // Tự động đánh dấu EXPIRED các đơn PENDING bình thường quá hạn (không động vào đơn đang là ngoại lệ có tiền về)
     const cfg = await this.getEffectiveConfig();
     const expireMin = Math.max(30, cfg.qrExpireMinutes * 2);

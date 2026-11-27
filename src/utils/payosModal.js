@@ -442,8 +442,8 @@ async function copyText(text, btnEl) {
 export async function openPayosTopUpFlow({
   scene,
   token,
-  amountVnd = 50000,
-  packageId = "pkg_50k",
+  amountVnd = null,
+  packageId = null,
   onPaid,
   onError,
   onClose,
@@ -472,12 +472,11 @@ export async function openPayosTopUpFlow({
     }
   } catch {}
 
-  // Xác định gói mặc định
+  // Mặc định KHÔNG tự chọn gói nạp (tránh tạo đơn 50K rác trên payOS khi người chơi chỉ vừa mở bảng)
   let selectedPkg =
-    packages.find(p => p.id === packageId) ||
-    packages.find(p => Number(p.amount_vnd) === Number(amountVnd)) ||
-    packages.find(p => p.id === "pkg_50k") ||
-    packages[0];
+    (packageId ? packages.find(p => p.id === packageId) : null) ||
+    (amountVnd ? packages.find(p => Number(p.amount_vnd) === Number(amountVnd)) : null) ||
+    null;
 
   let activeOrder = null;
   let pollTimer = null;
@@ -496,7 +495,7 @@ export async function openPayosTopUpFlow({
       <div class="topup-amount-box">
         <div class="topup-amount-top">
           <span class="topup-amount-label">Chọn mệnh giá nạp</span>
-          <span class="topup-ecoin-preview" id="topup-ecoin-preview"></span>
+          <span class="topup-ecoin-preview" id="topup-ecoin-preview">👆 Chọn mệnh giá bên dưới</span>
         </div>
         <div class="topup-pills-row" id="topup-pills-row"></div>
       </div>
@@ -518,7 +517,7 @@ export async function openPayosTopUpFlow({
               <div class="topup-row-left">
                 <div class="topup-field-label">Số Tiền:</div>
                 <div class="topup-field-val-wrap">
-                  <div class="topup-field-val amount" id="topup-amount-val">...</div>
+                  <div class="topup-field-val amount" id="topup-amount-val">—</div>
                   <div class="topup-field-hint">Chuyển ĐÚNG số tiền</div>
                 </div>
               </div>
@@ -529,7 +528,7 @@ export async function openPayosTopUpFlow({
               <div class="topup-row-left">
                 <div class="topup-field-label">Nội Dung:</div>
                 <div class="topup-field-val-wrap">
-                  <div class="topup-field-val code" id="topup-content-val">...</div>
+                  <div class="topup-field-val code" id="topup-content-val">—</div>
                   <div class="topup-field-hint">Nhập ĐÚNG nội dung</div>
                 </div>
               </div>
@@ -540,7 +539,7 @@ export async function openPayosTopUpFlow({
               <div class="topup-row-left">
                 <div class="topup-field-label">Số TK:</div>
                 <div class="topup-field-val-wrap">
-                  <div class="topup-field-val" id="topup-acc-num">0396605617</div>
+                  <div class="topup-field-val" id="topup-acc-num">—</div>
                 </div>
               </div>
               <button class="topup-copy-btn" id="topup-copy-acc" title="Sao chép số tài khoản">${COPY_SVG}</button>
@@ -560,10 +559,10 @@ export async function openPayosTopUpFlow({
 
           <div class="topup-qr-col">
             <div class="topup-qr-frame" id="topup-qr-frame">
-              <div class="topup-qr-loading">Đang tạo mã QR...</div>
+              <div class="topup-qr-loading" style="line-height:1.5;color:#7a4e10;">👆 Chọn mệnh giá bên trên<br/>để tạo mã QR thanh toán</div>
             </div>
-            <div class="topup-countdown" id="topup-countdown">QR code hết hạn sau 15:00s</div>
-            <div class="topup-status" id="topup-status">🔄 Đang chờ thanh toán tự động...</div>
+            <div class="topup-countdown" id="topup-countdown" style="color:#8a5a14;">Chưa tạo mã QR</div>
+            <div class="topup-status" id="topup-status">💡 Bấm vào mệnh giá muốn nạp để lấy mã QR</div>
             <button class="topup-refresh-btn" id="topup-refresh-btn">Tạo mã QR mới</button>
           </div>
         </div>
@@ -762,23 +761,34 @@ export async function openPayosTopUpFlow({
   packages.forEach((pkg) => {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "topup-pill" + (pkg.id === selectedPkg.id ? " active" : "");
+    btn.className = "topup-pill" + (selectedPkg && pkg.id === selectedPkg.id ? " active" : "");
     btn.dataset.pkgId = pkg.id;
     btn.textContent = pkg.label;
     btn.addEventListener("click", () => {
-      if (selectedPkg.id === pkg.id && activeOrder && remainingSec > 0) return;
+      if (selectedPkg && selectedPkg.id === pkg.id && activeOrder && remainingSec > 0) return;
       loadOrderForPackage(pkg);
     });
     pillsRow.appendChild(btn);
   });
 
   // Sự kiện nút Copy
-  copyAmountBtn.addEventListener("click", () => copyText(activeOrder?.amount_vnd || selectedPkg.amount_vnd, copyAmountBtn));
-  copyContentBtn.addEventListener("click", () => copyText(activeOrder?.description || activeOrder?.transfer_code || "", copyContentBtn));
-  copyAccBtn.addEventListener("click", () => copyText(activeOrder?.account_number || "0396605617", copyAccBtn));
+  copyAmountBtn.addEventListener("click", () => {
+    const val = activeOrder?.amount_vnd || selectedPkg?.amount_vnd;
+    if (val) copyText(val, copyAmountBtn);
+  });
+  copyContentBtn.addEventListener("click", () => {
+    const val = activeOrder?.description || activeOrder?.transfer_code || "";
+    if (val) copyText(val, copyContentBtn);
+  });
+  copyAccBtn.addEventListener("click", () => {
+    const val = activeOrder?.account_number || "";
+    if (val) copyText(val, copyAccBtn);
+  });
 
   // Nút Tạo mã mới khi hết hạn / lỗi
-  refreshBtn.addEventListener("click", () => loadOrderForPackage(selectedPkg));
+  refreshBtn.addEventListener("click", () => {
+    if (selectedPkg) loadOrderForPackage(selectedPkg);
+  });
 
   // Đóng modal
   overlay.querySelector("#topup-close-btn").addEventListener("click", cleanup);
@@ -786,6 +796,8 @@ export async function openPayosTopUpFlow({
     if (e.target === overlay) cleanup();
   });
 
-  // Khởi tạo đơn nạp mặc định ngay lập tức
-  loadOrderForPackage(selectedPkg);
+  // Chỉ tự tạo đơn ngay nếu nơi gọi chủ động truyền sẵn mệnh giá
+  if (selectedPkg) {
+    loadOrderForPackage(selectedPkg);
+  }
 }

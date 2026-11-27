@@ -199,29 +199,29 @@ export function initSnowEffect(containerId = "root-game") {
 
   let width = 1128;
   let height = 636;
-  let dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let dpr = 1; // 1x canvas giúp giảm 75% tải GPU khi chồng lên Phaser WebGL
   let mode = "snow"; // "none" | "snow" | "peach" | "both"
   let userEnabled = (() => {
     try { return localStorage.getItem(SNOW_LS_KEY) !== "0"; } catch { return true; }
   })();
-  let densitySetting = 72;
-  let targetCount = 72;
+  let densitySetting = 46;
+  let targetCount = 46;
 
   const flakes = [];
 
   function recalcTargetCount() {
-    const scale = Math.max(0.65, Math.min(1.2, (width * height) / (1128 * 636)));
-    targetCount = Math.max(20, Math.min(125, Math.round(densitySetting * scale)));
+    const scale = Math.max(0.6, Math.min(1.0, (width * height) / (1128 * 636)));
+    targetCount = Math.max(18, Math.min(78, Math.round(densitySetting * scale)));
   }
 
   function resize() {
     const rect = host.getBoundingClientRect();
     width = Math.max(320, Math.round(rect.width || window.innerWidth));
     height = Math.max(240, Math.round(rect.height || window.innerHeight));
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(width * dpr);
-    canvas.height = Math.round(height * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    dpr = 1;
+    canvas.width = width;
+    canvas.height = height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     recalcTargetCount();
   }
 
@@ -349,7 +349,10 @@ export function initSnowEffect(containerId = "root-game") {
       return;
     }
 
-    const dt = Math.min(0.05, Math.max(0.001, (ts - lastTs) / 1000));
+    // Giới hạn ~30fps cho lớp thời tiết để mượt tuyệt đối mà không gây lag Phaser WebGL
+    const rawDt = (ts - lastTs) / 1000;
+    if (rawDt < 0.032) return;
+    const dt = Math.min(0.06, Math.max(0.001, rawDt));
     lastTs = ts;
     elapsed += dt;
 

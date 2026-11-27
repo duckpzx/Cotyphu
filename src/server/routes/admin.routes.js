@@ -8,6 +8,8 @@ import systemConsoleService from "../services/systemConsole.service.js";
 import payosService from "../services/payos.service.js";
 import audioConfigService from "../services/audioConfig.service.js";
 import weatherConfigService from "../services/weatherConfig.service.js";
+import supportService from "../services/support.service.js";
+import db from "../config/db.js";
 
 /**
  * Tạo Express Router cho toàn bộ REST API của Admin Dashboard (/api/admin/*).
@@ -818,6 +820,176 @@ export function createAdminRouter(deps) {
     } catch (err) {
       console.error("PUT /api/admin/weather error:", err);
       res.status(500).json({ success: false, message: "Lỗi lưu hiệu ứng thời tiết" });
+    }
+  });
+
+  // ── SUPPORT CENTER / CSKH (MODULE 13) ────────────────────────────
+  router.get("/support/summary", async (req, res) => {
+    try {
+      res.json(await supportService.getAdminSummary(req.query || {}));
+    } catch (err) {
+      console.error("GET /api/admin/support/summary error:", err);
+      res.status(500).json({ success: false, message: "Lỗi tải trung tâm hỗ trợ" });
+    }
+  });
+
+  router.get("/support/tickets/:id", async (req, res) => {
+    try {
+      res.json(await supportService.getTicketDetail(req.params.id, { isAdmin: true }));
+    } catch (err) {
+      res.status(500).json({ success: false, message: "Lỗi tải chi tiết phiếu" });
+    }
+  });
+
+  router.post("/support/tickets/:id/reply", async (req, res) => {
+    try {
+      const r = await supportService.replyTicket(req.params.id, {
+        senderRole: "ADMIN",
+        senderId: req.adminUser.id,
+        senderName: req.adminUser.name || req.adminUser.username || "CSKH Admin",
+        message: req.body?.message,
+      }, { io: deps.io, onlineUserSockets: deps.onlineUserSockets });
+      if (r.success) {
+        await adminRepo.logAudit(req.adminUser.id, "REPLY_SUPPORT_TICKET", "support_tickets", req.params.id);
+      }
+      res.status(r.success ? 200 : 400).json(r);
+    } catch (err) {
+      res.status(500).json({ success: false, message: "Lỗi trả lời phiếu hỗ trợ" });
+    }
+  });
+
+  router.patch("/support/tickets/:id/status", async (req, res) => {
+    try {
+      const r = await supportService.updateTicketStatus(req.params.id, req.body?.status, {
+        io: deps.io,
+        onlineUserSockets: deps.onlineUserSockets,
+      });
+      if (r.success) {
+        await adminRepo.logAudit(req.adminUser.id, "UPDATE_SUPPORT_STATUS", "support_tickets", req.params.id, { status: r.status });
+      }
+      res.status(r.success ? 200 : 400).json(r);
+    } catch (err) {
+      res.status(500).json({ success: false, message: "Lỗi cập nhật trạng thái phiếu" });
+    }
+  });
+
+  // AI Copilot gợi ý trả lời 1-Click cho CSKH Admin
+  router.post("/support/tickets/:id/copilot-draft", async (req, res) => {
+    try {
+      const r = await supportService.draftCopilotReply(req.params.id);
+      res.status(r.success ? 200 : 400).json(r);
+    } catch (err) {
+      res.status(500).json({ success: false, message: "Lỗi AI Copilot" });
+    }
+  });
+
+  // Hành động 1-Click trong Ticket (Bù Ecoin / Gỡ Mute)
+  router.post("/support/tickets/:id/action", async (req, res) => {
+    try {
+      const r = await supportService.executeTicketAction(req.params.id, {
+        action: req.body?.action,
+        amount: req.body?.amount,
+        reason: req.body?.reason,
+        adminName: req.adminUser.name || req.adminUser.username || "CSKH Admin",
+      }, { io: deps.io, onlineUserSockets: deps.onlineUserSockets });
+      if (r.success) {
+        await adminRepo.logAudit(req.adminUser.id, `SUPPORT_ACTION_${String(req.body?.action || "").toUpperCase()}`, "support_tickets", req.params.id, { amount: req.body?.amount, reason: req.body?.reason });
+      }
+      res.status(r.success ? 200 : 400).json(r);
+    } catch (err) {
+      res.status(500).json({ success: false, message: "Lỗi thực thi hành động CSKH" });
+    }
+  });
+
+  // CRUD Kho Tri Thức AI (Knowledge Base)
+  router.get("/support/kb", async (_req, res) => {
+    try { res.json(await supportService.listKbArticles()); }
+    catch { res.status(500).json({ success: false, message: "Lỗi tải Kho Tri Thức AI" }); }
+  });
+  router.post("/support/kb", async (req, res) => {
+    try {
+      const r = await supportService.saveKbArticle(req.body || {});
+      if (r.success) await adminRepo.logAudit(req.adminUser.id, "SAVE_SUPPORT_KB", "support_kb_articles", r.id, { title: req.body?.title });
+      res.status(r.success ? 200 : 400).json(r);
+    } catch { res.status(500).json({ success: false, message: "Lỗi lưu bài tri thức AI" }); }
+  });
+  router.delete("/support/kb/:id", async (req, res) => {
+    try {
+      const r = await supportService.deleteKbArticle(req.params.id);
+      await adminRepo.logAudit(req.adminUser.id, "DELETE_SUPPORT_KB", "support_kb_articles", req.params.id);
+      res.json(r);
+    } catch { res.status(500).json({ success: false, message: "Lỗi xóa bài tri thức AI" }); }
+  });
+
+  // CRUD Mẫu Phản Hồi Nhanh (Macros)
+  router.get("/support/macros", async (_req, res) => {
+    try { res.json(await supportService.listMacros()); }
+    catch { res.status(500).json({ success: false, message: "Lỗi tải mẫu phản hồi nhanh" }); }
+  });
+  router.post("/support/macros", async (req, res) => {
+    try {
+      const r = await supportService.saveMacro(req.body || {});
+      if (r.success) await adminRepo.logAudit(req.adminUser.id, "SAVE_SUPPORT_MACRO", "support_macros", r.id, { title: req.body?.title });
+      res.status(r.success ? 200 : 400).json(r);
+    } catch { res.status(500).json({ success: false, message: "Lỗi lưu mẫu phản hồi nhanh" }); }
+  });
+  router.delete("/support/macros/:id", async (req, res) => {
+    try {
+      const r = await supportService.deleteMacro(req.params.id);
+      await adminRepo.logAudit(req.adminUser.id, "DELETE_SUPPORT_MACRO", "support_macros", req.params.id);
+      res.json(r);
+    } catch { res.status(500).json({ success: false, message: "Lỗi xóa mẫu phản hồi" }); }
+  });
+
+  // Luật SLA & Tự động định tuyến (Auto-Triage)
+  router.get("/support/sla-rules", async (_req, res) => {
+    try { res.json(await supportService.listSlaRules()); }
+    catch { res.status(500).json({ success: false, message: "Lỗi tải cấu hình SLA" }); }
+  });
+  router.put("/support/sla-rules", async (req, res) => {
+    try {
+      const r = await supportService.saveSlaRules(req.body?.rules || []);
+      await adminRepo.logAudit(req.adminUser.id, "UPDATE_SUPPORT_SLA_RULES", "support_sla_rules", 0);
+      res.json(r);
+    } catch { res.status(500).json({ success: false, message: "Lỗi lưu cấu hình SLA" }); }
+  });
+
+  // ── PHÁT THÔNG BÁO CHẠY CHỮ CHAT THẾ GIỚI ───────────────────────
+  const DEFAULT_WORLD_MSG = "🔥 [HỆ THỐNG] CHÀO MỪNG ĐẾN VỚI CHAT THẾ GIỚI — CỜ TỶ PHÚ ONLINE • GIAO LƯU VĂN MINH & CHÚC BẠN CHƠI VUI! 🔥";
+  router.get("/world-announcement", async (_req, res) => {
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS world_announcement_settings (
+          id TINYINT NOT NULL PRIMARY KEY,
+          message VARCHAR(400) NOT NULL,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      const [[row]] = await db.query("SELECT message FROM world_announcement_settings WHERE id = 1 LIMIT 1");
+      res.json({ success: true, message: row?.message || DEFAULT_WORLD_MSG });
+    } catch {
+      res.json({ success: true, message: DEFAULT_WORLD_MSG });
+    }
+  });
+  router.put("/world-announcement", async (req, res) => {
+    try {
+      const msg = String(req.body?.message || "").trim().slice(0, 380) || DEFAULT_WORLD_MSG;
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS world_announcement_settings (
+          id TINYINT NOT NULL PRIMARY KEY,
+          message VARCHAR(400) NOT NULL,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      await db.query(
+        "INSERT INTO world_announcement_settings (id, message) VALUES (1, ?) ON DUPLICATE KEY UPDATE message = VALUES(message)",
+        [msg]
+      );
+      deps.io?.emit("world:announcement", { message: msg });
+      await adminRepo.logAudit(req.adminUser.id, "BROADCAST_WORLD_ANNOUNCEMENT", "world_announcement_settings", 1, { message: msg });
+      res.json({ success: true, message: msg });
+    } catch (err) {
+      res.status(500).json({ success: false, message: "Lỗi phát thông báo Chat Thế Giới" });
     }
   });
 

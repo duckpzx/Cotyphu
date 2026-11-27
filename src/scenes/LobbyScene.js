@@ -6,6 +6,7 @@ import { SERVER_URL } from "../config.js";
 import { tarotLevelKey, tarotImagePath } from "../utils/tarotLevel.js";
 import { setupClickSound, playTabSound, playOutSound, isMusicEnabled, getAudioTrackUrl, getAudioTrackVolume, isAudioTrackEnabled } from "../utils/clickSound.js";
 import { openPayosTopUpFlow } from "../utils/payosModal.js";
+import { openSupportModal } from "../utils/supportModal.js";
 import { renderAvatarBadge } from "../utils/avatarBadge.js";
 import { createSettingsButton } from "../utils/settingsBar.js";
 
@@ -91,6 +92,7 @@ export default class LobbyScene extends Phaser.Scene {
     this.load.image("icon_setting", "assets/ui/shared/setting.png");
     this.load.image("icon_sound",   "assets/ui/shared/sound.png");
     this.load.image("icon_music",   "assets/ui/shared/music.png");
+    this.load.image("icon_support", "assets/ui/shared/sp.png");
 
     // Nhạc sảnh
     if (!this.cache.audio.exists("lobby_bgm")) {
@@ -126,6 +128,40 @@ export default class LobbyScene extends Phaser.Scene {
 
     // Nút Cài Đặt (Âm thanh / Nhạc nền) góc trên phải đồng bộ với Phòng Chờ
     createSettingsButton(this, { x: width - 46, y: 46, size: 58, depth: 80 });
+
+    // Nút Trung Tâm Hỗ Trợ (CSKH 3 Tầng: AI • Tự Chẩn Đoán • Ticket SLA) ngay dưới nút Cài Đặt
+    const supportBtn = this.add
+      .image(width - 46, 118, "icon_support")
+      .setDisplaySize(72, 72)
+      .setDepth(80)
+      .setInteractive({ cursor: "pointer" });
+    const supportDot = this.add
+      .circle(width - 18, 92, 7, 0xff2b43, 1)
+      .setStrokeStyle(2, 0xffffff, 1)
+      .setDepth(81)
+      .setVisible(false);
+
+    supportBtn.on("pointerover", () => {
+      this.tweens.add({ targets: supportBtn, scaleX: supportBtn.scaleX * 1.08, scaleY: supportBtn.scaleY * 1.08, duration: 110, ease: "Back.easeOut" });
+    });
+    supportBtn.on("pointerout", () => {
+      supportBtn.setDisplaySize(72, 72);
+    });
+    supportBtn.on("pointerup", () => {
+      supportDot.setVisible(false);
+      const pd = getPlayerData(this);
+      const token = pd?.token || this.player?.token || localStorage.getItem("token") || "";
+      openSupportModal({
+        scene: this,
+        token,
+        onEcoinSync: (latestEcoin) => {
+          EcoinManager.set(this, latestEcoin);
+          if (this.ecoinText) this.ecoinText.setText(Number(latestEcoin || 0).toLocaleString("vi-VN"));
+        },
+      });
+    });
+    this._supportBtn = supportBtn;
+    this._supportUnreadDot = supportDot;
 
     // ===== NỀN SẢNH CHUYỂN CẢNH KHÍ QUYỂN 24 GIỜ (DAY ↔ NIGHT CROSSFADE) =====
     const lCfg = this._lobbyConfig;
@@ -299,6 +335,8 @@ export default class LobbyScene extends Phaser.Scene {
       });
 
       playText.setPosition(w * playPos.rx, h * playPos.ry);
+      if (this._supportBtn) this._supportBtn.setPosition(w - 46, 118);
+      if (this._supportUnreadDot) this._supportUnreadDot.setPosition(w - 18, 92);
     });
   }
 
@@ -961,7 +999,6 @@ createTopBar() {
             myId: this.player?.user?.id
           });
           currentChat.build(CHAT_X, CHAT_Y, CHAT_W, CHAT_H);
-          currentChat.addSystemMessage("Chat Thế Giới — Chào mừng!");
           this._currentChatWidget = currentChat;
         });
       } else {
@@ -1439,6 +1476,16 @@ createTopBar() {
       this._showToast?.(data?.message || "Yêu cầu vào phòng bị từ chối.");
     });
 
+    // ── Thông báo real-time từ CSKH Admin (Hỗ Trợ Tier 2) ────────
+    this._worldSocket.on("support:admin_reply", (data) => {
+      this._supportUnreadDot?.setVisible(true);
+      this._showToast?.(`🎧 CSKH đã trả lời phiếu ${data?.ticket_code || ""}!`);
+    });
+    this._worldSocket.on("support:ticket_resolved", (data) => {
+      this._supportUnreadDot?.setVisible(true);
+      this._showToast?.(`⭐ Phiếu ${data?.ticket_code || ""} đã giải quyết — hãy chấm điểm hài lòng!`);
+    });
+
     // ── Lắng nghe PM đến để track unread ────────────────────────
     this._worldSocket.on("chat:pm:message", (data) => {
       const myId = this.player?.user?.id;
@@ -1768,8 +1815,6 @@ createTopBar() {
     openPayosTopUpFlow({
       scene: this,
       token,
-      amountVnd: 50000,
-      packageId: "pkg_50k",
       onPaid: (newEcoin, added) => {
         EcoinManager.set(this, newEcoin);
         if (playerData?.user) {

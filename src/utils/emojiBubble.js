@@ -42,32 +42,13 @@ export function showCharacterEmojiBubble(scene, {
 
     const container = scene.add.container(startX, startY).setDepth(depth).setScale(0.2).setAlpha(0);
 
-    const bw = size + 10;
-    const bh = size + 8;
-    const rad = Math.min(16, Math.round(bh * 0.24));
-    const g = scene.add.graphics();
-    // Bóng đổ nhẹ
-    g.fillStyle(0x000000, 0.18);
-    g.fillRoundedRect(-bw / 2 + 1.5, -bh / 2 + 2.5, bw, bh, rad);
-    // Lớp nền kính mờ gọn sát emoji
-    g.fillStyle(0x081526, 0.30);
-    g.fillRoundedRect(-bw / 2, -bh / 2, bw, bh, rad);
-    // Viền mảnh tinh tế
-    g.lineStyle(1, 0xbfeaff, 0.48);
-    g.strokeRoundedRect(-bw / 2, -bh / 2, bw, bh, rad);
-    // Đuôi nhỏ góc dưới-trái chỉ về phía đầu nhân vật
-    const tx = -bw * 0.22;
-    g.fillStyle(0x081526, 0.30);
-    g.fillTriangle(tx, bh / 2 - 1, tx + 10, bh / 2 - 1, tx - 4, bh / 2 + 7);
-    g.lineStyle(1, 0xbfeaff, 0.48);
-    g.beginPath();
-    g.moveTo(tx, bh / 2);
-    g.lineTo(tx - 4, bh / 2 + 7);
-    g.lineTo(tx + 10, bh / 2);
-    g.strokePath();
+    // Không vẽ khung viền ngoài — chỉ hiện Emoji nổi sắc nét kèm quầng sáng nhẹ phía sau
+    const glow = scene.add.graphics();
+    glow.fillStyle(0xffffff, 0.16);
+    glow.fillCircle(0, 0, size * 0.56);
 
     const img = scene.add.image(0, 0, key).setDisplaySize(size, size);
-    container.add([g, img]);
+    container.add([glow, img]);
 
     // Nếu bám theo sprite đang đi bộ trên bàn cờ
     let followEvent = null;

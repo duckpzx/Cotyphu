@@ -22,6 +22,8 @@ const TAB_POLL_MS = {
   characters: 12000,
   sprites: 60000,
   console: 2000,
+  payments: 5000,
+  support: 4000,
 };
 
 // Cache dữ liệu hiện tại để mở modal nhanh
@@ -172,6 +174,7 @@ const TAB_TITLES = {
   sprites: "[ ASSET & SPRITE STUDIO — NPC / SKIN / TAROT / PHÔNG NỀN / TINH CẦU ]",
   console: "[ SYSTEM CONSOLE — LIVE TAIL TOÀN HỆ THỐNG ]",
   payments: "[ QUẢN LÝ NẠP TIỀN, TÀI KHOẢN GỐC & DOANH THU ]",
+  support: "[ TRUNG TÂM HỖ TRỢ NGƯỜI CHƠI — AI / SLA / CSAT ]",
 };
 
 function setTabHtml(html, silent = _silentRender) {
@@ -210,12 +213,19 @@ async function loadTab(tab, { silent = false } = {}) {
   const conSearch  = keepFilters ? ($("consoleSearchInput")?.value || "") : "";
   const payStatus  = keepFilters ? ($("payStatusSelect")?.value || "all") : "all";
   const paySearch  = keepFilters ? ($("paySearchInput")?.value || "") : "";
+  const supStatus  = keepFilters ? ($("supStatusSelect")?.value || "all") : "all";
+  const supCat     = keepFilters ? ($("supCatSelect")?.value || "all") : "all";
+  const supSearch  = keepFilters ? ($("supSearchInput")?.value || "") : "";
 
-  // Không tự ghi đè DOM khi admin đang chỉnh cấu hình ngân hàng / gói nạp
+  // Không tự ghi đè DOM khi admin đang chỉnh cấu hình ngân hàng / gói nạp / tri thức AI / SLA
   if (silent && tab === "payments" && paymentSubTab !== "history") {
     return;
   }
+  if (silent && tab === "support" && supportSubTab !== "queue") {
+    return;
+  }
 
+  if (prevTab !== tab) stopSpritePreview();
   if (!silent) {
     $("tabContent").innerHTML = `<div class="empty-state">&gt; đang tải telemetry...</div>`;
   }
@@ -235,6 +245,7 @@ async function loadTab(tab, { silent = false } = {}) {
     else if (tab === "sprites") await renderSpriteStudio();
     else if (tab === "console") await renderSystemConsole(consoleCategory, conSearch);
     else if (tab === "payments") await renderPayments(payStatus, paySearch);
+    else if (tab === "support") await renderSupport(supStatus, supCat, supSearch);
     markSyncedNow();
   } catch (err) {
     if (!silent) {
@@ -251,18 +262,14 @@ async function loadTab(tab, { silent = false } = {}) {
 //  1. OVERVIEW
 // ═══════════════════════════════════════════════════════════════
 async function renderOverview() {
-  const res = await api("/overview");
+  const [res, annRes] = await Promise.all([
+    api("/overview"),
+    api("/world-announcement").catch(() => ({ message: "" })),
+  ]);
   const s = res.stats || {};
-  const w = res.weather || { mode: "snow", density: 72 };
   const logs = res.recent_logs || [];
+  const worldAnnMsg = annRes?.message || "";
   const onlinePct = s.total_users > 0 ? Math.min(100, Math.round((s.online_users / s.total_users) * 100)) : 0;
-
-  const weatherModes = [
-    { id: "none",  label: "Tắt hiệu ứng" },
-    { id: "snow",  label: "❄️ Tuyết Rơi (Giáng Sinh)" },
-    { id: "peach", label: "🌸 Hoa Đào (Mùa Xuân / Tết)" },
-    { id: "both",  label: "✨ Kết Hợp Cả Hai" },
-  ];
 
   setTabHtml(`
     <div class="kpi-grid">
@@ -321,20 +328,14 @@ async function renderOverview() {
     </div>
 
     <div class="panel" style="margin-bottom:14px">
-      <div class="panel-head" style="flex-wrap:wrap;gap:10px">
-        <h3>[ HIỆU ỨNG THỜI TIẾT TOÀN GAME (MỌI SCENE) ]</h3>
-        <span class="muted">đồng bộ tự động cho tất cả người chơi (lưu MySQL weather_settings)</span>
+      <div class="panel-head" style="flex-wrap:wrap;gap:8px">
+        <h3>[ 📢 THÔNG BÁO CHẠY CHỮ GRADIENT — CHAT THẾ GIỚI ]</h3>
+        <span class="muted">phát real-time tới tất cả người chơi đang online</span>
       </div>
-      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px">
-        ${weatherModes.map(m => `
-          <button type="button" class="btn ${w.mode === m.id ? "btn-primary" : "btn-ghost"} btn-sm" data-weather-mode="${m.id}">
-            ${m.label}
-          </button>
-        `).join("")}
-        <label style="margin-left:auto;display:inline-flex;align-items:center;gap:8px;font-size:12px">
-          <span class="muted">Mật độ: <b id="ovWeatherDensityVal" class="cyan-val">${Number(w.density || 72)}</b></span>
-          <input id="ovWeatherDensity" type="range" min="25" max="115" value="${Number(w.density || 72)}" style="width:120px;accent-color:var(--cyan)" />
-        </label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input id="ovWorldAnnInput" class="input-sm" style="flex:1;min-width:260px" maxlength="360" placeholder="Nhập thông báo sự kiện / bảo trì / chúc mừng..." value="${esc(worldAnnMsg)}" />
+        <button type="button" id="ovWorldAnnSendBtn" class="btn btn-primary btn-sm">📢 PHÁT NGAY</button>
+        <button type="button" id="ovWorldAnnResetBtn" class="btn btn-ghost btn-sm">↩ MẶC ĐỊNH</button>
       </div>
     </div>
 
@@ -347,32 +348,18 @@ async function renderOverview() {
     </div>
   `);
 
-  let activeWeatherMode = w.mode || "snow";
-  const saveWeather = async (nextMode, nextDensity) => {
-    try {
-      const r = await api("/weather", {
-        method: "PUT",
-        body: JSON.stringify({ mode: nextMode, density: Number(nextDensity || 72) }),
-      });
-      if (r.success) {
-        activeWeatherMode = r.mode;
-        showToast(`Đã áp dụng thời tiết: ${weatherModes.find(x => x.id === r.mode)?.label || r.mode}`);
-        renderOverview();
-      }
-    } catch (err) {
-      showToast(err.message || "Lỗi lưu hiệu ứng thời tiết", "error");
+  $("ovWorldAnnSendBtn")?.addEventListener("click", async () => {
+    const msg = ($("ovWorldAnnInput")?.value || "").trim();
+    const r = await api("/world-announcement", { method: "PUT", body: JSON.stringify({ message: msg }) });
+    if (r?.success) showToast("Đã phát thông báo chạy chữ lên Chat Thế Giới!");
+    else showToast(r?.message || "Lỗi phát thông báo", "error");
+  });
+  $("ovWorldAnnResetBtn")?.addEventListener("click", async () => {
+    const r = await api("/world-announcement", { method: "PUT", body: JSON.stringify({ message: "" }) });
+    if (r?.success) {
+      if ($("ovWorldAnnInput")) $("ovWorldAnnInput").value = r.message || "";
+      showToast("Đã khôi phục dòng chào mừng mặc định!");
     }
-  };
-  document.querySelectorAll("[data-weather-mode]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      saveWeather(btn.dataset.weatherMode, $("ovWeatherDensity")?.value || 72);
-    });
-  });
-  $("ovWeatherDensity")?.addEventListener("input", (e) => {
-    if ($("ovWeatherDensityVal")) $("ovWeatherDensityVal").textContent = e.target.value;
-  });
-  $("ovWeatherDensity")?.addEventListener("change", (e) => {
-    saveWeather(activeWeatherMode, e.target.value);
   });
 
   document.querySelectorAll("[data-jump-tab]").forEach(card => {
@@ -1450,10 +1437,16 @@ let skinStudioState = {
   playing: true,
 };
 
+let _weatherPreviewRaf = null;
+
 function stopSpritePreview() {
   if (spritePreviewTimer) {
     clearInterval(spritePreviewTimer);
     spritePreviewTimer = null;
+  }
+  if (_weatherPreviewRaf) {
+    cancelAnimationFrame(_weatherPreviewRaf);
+    _weatherPreviewRaf = null;
   }
 }
 
@@ -1516,6 +1509,7 @@ function studioSubTabsHtml() {
     { key: "lobby", label: "07. Sảnh Chờ Ngày/Đêm" },
     { key: "scenes", label: "08. BXH & Nghiên Cứu" },
     { key: "audio", label: "09. Âm Thanh & Nhạc Nền" },
+    { key: "weather", label: "10. Hiệu Ứng Thời Tiết" },
   ];
   return `
     <div class="subtab-bar">
@@ -1539,6 +1533,7 @@ async function renderSpriteStudio() {
   if (studioSubTab === "lobby") return renderStudioLobby();
   if (studioSubTab === "scenes") return renderStudioScenes();
   if (studioSubTab === "audio") return renderStudioAudio();
+  if (studioSubTab === "weather") return renderStudioWeather();
 }
 
 // ── SUB-TAB 1: NPC (QUÁI VẬT & THẦY GIÁO) ───────────────────────
@@ -3793,6 +3788,362 @@ async function renderStudioAudio() {
   });
 }
 
+// ── SUB-TAB 10: HIỆU ỨNG THỜI TIẾT TOÀN GAME + LIVE PREVIEW ─────
+let _weatherPreviewBg = "board"; // "board" | "day" | "night"
+
+function buildWeatherPreviewSprites() {
+  const crystal = document.createElement("canvas");
+  crystal.width = 36; crystal.height = 36;
+  const cg = crystal.getContext("2d");
+  cg.translate(18, 18);
+  cg.strokeStyle = "rgba(255,255,255,0.96)";
+  cg.fillStyle = "rgba(255,255,255,0.96)";
+  cg.shadowColor = "rgba(186,232,255,0.95)";
+  cg.shadowBlur = 5;
+  cg.lineCap = "round";
+  for (let i = 0; i < 6; i++) {
+    cg.save();
+    cg.rotate((i * Math.PI) / 3);
+    cg.lineWidth = 1.4;
+    cg.beginPath(); cg.moveTo(0, 0); cg.lineTo(0, -11); cg.stroke();
+    cg.lineWidth = 1;
+    cg.beginPath();
+    cg.moveTo(0, -5); cg.lineTo(-3, -7.5);
+    cg.moveTo(0, -5); cg.lineTo(3, -7.5);
+    cg.moveTo(0, -8); cg.lineTo(-2, -10);
+    cg.moveTo(0, -8); cg.lineTo(2, -10);
+    cg.stroke();
+    cg.restore();
+  }
+  cg.beginPath(); cg.arc(0, 0, 1.8, 0, Math.PI * 2); cg.fill();
+
+  const soft = document.createElement("canvas");
+  soft.width = 24; soft.height = 24;
+  const sg = soft.getContext("2d");
+  const sGrad = sg.createRadialGradient(12, 12, 0, 12, 12, 12);
+  sGrad.addColorStop(0, "rgba(255,255,255,0.96)");
+  sGrad.addColorStop(0.45, "rgba(232,246,255,0.75)");
+  sGrad.addColorStop(1, "rgba(190,228,255,0)");
+  sg.fillStyle = sGrad; sg.fillRect(0, 0, 24, 24);
+
+  const makePetal = (light, mid, deep, glow) => {
+    const c = document.createElement("canvas");
+    c.width = 44; c.height = 44;
+    const g = c.getContext("2d");
+    g.translate(22, 22);
+    g.shadowColor = glow; g.shadowBlur = 6;
+    const gr = g.createRadialGradient(-2, -4, 1, 0, 2, 16);
+    gr.addColorStop(0, light); gr.addColorStop(0.55, mid); gr.addColorStop(1, deep);
+    g.fillStyle = gr;
+    g.beginPath();
+    g.moveTo(0, 12);
+    g.bezierCurveTo(-11, 5, -12, -9, -3.5, -13);
+    g.quadraticCurveTo(0, -9.5, 0, -8);
+    g.quadraticCurveTo(0, -9.5, 3.5, -13);
+    g.bezierCurveTo(12, -9, 11, 5, 0, 12);
+    g.closePath();
+    g.fill();
+    return c;
+  };
+  const petals = [
+    makePetal("#fff1f5", "#ff9ec2", "#e8548c", "rgba(255,150,190,0.7)"),
+    makePetal("#ffe4ee", "#ff77ac", "#d63b78", "rgba(255,120,170,0.7)"),
+    makePetal("#fff5f8", "#ffb6d1", "#f06d9f", "rgba(255,175,205,0.65)"),
+  ];
+
+  const blossom = document.createElement("canvas");
+  blossom.width = 48; blossom.height = 48;
+  const bg = blossom.getContext("2d");
+  bg.translate(24, 24);
+  bg.shadowColor = "rgba(255,130,175,0.75)"; bg.shadowBlur = 6;
+  for (let i = 0; i < 5; i++) {
+    bg.save();
+    bg.rotate((i * Math.PI * 2) / 5);
+    const gr = bg.createRadialGradient(0, -3, 1, 0, -9, 10);
+    gr.addColorStop(0, "#fff0f5"); gr.addColorStop(0.5, "#ff8fb8"); gr.addColorStop(1, "#e84a86");
+    bg.fillStyle = gr;
+    bg.beginPath();
+    bg.moveTo(0, -1);
+    bg.bezierCurveTo(-7, -4, -7, -14, -2, -16);
+    bg.quadraticCurveTo(0, -13, 2, -16);
+    bg.bezierCurveTo(7, -14, 7, -4, 0, -1);
+    bg.closePath();
+    bg.fill();
+    bg.restore();
+  }
+  bg.shadowBlur = 0;
+  bg.fillStyle = "#fde047";
+  bg.beginPath(); bg.arc(0, 0, 2.8, 0, Math.PI * 2); bg.fill();
+
+  return { crystal, soft, petals, blossom };
+}
+
+async function renderStudioWeather() {
+  stopSpritePreview();
+  const [res, lobbyRes, mapRes] = await Promise.all([
+    api("/weather"),
+    api("/assets/lobby").catch(() => null),
+    api("/assets/maps").catch(() => null),
+  ]);
+  const savedMode = res.mode || "snow";
+  const savedDensity = Number(res.density || 46);
+
+  const activeLobby = (lobbyRes?.presets || []).find(p => p.id === lobbyRes?.active_lobby_id) || lobbyRes?.presets?.[0] || null;
+  const lobbyVer = activeLobby?.version ? `?v=${activeLobby.version}` : "";
+  const activeDayUrl = activeLobby?.day_url ? `${activeLobby.day_url}${lobbyVer}` : "/assets/ui/lobby/background_light.png";
+  const activeNightUrl = activeLobby?.night_url ? `${activeLobby.night_url}${lobbyVer}` : "/assets/ui/lobby/background_dark.png";
+
+  const activeMap = (mapRes?.maps || []).find(m => m.id === mapRes?.active_map_id) || mapRes?.maps?.[0] || null;
+  const mapVer = activeMap?.version ? `?v=${activeMap.version}` : "";
+  const activeMapUrl = activeMap?.image_url ? `${activeMap.image_url}${mapVer}` : "/assets/ui/bg/0-ngocphumedia_0.png";
+  const activeMapName = activeMap?.name || "Bàn Cờ";
+
+  let previewMode = savedMode;
+  let previewDensity = savedDensity;
+
+  const weatherModes = [
+    { id: "none",  label: "Tắt hiệu ứng", desc: "Không hiển thị hạt rơi trên mọi Scene" },
+    { id: "snow",  label: "❄️ Tuyết Rơi (Giáng Sinh)", desc: "Tinh thể tuyết 6 cánh xoay nhẹ + hạt tuyết bokeh 3 tầng" },
+    { id: "peach", label: "🌸 Hoa Đào (Mùa Xuân / Tết)", desc: "Cánh hoa đào lật 3D mềm + bông đào 5 cánh nhụy vàng" },
+    { id: "both",  label: "✨ Kết Hợp Cả Hai", desc: "Tuyết rơi lung linh hòa quyện cùng cánh hoa đào" },
+  ];
+
+  const bgOptions = [
+    { id: "board", label: `🗺️ ${activeMapName}`, url: activeMapUrl },
+    { id: "day",   label: "☀️ Sảnh Ngày (Đang dùng)", url: activeDayUrl },
+    { id: "night", label: "🌙 Sảnh Đêm (Đang dùng)",  url: activeNightUrl },
+  ];
+
+  setTabHtml(`
+    ${studioSubTabsHtml()}
+
+    <div class="panel">
+      <div class="panel-head" style="flex-wrap:wrap;gap:10px">
+        <h3>[ HIỆU ỨNG THỜI TIẾT TOÀN GAME &amp; BẢN XEM TRƯỚC LIVE ]</h3>
+        <span class="muted">đồng bộ tự động mọi Scene cho tất cả người chơi (MySQL weather_settings)</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(280px, 340px) 1fr;gap:18px;align-items:start;">
+        <!-- Cột trái: Điều khiển -->
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div style="font-size:12px;color:var(--muted)">CHỌN CHẾ ĐỘ THỜI TIẾT (XEM TRƯỚC NGAY):</div>
+          <div style="display:flex;flex-direction:column;gap:8px;" id="studioWeatherModeList">
+            ${weatherModes.map(m => `
+              <button type="button" class="btn ${previewMode === m.id ? "btn-primary" : "btn-ghost"}" data-sw-mode="${m.id}" style="text-align:left;padding:10px 12px;display:flex;flex-direction:column;gap:3px;">
+                <span style="font-weight:700">${m.label}</span>
+                <span style="font-size:11px;opacity:0.78;font-weight:400">${m.desc}</span>
+              </button>
+            `).join("")}
+          </div>
+
+          <div class="hud-box" style="padding:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:12px;">
+              <span class="muted">MẬT ĐỘ HẠT RƠI</span>
+              <b id="swDensityVal" class="cyan-val">${previewDensity}</b>
+            </div>
+            <input id="swDensityRange" type="range" min="20" max="115" value="${previewDensity}" style="width:100%;accent-color:var(--cyan)" />
+            <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin-top:4px;">
+              <span>Nhẹ (20)</span><span>Tối ưu FPS (46)</span><span>Dày (115)</span>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="button" id="swSaveBtn" class="btn btn-primary" style="flex:1">💾 LƯU &amp; ÁP DỤNG TOÀN GAME</button>
+          </div>
+          <div id="swStatusHint" style="font-size:11.5px;color:var(--green);">
+            ✓ Đang đồng bộ với cấu hình trực tiếp trên Server (${esc(savedMode)} • mật độ ${savedDensity})
+          </div>
+        </div>
+
+        <!-- Cột phải: Bản Xem Trước Trực Tiếp -->
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+            <span style="font-size:12px;font-weight:700;color:var(--cyan)">[ LIVE PREVIEW CANVAS — 30 FPS ]</span>
+            <div style="display:flex;gap:6px;" id="swBgSwitcher">
+              ${bgOptions.map(b => `
+                <button type="button" class="btn ${_weatherPreviewBg === b.id ? "btn-primary" : "btn-ghost"} btn-sm" data-sw-bg="${b.id}">
+                  ${b.label}
+                </button>
+              `).join("")}
+            </div>
+          </div>
+
+          <div id="swPreviewStage" style="position:relative;width:100%;aspect-ratio:16/9;border-radius:10px;overflow:hidden;border:1px solid #1e3a52;background:#09131f url('${(bgOptions.find(b => b.id === _weatherPreviewBg) || bgOptions[0]).url}') center/cover no-repeat;box-shadow:0 8px 28px rgba(0,0,0,0.45);">
+            <canvas id="swPreviewCanvas" style="position:absolute;inset:0;width:100%;height:100%;display:block;"></canvas>
+            <div id="swPreviewHud" style="position:absolute;left:10px;bottom:10px;background:rgba(6,12,20,0.72);border:1px solid rgba(56,189,248,0.35);padding:4px 10px;border-radius:6px;font-size:11px;color:#dff8ff;">
+              Mode: <b>${esc(previewMode.toUpperCase())}</b> • Mật độ: <b>${previewDensity}</b>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `);
+
+  const canvas = $("swPreviewCanvas");
+  const stage = $("swPreviewStage");
+  const hud = $("swPreviewHud");
+  const statusHint = $("swStatusHint");
+  const sprites = buildWeatherPreviewSprites();
+  let particles = [];
+  let cw = 720, ch = 405;
+
+  const resizeCanvas = () => {
+    if (!canvas || !stage) return;
+    const rect = stage.getBoundingClientRect();
+    cw = Math.max(320, Math.round(rect.width || 720));
+    ch = Math.max(180, Math.round(rect.height || 405));
+    canvas.width = cw;
+    canvas.height = ch;
+  };
+  resizeCanvas();
+
+  const spawnParticle = (randomY = false) => {
+    const isPeach = previewMode === "peach" || (previewMode === "both" && Math.random() < 0.52);
+    const kind = isPeach
+      ? (Math.random() < 0.24 ? "blossom" : "petal")
+      : (Math.random() < 0.32 ? "crystal" : "soft");
+    return {
+      kind,
+      x: Math.random() * cw,
+      y: randomY ? Math.random() * ch : -24 - Math.random() * 60,
+      size: kind === "blossom" ? 16 + Math.random() * 10 : kind === "petal" ? 13 + Math.random() * 9 : kind === "crystal" ? 12 + Math.random() * 9 : 7 + Math.random() * 8,
+      vy: isPeach ? 26 + Math.random() * 28 : 28 + Math.random() * 34,
+      vx: 10 + Math.random() * 18,
+      swayAmp: isPeach ? 22 + Math.random() * 24 : 10 + Math.random() * 14,
+      swaySpd: 0.9 + Math.random() * 1.2,
+      phase: Math.random() * Math.PI * 2,
+      rot: Math.random() * Math.PI * 2,
+      rotSpd: (Math.random() - 0.5) * 1.8,
+      flip: Math.random() * Math.PI * 2,
+      flipSpd: 1.4 + Math.random() * 1.8,
+      alpha: 0.65 + Math.random() * 0.35,
+      petalIdx: Math.floor(Math.random() * sprites.petals.length),
+    };
+  };
+
+  const rebuildParticles = () => {
+    particles = [];
+    if (previewMode === "none") return;
+    const count = Math.max(12, Math.min(115, Math.round(previewDensity * 0.85)));
+    for (let i = 0; i < count; i++) particles.push(spawnParticle(true));
+  };
+  rebuildParticles();
+
+  let lastTs = performance.now();
+  const loop = (ts) => {
+    if (!document.body.contains(canvas)) {
+      _weatherPreviewRaf = null;
+      return;
+    }
+    _weatherPreviewRaf = requestAnimationFrame(loop);
+    const dtMs = ts - lastTs;
+    if (dtMs < 32) return; // ~30 FPS mượt & nhẹ CPU
+    lastTs = ts;
+    const dt = Math.min(0.06, dtMs / 1000);
+
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, cw, ch);
+    if (previewMode === "none") return;
+
+    const t = ts * 0.001;
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      p.y += p.vy * dt;
+      p.x += (p.vx + Math.sin(t * p.swaySpd + p.phase) * p.swayAmp) * dt;
+      p.rot += p.rotSpd * dt;
+      p.flip += p.flipSpd * dt;
+
+      if (p.y > ch + 28 || p.x > cw + 36) {
+        particles[i] = spawnParticle(false);
+        continue;
+      }
+
+      ctx.save();
+      ctx.globalAlpha = p.alpha;
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      if (p.kind === "petal") {
+        ctx.scale(1, 0.38 + 0.62 * Math.abs(Math.cos(p.flip)));
+        ctx.drawImage(sprites.petals[p.petalIdx], -p.size / 2, -p.size / 2, p.size, p.size);
+      } else if (p.kind === "blossom") {
+        ctx.drawImage(sprites.blossom, -p.size / 2, -p.size / 2, p.size, p.size);
+      } else if (p.kind === "crystal") {
+        ctx.drawImage(sprites.crystal, -p.size / 2, -p.size / 2, p.size, p.size);
+      } else {
+        ctx.drawImage(sprites.soft, -p.size / 2, -p.size / 2, p.size, p.size);
+      }
+      ctx.restore();
+    }
+  };
+  _weatherPreviewRaf = requestAnimationFrame(loop);
+
+  const updateHudAndHint = () => {
+    if (hud) hud.innerHTML = `Mode: <b>${esc(previewMode.toUpperCase())}</b> • Mật độ: <b>${previewDensity}</b>`;
+    if (statusHint) {
+      const dirty = previewMode !== savedMode || previewDensity !== savedDensity;
+      statusHint.style.color = dirty ? "#f5c542" : "var(--green)";
+      statusHint.textContent = dirty
+        ? "● Đang xem trước thay đổi — bấm 'LƯU & ÁP DỤNG TOÀN GAME' để phát tới người chơi."
+        : `✓ Đang đồng bộ với cấu hình trực tiếp trên Server (${savedMode} • mật độ ${savedDensity})`;
+    }
+  };
+
+  document.querySelectorAll("[data-sw-mode]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      previewMode = btn.dataset.swMode;
+      document.querySelectorAll("[data-sw-mode]").forEach(b => {
+        b.classList.toggle("btn-primary", b.dataset.swMode === previewMode);
+        b.classList.toggle("btn-ghost", b.dataset.swMode !== previewMode);
+      });
+      rebuildParticles();
+      updateHudAndHint();
+    });
+  });
+
+  $("swDensityRange")?.addEventListener("input", (e) => {
+    previewDensity = Number(e.target.value);
+    if ($("swDensityVal")) $("swDensityVal").textContent = previewDensity;
+    rebuildParticles();
+    updateHudAndHint();
+  });
+
+  document.querySelectorAll("[data-sw-bg]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      _weatherPreviewBg = btn.dataset.swBg;
+      const found = bgOptions.find(b => b.id === _weatherPreviewBg) || bgOptions[0];
+      if (stage) stage.style.backgroundImage = `url('${found.url}')`;
+      document.querySelectorAll("[data-sw-bg]").forEach(b => {
+        b.classList.toggle("btn-primary", b.dataset.swBg === _weatherPreviewBg);
+        b.classList.toggle("btn-ghost", b.dataset.swBg !== _weatherPreviewBg);
+      });
+    });
+  });
+
+  $("swSaveBtn")?.addEventListener("click", async () => {
+    const btn = $("swSaveBtn");
+    btn.disabled = true;
+    btn.textContent = "⏳ ĐANG LƯU...";
+    try {
+      const r = await api("/weather", {
+        method: "PUT",
+        body: JSON.stringify({ mode: previewMode, density: previewDensity }),
+      });
+      if (r.success) {
+        showToast(`Đã áp dụng thời tiết toàn game: ${weatherModes.find(x => x.id === r.mode)?.label || r.mode} (mật độ ${r.density})`);
+        renderStudioWeather();
+      } else {
+        showToast(r.message || "Lỗi lưu hiệu ứng thời tiết", "error");
+        btn.disabled = false;
+        btn.textContent = "💾 LƯU & ÁP DỤNG TOÀN GAME";
+      }
+    } catch (err) {
+      showToast(err.message || "Lỗi lưu hiệu ứng thời tiết", "error");
+      btn.disabled = false;
+      btn.textContent = "💾 LƯU & ÁP DỤNG TOÀN GAME";
+    }
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════
 //  12. PAYMENT, BANK CONFIG, PACKAGES & REVENUE MANAGEMENT
 // ═══════════════════════════════════════════════════════════════
@@ -4438,6 +4789,647 @@ async function renderPayments(statusFilter = "all", searchQuery = "") {
       }
     });
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  13. TRUNG TÂM HỖ TRỢ NGƯỜI CHƠI (CSKH — AI / KB / SLA / COPILOT / ANALYTICS)
+// ═══════════════════════════════════════════════════════════════
+let supportSubTab = "queue"; // "queue" | "kb" | "sla" | "analytics"
+let _cachedSupportMacros = [];
+
+function supportSubTabsHtml() {
+  const tabs = [
+    { key: "queue",     label: "01. Hàng đợi Ticket & Xử lý 1-Click" },
+    { key: "kb",        label: "02. Kho Tri Thức AI & Mẫu Phản Hồi (Macros)" },
+    { key: "sla",       label: "03. Luật SLA & Tự động Phân loại" },
+    { key: "analytics", label: "04. Phân Tích AI & Chất Lượng CSKH" },
+  ];
+  return `
+    <div class="subtab-bar" style="margin-bottom:14px;">
+      ${tabs.map(t => `
+        <button class="btn ${supportSubTab === t.key ? "btn-primary" : "btn-secondary"} btn-sm" data-sup-sub="${t.key}">
+          ${t.label}
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function bindSupportSubTabs(statusFilter, categoryFilter, searchQuery) {
+  document.querySelectorAll("[data-sup-sub]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      supportSubTab = btn.dataset.supSub;
+      renderSupport(statusFilter, categoryFilter, searchQuery);
+    });
+  });
+}
+
+function fmtSlaBadge(ticket) {
+  if (ticket.status === "RESOLVED" || ticket.status === "CLOSED") {
+    return `<span class="badge ok">HOÀN TẤT</span>`;
+  }
+  const dueMs = new Date(ticket.sla_due_at).getTime();
+  if (!Number.isFinite(dueMs)) return `<span class="badge">—</span>`;
+  const diffMin = Math.round((dueMs - Date.now()) / 60000);
+  if (diffMin < 0) return `<span class="badge danger">QUÁ HẠN ${Math.abs(diffMin)}p</span>`;
+  if (diffMin <= 10) return `<span class="badge warn">CÒN ${diffMin}p</span>`;
+  return `<span class="badge info">CÒN ${diffMin}p</span>`;
+}
+
+async function renderSupport(statusFilter = "all", categoryFilter = "all", searchQuery = "") {
+  if (supportSubTab === "kb") return renderSupportKnowledgeBase(statusFilter, categoryFilter, searchQuery);
+  if (supportSubTab === "sla") return renderSupportSlaRules(statusFilter, categoryFilter, searchQuery);
+
+  const qs = new URLSearchParams({ status: statusFilter, category: categoryFilter, search: searchQuery });
+  const res = await api(`/support/summary?${qs.toString()}`);
+  const s = res.stats || {};
+  const tickets = res.tickets || [];
+  const analytics = res.analytics || { top_intents: [], csat_distribution: [] };
+  _cachedSupportMacros = res.macros || [];
+
+  if (supportSubTab === "analytics") {
+    return renderSupportAnalytics(s, analytics, statusFilter, categoryFilter, searchQuery);
+  }
+
+  const prioBadge = (p) => {
+    if (p === "HIGH") return `<span class="badge danger">HIGH</span>`;
+    if (p === "MEDIUM") return `<span class="badge warn">MEDIUM</span>`;
+    return `<span class="badge info">LOW</span>`;
+  };
+  const statusBadge = (st) => {
+    if (st === "OPEN") return `<span class="badge warn">OPEN</span>`;
+    if (st === "IN_PROGRESS") return `<span class="badge info">IN_PROGRESS</span>`;
+    if (st === "RESOLVED") return `<span class="badge ok">RESOLVED</span>`;
+    return `<span class="badge">CLOSED</span>`;
+  };
+
+  setTabHtml(`
+    ${supportSubTabsHtml()}
+
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">AI DEFLECTION RATE (TIER 0)</div>
+        <div class="kpi-value accent-green">${s.deflection_rate || 0}%</div>
+        <div class="kpi-sub">AI tự giải quyết: <span class="cyan-val">${s.ai_resolved || 0}/${s.total_ai_queries || 0}</span> lượt hỏi</div>
+        <div class="kpi-bar-track"><div class="kpi-bar-fill" style="width:${Math.min(100, s.deflection_rate || 0)}%"></div></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">TỶ LỆ ĐẠT CAM KẾT SLA</div>
+        <div class="kpi-value cyan-val">${s.sla_compliance ?? 100}%</div>
+        <div class="kpi-sub">đang mở: <b>${s.active_tickets || 0}</b> • quá hạn: <b class="${s.sla_breached > 0 ? "danger-txt" : ""}">${s.sla_breached || 0}</b></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">ĐIỂM HÀI LÒNG CSAT</div>
+        <div class="kpi-value" style="color:#f5c542">${s.avg_csat ? `${s.avg_csat} ★` : "—"}</div>
+        <div class="kpi-sub">trên ${s.csat_count || 0} lượt đánh giá (thang 5.0)</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">MTTR (PHẢN HỒI ĐẦU TB)</div>
+        <div class="kpi-value">${s.avg_mttr_min || 0} <span style="font-size:15px">phút</span></div>
+        <div class="kpi-sub">tổng ${s.total_tickets || 0} phiếu • đã xong ${s.resolved_tickets || 0}</div>
+      </div>
+    </div>
+
+    <div class="hud-box panel-pad" style="margin-top:14px;">
+      <div class="toolbar">
+        <select id="supStatusSelect" class="input-sm">
+          <option value="all" ${statusFilter === "all" ? "selected" : ""}>Tất cả trạng thái</option>
+          <option value="OPEN" ${statusFilter === "OPEN" ? "selected" : ""}>OPEN (Mới)</option>
+          <option value="IN_PROGRESS" ${statusFilter === "IN_PROGRESS" ? "selected" : ""}>IN_PROGRESS (Đang xử lý)</option>
+          <option value="RESOLVED" ${statusFilter === "RESOLVED" ? "selected" : ""}>RESOLVED (Đã giải quyết)</option>
+          <option value="CLOSED" ${statusFilter === "CLOSED" ? "selected" : ""}>CLOSED (Đã đóng)</option>
+        </select>
+        <select id="supCatSelect" class="input-sm">
+          <option value="all" ${categoryFilter === "all" ? "selected" : ""}>Tất cả phân loại</option>
+          <option value="PAYMENT" ${categoryFilter === "PAYMENT" ? "selected" : ""}>PAYMENT (Nạp tiền)</option>
+          <option value="ACCOUNT" ${categoryFilter === "ACCOUNT" ? "selected" : ""}>ACCOUNT (Tài khoản)</option>
+          <option value="BUG" ${categoryFilter === "BUG" ? "selected" : ""}>BUG (Lỗi kỹ thuật)</option>
+          <option value="REPORT" ${categoryFilter === "REPORT" ? "selected" : ""}>REPORT (Tố cáo)</option>
+          <option value="OTHER" ${categoryFilter === "OTHER" ? "selected" : ""}>OTHER (Khác)</option>
+        </select>
+        <input id="supSearchInput" class="input-sm" style="min-width:220px" placeholder="Tìm mã SUP-..., tiêu đề, người chơi..." value="${esc(searchQuery)}" />
+        <button id="supFilterBtn" class="btn btn-primary btn-sm">LỌC</button>
+      </div>
+
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>MÃ PHIẾU</th>
+              <th>NGƯỜI CHƠI</th>
+              <th>PHÂN LOẠI / TIÊU ĐỀ</th>
+              <th>ƯU TIÊN</th>
+              <th>SLA</th>
+              <th>TRẠNG THÁI</th>
+              <th>CSAT</th>
+              <th>TẠO LÚC</th>
+              <th>THAO TÁC</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tickets.length ? tickets.map(t => `
+              <tr>
+                <td><b class="cyan-val">${esc(t.ticket_code)}</b><div class="muted" style="font-size:11px">${t.msg_count || 0} tin nhắn</div></td>
+                <td><b>${esc(t.user_name || t.username || ("UID #" + t.user_id))}</b><div class="muted" style="font-size:11px">@${esc(t.username || "—")}</div></td>
+                <td style="max-width:260px">
+                  <span class="badge">${esc(t.category)}</span>
+                  <div style="margin-top:3px;font-weight:600">${esc(t.subject)}</div>
+                </td>
+                <td>${prioBadge(t.priority)}</td>
+                <td>${fmtSlaBadge(t)}</td>
+                <td>${statusBadge(t.status)}</td>
+                <td>${t.csat_rating ? `<span style="color:#f5c542">${"★".repeat(t.csat_rating)}</span>` : `<span class="muted">—</span>`}</td>
+                <td style="font-size:12px">${fmtDate(t.created_at)}</td>
+                <td>
+                  <button class="btn btn-primary btn-sm sup-open-btn" data-id="${t.id}">XỬ LÝ</button>
+                </td>
+              </tr>
+            `).join("") : `<tr><td colspan="9" class="empty-state">&gt; chưa có phiếu hỗ trợ nào phù hợp bộ lọc.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `);
+
+  bindSupportSubTabs(statusFilter, categoryFilter, searchQuery);
+  const reload = () => renderSupport(
+    $("supStatusSelect")?.value || "all",
+    $("supCatSelect")?.value || "all",
+    $("supSearchInput")?.value || ""
+  );
+  $("supFilterBtn")?.addEventListener("click", reload);
+  $("supStatusSelect")?.addEventListener("change", reload);
+  $("supCatSelect")?.addEventListener("change", reload);
+  $("supSearchInput")?.addEventListener("keydown", (e) => { if (e.key === "Enter") reload(); });
+  document.querySelectorAll(".sup-open-btn").forEach(btn => {
+    btn.addEventListener("click", () => openSupportTicketModal(Number(btn.dataset.id)));
+  });
+}
+
+// ── SUB-TAB 02: KHO TRI THỨC AI (KNOWLEDGE BASE) & MẪU PHẢN HỒI NHANH (MACROS) ──
+async function renderSupportKnowledgeBase(statusFilter, categoryFilter, searchQuery) {
+  const [kbRes, macRes] = await Promise.all([api("/support/kb"), api("/support/macros")]);
+  const articles = kbRes.articles || [];
+  const macros = macRes.macros || [];
+  _cachedSupportMacros = macros;
+
+  setTabHtml(`
+    ${supportSubTabsHtml()}
+
+    <div class="panel" style="margin-bottom:14px;">
+      <div class="panel-head" style="flex-wrap:wrap;gap:8px;">
+        <h3>[ KHO TRI THỨC AI TIER 0 (ADMIN DẠY TRỢ LÝ AI KHÔNG CẦN SỬA CODE) ]</h3>
+        <button id="supAddKbBtn" class="btn btn-primary btn-sm">+ DẠY TRI THỨC MỚI CHO AI</button>
+      </div>
+      <div class="muted" style="font-size:12px;margin-bottom:10px;">
+        Khi người chơi hỏi trong game, Trợ lý AI tự động đối khớp từ khóa tại đây và trả lời tức thì (ghi nhận lượt dùng <code>hit_count</code> để đo hiệu quả).
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>TIÊU ĐỀ / DANH MỤC</th>
+              <th>TỪ KHÓA KÍCH HOẠT</th>
+              <th>CÂU TRẢ LỜI CỦA AI</th>
+              <th>LƯỢT DÙNG</th>
+              <th>TRẠNG THÁI</th>
+              <th>THAO TÁC</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${articles.map(a => `
+              <tr>
+                <td><b>${esc(a.title)}</b><div><span class="badge">${esc(a.category)}</span></div></td>
+                <td style="max-width:190px;font-size:12px;color:var(--cyan)">${esc(a.keywords)}</td>
+                <td style="max-width:300px;font-size:12px">${esc(a.answer.slice(0, 140))}${a.answer.length > 140 ? "…" : ""}</td>
+                <td><b class="accent-green">${a.hit_count || 0}</b></td>
+                <td>${a.is_active ? `<span class="badge ok">BẬT</span>` : `<span class="badge">TẮT</span>`}</td>
+                <td class="actions-cell">
+                  <button class="btn btn-ghost btn-sm kb-edit-btn" data-id="${a.id}">SỬA</button>
+                  <button class="btn btn-danger btn-sm kb-del-btn" data-id="${a.id}">XÓA</button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head" style="flex-wrap:wrap;gap:8px;">
+        <h3>[ MẪU PHẢN HỒI NHANH (MACROS) CHO NHÂN VIÊN CSKH ]</h3>
+        <button id="supAddMacroBtn" class="btn btn-primary btn-sm">+ THÊM MẪU PHẢN HỒI</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>TÊN MẪU</th>
+              <th>PHÂN LOẠI</th>
+              <th>NỘI DUNG CHÈN 1-CLICK</th>
+              <th>THAO TÁC</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${macros.map(m => `
+              <tr>
+                <td><b>${esc(m.title)}</b></td>
+                <td><span class="badge">${esc(m.category)}</span></td>
+                <td style="font-size:12px">${esc(m.content)}</td>
+                <td class="actions-cell">
+                  <button class="btn btn-ghost btn-sm mac-edit-btn" data-id="${m.id}">SỬA</button>
+                  <button class="btn btn-danger btn-sm mac-del-btn" data-id="${m.id}">XÓA</button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `);
+
+  bindSupportSubTabs(statusFilter, categoryFilter, searchQuery);
+
+  const openKbForm = (art = null) => {
+    openModal(art ? "SỬA TRI THỨC AI" : "DẠY TRI THỨC MỚI CHO TRỢ LÝ AI", `
+      <form id="kbForm">
+        <div class="form-grid-2">
+          <div class="field"><label>TIÊU ĐỀ BÀI TRI THỨC</label><input id="kbTitle" value="${esc(art?.title || "")}" required /></div>
+          <div class="field"><label>DANH MỤC</label>
+            <select id="kbCat">
+              ${["GENERAL", "PAYMENT", "GAMEPLAY", "ACCOUNT", "TECH"].map(c => `<option value="${c}" ${art?.category === c ? "selected" : ""}>${c}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+        <div class="field"><label>TỪ KHÓA KÍCH HOẠT (cách nhau bằng dấu phẩy, không cần dấu)</label>
+          <input id="kbKeywords" value="${esc(art?.keywords || "")}" placeholder="VD: tinh cau, cap 2, lv2, xay nha" required />
+        </div>
+        <div class="field"><label>NỘI DUNG AI SẼ TRẢ LỜI NGƯỜI CHƠI</label>
+          <textarea id="kbAnswer" rows="4" required>${esc(art?.answer || "")}</textarea>
+        </div>
+        <div style="display:flex;gap:16px;margin-bottom:12px;font-size:12.5px;">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input id="kbActive" type="checkbox" style="width:auto" ${art ? (art.is_active ? "checked" : "") : "checked"} /> Kích hoạt bài tri thức này</label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input id="kbEsc" type="checkbox" style="width:auto" ${art?.escalate_allowed ? "checked" : ""} /> Hiện thêm nút chuyển phiếu Admin</label>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">💾 LƯU VÀO KHO TRI THỨC AI</button>
+      </form>
+    `);
+    $("kbForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const r = await api("/support/kb", {
+        method: "POST",
+        body: JSON.stringify({
+          id: art?.id || null,
+          title: $("kbTitle").value,
+          category: $("kbCat").value,
+          keywords: $("kbKeywords").value,
+          answer: $("kbAnswer").value,
+          is_active: $("kbActive").checked ? 1 : 0,
+          escalate_allowed: $("kbEsc").checked ? 1 : 0,
+        }),
+      });
+      if (r.success) {
+        showToast("Đã cập nhật Kho Tri Thức AI! Trợ lý trong game đã áp dụng ngay.");
+        closeModal();
+        renderSupportKnowledgeBase(statusFilter, categoryFilter, searchQuery);
+      } else showToast(r.message || "Lỗi lưu", "error");
+    };
+  };
+
+  const openMacroForm = (mac = null) => {
+    openModal(mac ? "SỬA MẪU PHẢN HỒI NHANH" : "THÊM MẪU PHẢN HỒI NHANH (MACRO)", `
+      <form id="macForm">
+        <div class="form-grid-2">
+          <div class="field"><label>TÊN MẪU</label><input id="macTitle" value="${esc(mac?.title || "")}" required /></div>
+          <div class="field"><label>PHÂN LOẠI</label>
+            <select id="macCat">
+              ${["PAYMENT", "ACCOUNT", "BUG", "REPORT", "GENERAL"].map(c => `<option value="${c}" ${mac?.category === c ? "selected" : ""}>${c}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+        <div class="field"><label>NỘI DUNG MẪU</label><textarea id="macContent" rows="4" required>${esc(mac?.content || "")}</textarea></div>
+        <button type="submit" class="btn btn-primary btn-block">💾 LƯU MẪU PHẢN HỒI</button>
+      </form>
+    `);
+    $("macForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const r = await api("/support/macros", {
+        method: "POST",
+        body: JSON.stringify({ id: mac?.id || null, title: $("macTitle").value, category: $("macCat").value, content: $("macContent").value }),
+      });
+      if (r.success) {
+        showToast("Đã lưu mẫu phản hồi nhanh!");
+        closeModal();
+        renderSupportKnowledgeBase(statusFilter, categoryFilter, searchQuery);
+      } else showToast(r.message || "Lỗi lưu", "error");
+    };
+  };
+
+  $("supAddKbBtn")?.addEventListener("click", () => openKbForm(null));
+  document.querySelectorAll(".kb-edit-btn").forEach(b => b.addEventListener("click", () => openKbForm(articles.find(x => x.id === Number(b.dataset.id)))));
+  document.querySelectorAll(".kb-del-btn").forEach(b => b.addEventListener("click", async () => {
+    if (!confirm("Xóa bài tri thức AI này?")) return;
+    await api(`/support/kb/${b.dataset.id}`, { method: "DELETE" });
+    showToast("Đã xóa bài tri thức AI!");
+    renderSupportKnowledgeBase(statusFilter, categoryFilter, searchQuery);
+  }));
+
+  $("supAddMacroBtn")?.addEventListener("click", () => openMacroForm(null));
+  document.querySelectorAll(".mac-edit-btn").forEach(b => b.addEventListener("click", () => openMacroForm(macros.find(x => x.id === Number(b.dataset.id)))));
+  document.querySelectorAll(".mac-del-btn").forEach(b => b.addEventListener("click", async () => {
+    if (!confirm("Xóa mẫu phản hồi nhanh này?")) return;
+    await api(`/support/macros/${b.dataset.id}`, { method: "DELETE" });
+    showToast("Đã xóa mẫu phản hồi!");
+    renderSupportKnowledgeBase(statusFilter, categoryFilter, searchQuery);
+  }));
+}
+
+// ── SUB-TAB 03: CẤU HÌNH LUẬT SLA & TỰ ĐỘNG PHÂN LOẠI (AUTO-TRIAGE) ──
+async function renderSupportSlaRules(statusFilter, categoryFilter, searchQuery) {
+  const res = await api("/support/sla-rules");
+  const rules = res.rules || [];
+
+  setTabHtml(`
+    ${supportSubTabsHtml()}
+
+    <div class="panel">
+      <div class="panel-head" style="flex-wrap:wrap;gap:8px;">
+        <h3>[ CẤU HÌNH LUẬT SLA &amp; TỰ ĐỘNG ĐỊNH TUYẾN ƯU TIÊN (AUTO-TRIAGE) ]</h3>
+        <button id="saveSlaRulesBtn" class="btn btn-primary btn-sm">💾 LƯU CẤU HÌNH SLA</button>
+      </div>
+      <div class="muted" style="font-size:12px;margin-bottom:12px;">
+        Khi người chơi tạo phiếu mới, hệ thống tự động gán Mức Ưu Tiên, đếm ngược thời hạn SLA (phút) và gửi Tin nhắn xác nhận tự động theo bảng dưới đây.
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>MÃ LOẠI</th>
+              <th>TÊN HIỂN THỊ</th>
+              <th>MỨC ƯU TIÊN</th>
+              <th>CAM KẾT SLA (PHÚT)</th>
+              <th>TIN NHẮN XÁC NHẬN TỰ ĐỘNG</th>
+            </tr>
+          </thead>
+          <tbody id="slaRulesBody">
+            ${rules.map(r => `
+              <tr data-cat="${esc(r.category)}">
+                <td><b class="cyan-val">${esc(r.category)}</b></td>
+                <td><input class="input-sm sla-label" value="${esc(r.label)}" style="width:170px" /></td>
+                <td>
+                  <select class="input-sm sla-prio">
+                    <option value="HIGH" ${r.priority === "HIGH" ? "selected" : ""}>HIGH (Khẩn cấp)</option>
+                    <option value="MEDIUM" ${r.priority === "MEDIUM" ? "selected" : ""}>MEDIUM (Trung bình)</option>
+                    <option value="LOW" ${r.priority === "LOW" ? "selected" : ""}>LOW (Thấp)</option>
+                  </select>
+                </td>
+                <td><input class="input-sm sla-min" type="number" min="5" max="1440" value="${Number(r.sla_minutes || 60)}" style="width:90px" /></td>
+                <td><input class="input-sm sla-auto" value="${esc(r.auto_reply || "")}" style="width:100%;min-width:240px" /></td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `);
+
+  bindSupportSubTabs(statusFilter, categoryFilter, searchQuery);
+  $("saveSlaRulesBtn")?.addEventListener("click", async () => {
+    const payload = [];
+    document.querySelectorAll("#slaRulesBody tr").forEach(tr => {
+      payload.push({
+        category: tr.dataset.cat,
+        label: tr.querySelector(".sla-label").value,
+        priority: tr.querySelector(".sla-prio").value,
+        sla_minutes: Number(tr.querySelector(".sla-min").value || 60),
+        auto_reply: tr.querySelector(".sla-auto").value,
+      });
+    });
+    const r = await api("/support/sla-rules", { method: "PUT", body: JSON.stringify({ rules: payload }) });
+    if (r.success) showToast("Đã lưu luật SLA & Auto-Triage! Áp dụng ngay cho các phiếu mới.");
+    else showToast(r.message || "Lỗi lưu SLA", "error");
+  });
+}
+
+// ── SUB-TAB 04: PHÂN TÍCH AI & CHẤT LƯỢNG CSKH (ANALYTICS) ───────
+function renderSupportAnalytics(s, analytics, statusFilter, categoryFilter, searchQuery) {
+  const intents = analytics.top_intents || [];
+  const maxIntent = Math.max(1, ...intents.map(i => Number(i.cnt || 0)));
+  const csatMap = new Map((analytics.csat_distribution || []).map(c => [Number(c.star), Number(c.cnt)]));
+  const totalCsat = Math.max(1, Number(s.csat_count || 0));
+
+  setTabHtml(`
+    ${supportSubTabsHtml()}
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>[ TOP CHỦ ĐỀ NGƯỜI CHƠI HỎI TRỢ LÝ AI ]</h3>
+          <span class="muted">từ support_ai_logs</span>
+        </div>
+        ${intents.length ? intents.map(it => {
+          const pct = Math.round((Number(it.cnt) / maxIntent) * 100);
+          const aiRate = Number(it.cnt) > 0 ? Math.round((Number(it.resolved_cnt) / Number(it.cnt)) * 100) : 0;
+          return `
+            <div style="margin-bottom:10px;">
+              <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+                <b class="cyan-val">${esc(it.intent)}</b>
+                <span><b>${it.cnt}</b> lượt • AI tự xử lý: <b class="accent-green">${aiRate}%</b></span>
+              </div>
+              <div class="kpi-bar-track"><div class="kpi-bar-fill" style="width:${pct}%"></div></div>
+            </div>
+          `;
+        }).join("") : `<div class="empty-state">&gt; chưa có dữ liệu câu hỏi AI.</div>`}
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>[ PHÂN BỔ ĐÁNH GIÁ HÀI LÒNG CSAT (1–5 ★) ]</h3>
+          <span class="cyan-val">TB: ${s.avg_csat ? `${s.avg_csat} ★` : "—"}</span>
+        </div>
+        ${[5, 4, 3, 2, 1].map(star => {
+          const cnt = csatMap.get(star) || 0;
+          const pct = s.csat_count ? Math.round((cnt / totalCsat) * 100) : 0;
+          return `
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:9px;font-size:12.5px;">
+              <span style="width:58px;color:#f5c542;font-weight:700">${star} ★</span>
+              <div class="kpi-bar-track" style="flex:1;margin:0"><div class="kpi-bar-fill" style="width:${pct}%;background:${star >= 4 ? "var(--green)" : star === 3 ? "#f5c542" : "var(--red)"}"></div></div>
+              <span style="width:74px;text-align:right">${cnt} (${pct}%)</span>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `);
+
+  bindSupportSubTabs(statusFilter, categoryFilter, searchQuery);
+}
+
+// ── MODAL XỬ LÝ TICKET: TELEMETRY + AI COPILOT + 1-CLICK ACTIONS + MACROS ──
+async function openSupportTicketModal(ticketId) {
+  openModal("ĐANG TẢI PHIẾU HỖ TRỢ...", `<div class="empty-state">&gt; đang đọc telemetry &amp; lịch sử hội thoại...</div>`);
+  const res = await api(`/support/tickets/${ticketId}`);
+  if (!res?.success || !res.ticket) {
+    openModal("LỖI", `<div class="error-box">${esc(res?.message || "Không tìm thấy phiếu!")}</div>`);
+    return;
+  }
+  const t = res.ticket;
+  const msgs = res.messages || [];
+  const tel = t.telemetry || {};
+
+  const telHtml = `
+    <div style="background:#081018;border:1px solid #1e3a52;border-radius:6px;padding:10px 12px;margin-bottom:10px;font-size:12px;">
+      <div style="color:#38bdf8;font-weight:700;margin-bottom:6px;">[ AUTO-TELEMETRY SNAPSHOT ]</div>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 14px;">
+        <div>Người chơi: <b>${esc(t.user_name || t.username)}</b> (ID #${t.user_id})</div>
+        <div>Ecoin hiện tại: <b class="accent-green">${fmtMoney(t.user_ecoin ?? tel.server_ecoin)}</b></div>
+        <div>Scene / Màn hình: <span class="cyan-val">${esc(tel.scene || "—")}</span> (${esc(tel.resolution || "—")})</div>
+        <div>Ping / Socket: <span class="cyan-val">${tel.ping_ms ?? "—"} ms</span> • ${tel.socket_connected ? "OK" : "OFF"}</div>
+        <div style="grid-column:1 / -1;">Đơn nạp gần nhất: ${tel.latest_order ? `<b>#${esc(tel.latest_order.order_code)}</b> (${esc(tel.latest_order.transfer_code)}) — <span class="cyan-val">${esc(tel.latest_order.status)}</span>${tel.latest_order.exception_reason ? ` <span class="badge danger">${esc(tel.latest_order.exception_reason)}</span>` : ""}` : `<span class="muted">Không có</span>`}</div>
+      </div>
+    </div>
+  `;
+
+  const actionBarHtml = `
+    <div style="background:#0c1926;border:1px solid #224461;border-radius:6px;padding:8px 10px;margin-bottom:10px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:12px;">
+      <span style="color:#f5c542;font-weight:700;">⚡ XỬ LÝ 1-CLICK:</span>
+      <input id="supCompAmount" class="input-sm" type="number" min="1000" step="1000" placeholder="Số Ecoin bù..." style="width:125px" />
+      <button type="button" id="supCompBtn" class="btn btn-primary btn-sm">💰 CỘNG BÙ ECOIN + GỬI BIÊN LAI</button>
+      <button type="button" id="supUnmuteBtn" class="btn btn-ghost btn-sm">🔓 GỠ CẤM CHAT</button>
+      <button type="button" id="supCopilotBtn" class="btn btn-secondary btn-sm" style="margin-left:auto;">✨ AI COPILOT SOẠN TRẢ LỜI</button>
+    </div>
+  `;
+
+  const msgsHtml = msgs.map(m => {
+    const color = m.sender_role === "ADMIN" ? "#22c55e" : m.sender_role === "USER" ? "#38bdf8" : "#f5c542";
+    const bg = m.sender_role === "ADMIN" ? "rgba(34,197,94,0.08)" : m.sender_role === "USER" ? "rgba(56,189,248,0.08)" : "rgba(245,197,66,0.08)";
+    return `
+      <div style="border-left:3px solid ${color};background:${bg};padding:7px 10px;border-radius:4px;margin-bottom:7px;">
+        <div style="font-size:11px;color:${color};font-weight:700;margin-bottom:2px;">
+          [${esc(m.sender_role)}] ${esc(m.sender_name || "")} • ${fmtDate(m.created_at)}
+        </div>
+        <div style="white-space:pre-wrap;font-size:12.5px;line-height:1.45;">${esc(m.message)}</div>
+      </div>
+    `;
+  }).join("");
+
+  openModal(`PHIẾU ${t.ticket_code} • ${t.priority} • ${t.status}`, `
+    <div style="margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <div>
+        <div style="font-weight:700;font-size:14px;">${esc(t.subject)}</div>
+        <div class="muted" style="font-size:11.5px;">Phân loại: ${esc(t.category)} • SLA: ${t.sla_minutes}p • ${t.csat_rating ? `CSAT: ${"★".repeat(t.csat_rating)}` : "Chưa đánh giá"}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn btn-ghost btn-sm sup-st-btn" data-st="IN_PROGRESS">ĐANG XỬ LÝ</button>
+        <button class="btn btn-primary btn-sm sup-st-btn" data-st="RESOLVED">✓ ĐÃ GIẢI QUYẾT (MỜI CSAT)</button>
+        <button class="btn btn-danger btn-sm sup-st-btn" data-st="CLOSED">ĐÓNG PHIẾU</button>
+      </div>
+    </div>
+
+    ${telHtml}
+    ${actionBarHtml}
+
+    <div id="adminSupMsgList" style="max-height:210px;overflow-y:auto;padding-right:4px;margin-bottom:10px;">
+      ${msgsHtml}
+    </div>
+
+    ${_cachedSupportMacros.length ? `
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+        <select id="adminSupMacroSel" class="input-sm" style="flex:1;font-size:12px;">
+          <option value="">-- Chèn nhanh Mẫu Phản Hồi (Macro) --</option>
+          ${_cachedSupportMacros.map(m => `<option value="${esc(m.content)}">[${esc(m.category)}] ${esc(m.title)}</option>`).join("")}
+        </select>
+      </div>
+    ` : ""}
+
+    <form id="adminSupReplyForm" style="display:flex;gap:8px;">
+      <textarea id="adminSupReplyInput" class="input-sm" rows="2" style="flex:1;resize:vertical;" placeholder="Nhập câu trả lời hoặc bấm 'AI Copilot Soạn Trả Lời'..." required></textarea>
+      <button type="submit" class="btn btn-primary btn-sm">GỬI PHẢN HỒI</button>
+    </form>
+  `);
+
+  const list = $("adminSupMsgList");
+  if (list) list.scrollTop = list.scrollHeight;
+
+  $("adminSupMacroSel")?.addEventListener("change", (e) => {
+    if (e.target.value && $("adminSupReplyInput")) {
+      $("adminSupReplyInput").value = e.target.value;
+      e.target.value = "";
+    }
+  });
+
+  $("supCopilotBtn")?.addEventListener("click", async () => {
+    const btn = $("supCopilotBtn");
+    btn.disabled = true;
+    btn.textContent = "⏳ AI đang soạn...";
+    const r = await api(`/support/tickets/${ticketId}/copilot-draft`, { method: "POST" });
+    if (r?.success && r.draft && $("adminSupReplyInput")) {
+      $("adminSupReplyInput").value = r.draft;
+      showToast("AI Copilot đã soạn xong gợi ý dựa trên dữ liệu thật của người chơi!");
+    } else {
+      showToast(r?.message || "Lỗi AI Copilot", "error");
+    }
+    btn.disabled = false;
+    btn.textContent = "✨ AI COPILOT SOẠN TRẢ LỜI";
+  });
+
+  $("supCompBtn")?.addEventListener("click", async () => {
+    const amount = Number($("supCompAmount")?.value || 0);
+    if (!amount || amount <= 0) return showToast("Nhập số Ecoin cần cộng bù!", "error");
+    if (!confirm(`Xác nhận cộng bù +${amount.toLocaleString("vi-VN")} Ecoin cho ${t.user_name || t.username} và gửi biên lai vào phiếu?`)) return;
+    const r = await api(`/support/tickets/${ticketId}/action`, {
+      method: "POST",
+      body: JSON.stringify({ action: "compensate_ecoin", amount, reason: `Đối soát phiếu ${t.ticket_code}` }),
+    });
+    if (r?.success) {
+      showToast(r.message);
+      openSupportTicketModal(ticketId);
+      loadTab("support", { silent: true });
+    } else showToast(r?.message || "Lỗi cộng bù Ecoin", "error");
+  });
+
+  $("supUnmuteBtn")?.addEventListener("click", async () => {
+    if (!confirm(`Gỡ trạng thái cấm chat cho ${t.user_name || t.username}?`)) return;
+    const r = await api(`/support/tickets/${ticketId}/action`, {
+      method: "POST",
+      body: JSON.stringify({ action: "unmute_user" }),
+    });
+    if (r?.success) {
+      showToast(r.message);
+      openSupportTicketModal(ticketId);
+    } else showToast(r?.message || "Lỗi gỡ cấm chat", "error");
+  });
+
+  document.querySelectorAll(".sup-st-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const nextStatus = btn.dataset.st;
+      const r = await api(`/support/tickets/${ticketId}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (r?.success) {
+        showToast(`Đã chuyển phiếu ${t.ticket_code} sang ${nextStatus}`);
+        openSupportTicketModal(ticketId);
+        loadTab("support", { silent: true });
+      } else showToast(r?.message || "Lỗi cập nhật trạng thái", "error");
+    });
+  });
+
+  $("adminSupReplyForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const inp = $("adminSupReplyInput");
+    const message = (inp?.value || "").trim();
+    if (!message) return;
+    const r = await api(`/support/tickets/${ticketId}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    });
+    if (r?.success) {
+      showToast(`Đã gửi phản hồi tới ${t.user_name || t.username}!`);
+      openSupportTicketModal(ticketId);
+      loadTab("support", { silent: true });
+    } else showToast(r?.message || "Không thể gửi phản hồi", "error");
+  });
 }
 
 // Khởi động đồng hồ HUD & khôi phục phiên đăng nhập

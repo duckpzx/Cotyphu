@@ -121,17 +121,28 @@ window.onload = async function () {
   });
 
   // Start đúng scene
-  game.events.once("ready", () => {
+  game.events.once("ready", async () => {
     if (isDemoBoard) {
-      game.scene.stop("LoginScene");
-      game.scene.start("BoardScene", {
-        demoMode: true,
-        name: "Đức Phạm",
-        characterName: "Dark_Oracle",
-        skin: 1,
-        roomData: { id: "demo_room", match_mode: "solo_2", bet_ecoin: 5000 },
-      });
-      return;
+      try {
+        const r = await fetch(`${SERVER_URL}/api/demo/start-match`, { method: "POST" });
+        const j = await r.json();
+        if (j?.success && j.token && j.user && j.roomData) {
+          const pd = { token: j.token, user: j.user };
+          localStorage.setItem("playerData", JSON.stringify(pd));
+          game.registry.set("playerData", pd);
+          game.scene.stop("LoginScene");
+          game.scene.start("BoardScene", {
+            demoMode: true,
+            name: j.user.name,
+            characterName: "Dark_Oracle",
+            skin: 1,
+            roomData: j.roomData,
+          });
+          return;
+        }
+      } catch (err) {
+        console.error("Demo start error:", err);
+      }
     }
     if (startScene !== "LoginScene") {
       game.scene.stop("LoginScene");

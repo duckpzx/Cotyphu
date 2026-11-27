@@ -13,7 +13,7 @@ import voiceChat          from "../utils/voiceChatManager.js";
 import { extractEmojiId, showCharacterEmojiBubble } from "../utils/emojiBubble.js";
 import { renderAvatarBadge } from "../utils/avatarBadge.js";
 import { drawCreamModalPanel } from "../utils/creamPanel.js";
-import { createDemoMockSocket, mountBoardDemoSandbox } from "../utils/boardDemoSandbox.js";
+import { mountBoardDemoSandbox } from "../utils/boardDemoSandbox.js";
 import {
   playBoardBuySound, playBoardErrSound, playBoardHunterSound,
   playBoardIncreaseSound, playBoardTeacherSound, playBoardSkillSound,
@@ -3799,19 +3799,17 @@ updatePlayerTarotSlotsByUserId(userId, tarotIds = []) {
 
     const token = playerData?.token;
     this._isDemoMode = Boolean(data?.demoMode);
+    this.socket = io(SERVER_URL, {
+      transports:['websocket','polling'],
+      reconnection:true,
+      reconnectionAttempts:10,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout:20000,
+      auth:{ token }
+    });
     if (this._isDemoMode) {
-      this.socket = createDemoMockSocket();
-      mountBoardDemoSandbox(this, this.socket);
-    } else {
-      this.socket = io(SERVER_URL, {
-        transports:['websocket','polling'],
-        reconnection:true,
-        reconnectionAttempts:10,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-        timeout:20000,
-        auth:{ token }
-      });
+      mountBoardDemoSandbox(this);
     }
 
     // ── Flag reconnect (vào lại từ ván đang dở) ───────────────────
@@ -5933,12 +5931,12 @@ this.input.keyboard.on("keydown-Y", () => {
     const lv2Unlocked = mode === "upgrade" ? true : Boolean(data.lv2_unlocked);
     const unlockHint  = data.lv2_unlock_reason || "Qua vòng 1 hoặc sở hữu 2 ô";
 
-    // ── Kích thước & vị trí Panel giấy kem vàng (lớn, rõ nét đúng chuẩn ảnh mẫu) ──
+    // ── Kích thước & vị trí Panel giấy kem vàng (gọn ngang, tỷ lệ thẻ cân đối chuẩn mẫu) ──
     const isTwoCards = mode === "build" || mode === "upgrade";
-    const PW   = Math.min(width * 0.80, (isTwoCards ? 1120 : 780) * S);
-    const PH   = Math.min(height * 0.58, (isTwoCards ? 510 : 450) * S);
+    const PW   = Math.min(width * 0.72, (isTwoCards ? 900 : 720) * S);
+    const PH   = Math.min(height * 0.58, (isTwoCards ? 515 : 450) * S);
     const PCX  = width / 2;
-    const PCY  = height - PH / 2 - 28 * S;
+    const PCY  = height - PH / 2 - 26 * S;
     const LEFT = PCX - PW / 2;
     const TOP  = PCY - PH / 2;
     const RAD  = Math.round(24 * S);
@@ -6037,15 +6035,15 @@ this.input.keyboard.on("keydown-Y", () => {
       strokeThickness: 5 * S,
     }).setOrigin(0, 0.5).setDepth(D + 4));
 
-    // Tiêu đề pill xanh dương bóng (giống hệt ảnh mẫu)
+    // Tiêu đề pill xanh dương bóng (cao hơn + padding dấu tiếng Việt không bị cắt)
     const titleStr = mode === "upgrade"
       ? "NÂNG CẤP TINH CẦU"
       : mode === "buyout"
         ? `THÂU TÓM NHÀ • LV.${curLv}`
         : "ĐẶT TINH CẦU";
-    const PILL_W = Math.min(PW * 0.44, 410 * S);
-    const PILL_H = 58 * S;
-    const PILL_R = 14 * S;
+    const PILL_W = Math.min(PW * 0.44, 370 * S);
+    const PILL_H = 66 * S;
+    const PILL_R = 16 * S;
     const pillG = push(this.add.graphics().setDepth(D + 3));
     pillG.fillStyle(0x035388, 0.38);
     pillG.fillRoundedRect(PCX - PILL_W / 2 + 2 * S, HEADER_Y - PILL_H / 2 + 5 * S, PILL_W, PILL_H, PILL_R);
@@ -6058,11 +6056,12 @@ this.input.keyboard.on("keydown-Y", () => {
 
     push(this.add.text(PCX, HEADER_Y, titleStr, {
       fontFamily: "Signika",
-      fontSize: Math.floor(30 * S) + "px",
+      fontSize: Math.floor(29 * S) + "px",
       color: "#ffffff",
       fontStyle: "bold",
       stroke: "#034572",
       strokeThickness: 4 * S,
+      padding: { top: 10, bottom: 8, left: 6, right: 6 },
     }).setOrigin(0.5).setDepth(D + 4));
 
     // Helper vẽ ổ khóa vàng 3D lớn, rõ nét giống ảnh mẫu
@@ -6090,11 +6089,11 @@ this.input.keyboard.on("keydown-Y", () => {
     };
 
     if (isTwoCards) {
-      // ── 2 THẺ TINH CẦU LỚN (CẤP 1 & CẤP 2) ĐÚNG TỶ LỆ ẢNH MẪU ──────
-      const CARD_GAP = 38 * S;
-      const CARD_W   = Math.min(460 * S, (PW - 84 * S - CARD_GAP) / 2);
-      const CARD_H   = PH - 142 * S;
-      const CARD_Y   = TOP + 108 * S;
+      // ── 2 THẺ TINH CẦU GỌN NGANG (CẤP 1 & CẤP 2) ĐÚNG TỶ LỆ ẢNH MẪU ──
+      const CARD_GAP = 36 * S;
+      const CARD_W   = Math.min(350 * S, (PW - 90 * S - CARD_GAP) / 2);
+      const CARD_H   = PH - 146 * S;
+      const CARD_Y   = TOP + 112 * S;
       const CARD_R   = 16 * S;
       const HDR_H    = 52 * S;
       const FOOT_H   = 44 * S;
@@ -6553,10 +6552,10 @@ this.input.keyboard.on("keydown-Y", () => {
       userId: uid,
       emojiId,
       targetSprite,
-      offsetX: Math.round(34 * (this.minRatio || 1)),
-      offsetY: -126 * (this.minRatio || 1),
-      depth: 240,
-      size: Math.max(56, Math.round(70 * (this.minRatio || 1))),
+      offsetX: 0,
+      offsetY: -178 * (this.minRatio || 1),
+      depth: 245,
+      size: Math.max(58, Math.round(74 * (this.minRatio || 1))),
     });
   }
 
