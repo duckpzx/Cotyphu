@@ -1,6 +1,60 @@
-import { setupClickSound, playOutSound } from "../utils/clickSound.js";
+import { setupClickSound, playOutSound, playTabSound } from "../utils/clickSound.js";
 import { createLoadingOverlay } from "../utils/loadingOverlay.js";
 import { SERVER_URL } from "../config.js";
+import { getPlayerData } from "../server/utils/playerData.js";
+import EcoinManager from "../server/utils/ecoinManager.js";
+import { openRankingTop20Modal, openPlayerProfileModal, openRankRewardsModal } from "../utils/rankingModal.js";
+
+const LEADERBOARD_TABS = [
+  {
+    key: "season",
+    label: "🏆 Cao Thủ",
+    title: "CAO THỦ MÙA GIẢI",
+    tintColor: 0xffc83d,
+    tintAlpha: 0.08,
+    btnTop: 0xffd65c,
+    btnBot: 0xd9820b,
+    btnStroke: 0x7c4304,
+    textColor: "#4a1f00",
+    ambient: "season",
+  },
+  {
+    key: "wealth",
+    label: "💰 Đại Gia",
+    title: "ĐẠI GIA TỶ PHÚ",
+    tintColor: 0x22c55e,
+    tintAlpha: 0.08,
+    btnTop: 0x4ade80,
+    btnBot: 0x15803d,
+    btnStroke: 0x0f5132,
+    textColor: "#ffffff",
+    ambient: "wealth",
+  },
+  {
+    key: "scholar",
+    label: "🎓 Trạng Nguyên",
+    title: "TRẠNG NGUYÊN TRÍ TUỆ",
+    tintColor: 0xa855f7,
+    tintAlpha: 0.11,
+    btnTop: 0xc084fc,
+    btnBot: 0x6d28d9,
+    btnStroke: 0x3b0764,
+    textColor: "#ffffff",
+    ambient: "scholar",
+  },
+  {
+    key: "streak",
+    label: "🔥 Chuỗi Thắng",
+    title: "CHUỖI THẮNG BẤT BẠI",
+    tintColor: 0xef4444,
+    tintAlpha: 0.11,
+    btnTop: 0xf87171,
+    btnBot: 0xb91c1c,
+    btnStroke: 0x6b0f0f,
+    textColor: "#ffffff",
+    ambient: "streak",
+  },
+];
 
 // ─────────────────────────────────────────────────────────────────
 //  RatingScene — Canvas 1128×636
@@ -17,6 +71,7 @@ export default class RatingScene extends Phaser.Scene {
   preload() {
     this.load.image("rating-bg", "assets/nen_23.png");
     this.load.image("out", "assets/ui/shared/return.png");
+    this.load.image("coin", "assets/ui/shared/coin.png");
 
     this._ratingSceneConfig = null;
     if (this.cache.json.exists("rating_scene_cfg")) {
@@ -39,6 +94,15 @@ export default class RatingScene extends Phaser.Scene {
     const { width, height } = this.scale;
     setupClickSound(this);
 
+    this._playerData = getPlayerData(this);
+    this._myUserId = this._playerData?.user?.id || null;
+    this._activeTab = "season";
+    this._tabSeq = 0;
+    this._stageObjects = [];
+    this._stageTimers = [];
+    this._currentRanking = [];
+    this._currentMe = null;
+
     // ── Nền bục đá (hỗ trợ nền tùy biến từ Admin Studio) ──
     const rVer = this._ratingSceneConfig?.version || 0;
     const customBgKey = this._ratingSceneConfig?.is_custom ? `rating-bg-custom-${rVer}` : null;
@@ -46,12 +110,16 @@ export default class RatingScene extends Phaser.Scene {
     const bg = this.add.image(width / 2, height / 2, bgKey);
     bg.setScale(Math.max(width / bg.width, height / bg.height));
 
-    const loading = createLoadingOverlay(this);
+    // Lớp phủ ánh sáng khí quyển đổi màu mượt theo từng Bảng Xếp Hạng
+    this._themeOverlay = this.add
+      .rectangle(width / 2, height / 2, width, height, 0xffc83d, 0.08)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDepth(2);
 
     // ── Nút Quay lại ──
     const backBtn = this.add
-      .image(48, 48, "out")
-      .setScale(1)
+      .image(44, 44, "out")
+      .setScale(0.95)
       .setDepth(200)
       .setInteractive({ cursor: "pointer" });
 
@@ -59,16 +127,17 @@ export default class RatingScene extends Phaser.Scene {
       playOutSound(this);
       this.tweens.add({ targets: backBtn, scale: 0.7, duration: 80, yoyo: true });
       this.time.delayedCall(160, () => {
+        this._clearStage();
         this.cameras.main.fadeOut(200);
         this.cameras.main.once("camerafadeoutcomplete", () => this.scene.start("LobbyScene"));
       });
     });
 
-    // ── Tiêu đề ──
-    this.add
-      .text(105, 55, "BẢNG VÀNG XẾP HẠNG", {
+    // ── Tiêu đề động theo BXH ──
+    this._titleText = this.add
+      .text(92, 44, "CAO THỦ MÙA GIẢI", {
         fontFamily: "Signika",
-        fontSize: "30px",
+        fontSize: "25px",
         color: "#ffffff",
         fontStyle: "bold",
         stroke: "#003388",
@@ -76,42 +145,396 @@ export default class RatingScene extends Phaser.Scene {
         shadow: { offsetX: 2, offsetY: 3, color: "#001166", blur: 6, fill: true },
       })
       .setOrigin(0, 0.5)
-      .setPadding(8, 6, 8, 6)
+      .setPadding(6, 5, 6, 5)
       .setDepth(200);
 
-    // ── Lấy dữ liệu BXH từ server ──
-    let ranking = [];
+    // ── 4 Nút Tab Chuyển BXH Phong Cách 3D Game (góc trên phải) ──
+    this._buildTabBar(width);
+
+    // ── Thanh Hạng Cá Nhân + Nút Xem Top 20 ở đáy màn hình ──
+    this._buildBottomBar(width, height);
+
+    // Tải BXH mặc định (Cao Thủ Mùa Giải)
+    await this._switchTab("season");
+  }
+
+  _trackObj(obj) {
+    if (obj) this._stageObjects.push(obj);
+    return obj;
+  }
+
+  _trackTimer(ev) {
+    if (ev) this._stageTimers.push(ev);
+    return ev;
+  }
+
+  _clearStage() {
+    this._stageTimers.forEach(t => { try { t.remove(false); } catch {} });
+    this._stageTimers = [];
+    this._stageObjects.forEach(o => { try { o?.destroy(); } catch {} });
+    this._stageObjects = [];
+  }
+
+  _buildTabBar(width) {
+    const tabW = 148;
+    const tabH = 38;
+    const gap = 8;
+    const totalW = LEADERBOARD_TABS.length * tabW + (LEADERBOARD_TABS.length - 1) * gap;
+    const startX = width - totalW - 18 + tabW / 2;
+    const tabY = 44;
+
+    this._tabButtons = [];
+    LEADERBOARD_TABS.forEach((t, idx) => {
+      const tx = startX + idx * (tabW + gap);
+      const container = this.add.container(tx, tabY).setDepth(210);
+      const g = this.add.graphics();
+      const txt = this.add
+        .text(0, 0, t.label, {
+          fontFamily: "Signika",
+          fontSize: "14px",
+          fontStyle: "bold",
+          color: "#5c3104",
+        })
+        .setOrigin(0.5);
+
+      const drawPill = (active, hover = false) => {
+        g.clear();
+        const hw = tabW / 2, hh = tabH / 2;
+        if (active) {
+          g.fillStyle(0x000000, 0.32);
+          g.fillRoundedRect(-hw, -hh + 3, tabW, tabH, 14);
+          g.fillGradientStyle(t.btnTop, t.btnTop, t.btnBot, t.btnBot, 1);
+          g.fillRoundedRect(-hw, -hh, tabW, tabH, 14);
+          g.fillStyle(0xffffff, 0.32);
+          g.fillRoundedRect(-hw + 6, -hh + 3, tabW - 12, hh - 4, 8);
+          g.lineStyle(2.2, t.btnStroke, 1);
+          g.strokeRoundedRect(-hw, -hh, tabW, tabH, 14);
+          txt.setColor(t.textColor);
+        } else {
+          g.fillStyle(0x0b172a, hover ? 0.88 : 0.72);
+          g.fillRoundedRect(-hw, -hh, tabW, tabH, 14);
+          g.lineStyle(1.6, hover ? 0xffd65c : 0x5d8db8, hover ? 0.95 : 0.6);
+          g.strokeRoundedRect(-hw, -hh, tabW, tabH, 14);
+          txt.setColor(hover ? "#fff4cc" : "#cbd5e1");
+        }
+      };
+
+      const zone = this.add.zone(0, 0, tabW, tabH).setInteractive({ cursor: "pointer" });
+      zone.on("pointerover", () => { if (this._activeTab !== t.key) drawPill(false, true); });
+      zone.on("pointerout",  () => { if (this._activeTab !== t.key) drawPill(false, false); });
+      zone.on("pointerup", () => {
+        if (this._activeTab === t.key) return;
+        playTabSound(this);
+        this._switchTab(t.key);
+      });
+
+      container.add([g, txt, zone]);
+      this._tabButtons.push({ key: t.key, drawPill });
+    });
+  }
+
+  _buildBottomBar(width, height) {
+    const barY = height - 34;
+    const barG = this.add.graphics().setDepth(200);
+    barG.fillStyle(0x061326, 0.78);
+    barG.fillRoundedRect(18, barY - 22, width - 36, 44, 14);
+    barG.lineStyle(1.6, 0xd4a640, 0.65);
+    barG.strokeRoundedRect(18, barY - 22, width - 36, 44, 14);
+
+    this._myRankText = this.add
+      .text(36, barY, "Đang tải thứ hạng của bạn...", {
+        fontFamily: "Signika",
+        fontSize: "15px",
+        fontStyle: "bold",
+        color: "#fde68a",
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(201);
+
+    // Nút Quà Mốc Rank (có chấm đỏ khi có quà chưa nhận)
+    const rewW = 152, rewH = 34;
+    const rewX = width - 278;
+    const rewC = this.add.container(rewX, barY).setDepth(205);
+    const rewG = this.add.graphics();
+    const drawRewBtn = (hover = false) => {
+      rewG.clear();
+      rewG.fillGradientStyle(hover ? 0x5eead4 : 0x4ade80, hover ? 0x5eead4 : 0x4ade80, 0x15803d, 0x15803d, 1);
+      rewG.fillRoundedRect(-rewW / 2, -rewH / 2, rewW, rewH, 12);
+      rewG.lineStyle(2, 0x0f5132, 1);
+      rewG.strokeRoundedRect(-rewW / 2, -rewH / 2, rewW, rewH, 12);
+    };
+    drawRewBtn(false);
+    const rewTxt = this.add
+      .text(0, 0, "🎁 QUÀ MỐC RANK", {
+        fontFamily: "Signika",
+        fontSize: "13.5px",
+        fontStyle: "bold",
+        color: "#ffffff",
+        stroke: "#0b3d20",
+        strokeThickness: 2.5,
+      })
+      .setOrigin(0.5);
+    this._rewardDot = this.add
+      .circle(rewW / 2 - 4, -rewH / 2 + 4, 6, 0xff2b43, 1)
+      .setStrokeStyle(1.8, 0xffffff, 1)
+      .setVisible(false);
+    const rewZone = this.add.zone(0, 0, rewW, rewH).setInteractive({ cursor: "pointer" });
+    rewZone.on("pointerover", () => drawRewBtn(true));
+    rewZone.on("pointerout",  () => drawRewBtn(false));
+    rewZone.on("pointerup", () => {
+      openRankRewardsModal({
+        scene: this,
+        onRewardClaimed: (newEcoin) => {
+          try { EcoinManager.set(this, newEcoin); } catch {}
+          this._refreshRewardBadge();
+        },
+      });
+    });
+    rewC.add([rewG, rewTxt, this._rewardDot, rewZone]);
+    this._refreshRewardBadge();
+
+    // Nút mở BXH Top 20 đầy đủ + Thả tim vinh danh
+    const btnW = 152, btnH = 34;
+    const btnX = width - 110;
+    const top20C = this.add.container(btnX, barY).setDepth(205);
+    const btnG = this.add.graphics();
+    const drawTopBtn = (hover = false) => {
+      btnG.clear();
+      btnG.fillGradientStyle(hover ? 0xffe074 : 0xffd452, hover ? 0xffe074 : 0xffd452, 0xd9820b, 0xd9820b, 1);
+      btnG.fillRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 12);
+      btnG.lineStyle(2, 0x7c4304, 1);
+      btnG.strokeRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 12);
+    };
+    drawTopBtn(false);
+    const btnTxt = this.add
+      .text(0, 0, "📋 XEM TOP 20", {
+        fontFamily: "Signika",
+        fontSize: "14px",
+        fontStyle: "bold",
+        color: "#4a1f00",
+      })
+      .setOrigin(0.5);
+    const btnZone = this.add.zone(0, 0, btnW, btnH).setInteractive({ cursor: "pointer" });
+    btnZone.on("pointerover", () => drawTopBtn(true));
+    btnZone.on("pointerout",  () => drawTopBtn(false));
+    btnZone.on("pointerup", () => {
+      openRankingTop20Modal({
+        scene: this,
+        tab: this._activeTab,
+        ranking: this._currentRanking,
+        me: this._currentMe,
+        myUserId: this._myUserId,
+        onKudosUpdated: (uid, count) => {
+          const item = this._currentRanking.find(x => Number(x.user_id) === Number(uid));
+          if (item) item.kudos_count = count;
+        },
+      });
+    });
+    top20C.add([btnG, btnTxt, btnZone]);
+  }
+
+  async _refreshRewardBadge() {
+    const token = this._playerData?.token || localStorage.getItem("token") || "";
+    if (!token || !this._rewardDot) return;
     try {
-      const resp = await fetch(`${SERVER_URL}/ranking`);
+      const r = await fetch(`${SERVER_URL}/api/ranking/rewards`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then(x => x.json());
+      if (r?.success && this._rewardDot?.active) {
+        this._rewardDot.setVisible(Number(r.claimable_count || 0) > 0);
+      }
+    } catch {}
+  }
+
+  _inspectPlayer(userId) {
+    if (!userId) return;
+    openPlayerProfileModal({
+      scene: this,
+      userId,
+      myUserId: this._myUserId,
+      onKudosUpdated: (uid, count) => {
+        const item = this._currentRanking.find(x => Number(x.user_id) === Number(uid));
+        if (item) item.kudos_count = count;
+      },
+    });
+  }
+
+  async _switchTab(tabKey) {
+    const seq = ++this._tabSeq;
+    const { width, height } = this.scale;
+    const tabMeta = LEADERBOARD_TABS.find(t => t.key === tabKey) || LEADERBOARD_TABS[0];
+    this._activeTab = tabMeta.key;
+
+    this._tabButtons.forEach(b => b.drawPill(b.key === tabMeta.key, false));
+    this._titleText.setText(tabMeta.title);
+    this._themeOverlay.setFillStyle(tabMeta.tintColor, tabMeta.tintAlpha);
+
+    this._clearStage();
+    const loading = createLoadingOverlay(this);
+
+    let ranking = [];
+    let me = null;
+    try {
+      const qs = new URLSearchParams({ type: tabMeta.key, limit: "20" });
+      if (this._myUserId) qs.set("user_id", String(this._myUserId));
+      const resp = await fetch(`${SERVER_URL}/ranking?${qs.toString()}`);
       const json = await resp.json();
-      if (json.success) ranking = json.ranking;
+      if (json.success) {
+        ranking = json.ranking || [];
+        me = json.me || null;
+      }
     } catch (e) {
       console.error("RatingScene fetch /ranking error:", e);
     }
 
     loading.destroy();
+    if (seq !== this._tabSeq || !this.scene.isActive("RatingScene")) return;
+
+    this._currentRanking = ranking;
+    this._currentMe = me;
+    this._myRankText.setText(
+      me
+        ? `Hạng #${me.rank} • ${me.title_badge} • ${me.primary_label}${me.goal_hint ? `  |  🎯 ${me.goal_hint}` : ""}`
+        : `Chưa có thứ hạng cá nhân ở bảng ${tabMeta.title}`
+    );
 
     if (!ranking.length) {
-      this.add
-        .text(width / 2, height / 2, "Chưa có dữ liệu thi đấu", {
-          fontFamily: "Signika",
-          fontSize: "26px",
-          color: "#ffffff",
-          stroke: "#000",
-          strokeThickness: 4,
-        })
-        .setOrigin(0.5)
-        .setDepth(10);
+      this._trackObj(
+        this.add
+          .text(width / 2, height / 2, "Chưa có dữ liệu xếp hạng", {
+            fontFamily: "Signika",
+            fontSize: "26px",
+            color: "#ffffff",
+            stroke: "#000",
+            strokeThickness: 4,
+          })
+          .setOrigin(0.5)
+          .setDepth(10)
+      );
       return;
     }
 
-    this._buildPodium(ranking, width, height);
+    this._startAmbientEffect(tabMeta.ambient, width, height);
+    this._buildPodium(ranking.slice(0, 3), width, height, seq);
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  Hiệu ứng khí quyển đặc trưng riêng cho từng Bảng Xếp Hạng
+  // ══════════════════════════════════════════════════════════
+  _startAmbientEffect(mode, width, height) {
+    if (mode === "wealth") {
+      // MƯA VÀNG ECOIN: Đồng xu coin.png xoay rơi nhẹ + ánh kim cương lấp lánh
+      const ev = this.time.addEvent({
+        delay: 220,
+        loop: true,
+        callback: () => {
+          if (!this.scene.isActive("RatingScene")) return;
+          const x = Phaser.Math.Between(60, width - 60);
+          const isCoin = this.textures.exists("coin") && Math.random() < 0.65;
+          const obj = isCoin
+            ? this.add.image(x, -20, "coin").setDisplaySize(22, 22).setAlpha(0.85).setDepth(5)
+            : this.add.star(x, -16, 4, 3, 9, 0xffe45e, 0.9).setDepth(5);
+          this._trackObj(obj);
+          this.tweens.add({
+            targets: obj,
+            y: height + 30,
+            x: x + Phaser.Math.Between(-50, 50),
+            angle: Phaser.Math.Between(180, 540),
+            scaleX: isCoin ? { from: 1, to: 0.35 } : 0.8,
+            alpha: { from: 0.9, to: 0 },
+            duration: Phaser.Math.Between(2800, 4400),
+            ease: "Sine.easeIn",
+            onComplete: () => obj.destroy(),
+          });
+        },
+      });
+      this._trackTimer(ev);
+    } else if (mode === "scholar") {
+      // HÀO QUANG HỌC VIỆN: Hạt tri thức tím-xanh & vòng rune huyền bí bay lên
+      const cols = [0xc084fc, 0x38bdf8, 0xf0abfc, 0xe0f2fe];
+      const ev = this.time.addEvent({
+        delay: 200,
+        loop: true,
+        callback: () => {
+          if (!this.scene.isActive("RatingScene")) return;
+          const x = Phaser.Math.Between(80, width - 80);
+          const y = height - 40;
+          const col = Phaser.Utils.Array.GetRandom(cols);
+          const isRing = Math.random() < 0.28;
+          const obj = isRing
+            ? this.add.circle(x, y, Phaser.Math.Between(8, 16), col, 0).setStrokeStyle(1.8, col, 0.75).setDepth(5)
+            : this.add.star(x, y, 5, 2, Phaser.Math.Between(5, 9), col, 0.85).setDepth(5);
+          this._trackObj(obj);
+          this.tweens.add({
+            targets: obj,
+            y: Phaser.Math.Between(80, 220),
+            x: x + Phaser.Math.Between(-35, 35),
+            scale: isRing ? 1.8 : 0.4,
+            alpha: { from: 0.85, to: 0 },
+            angle: 180,
+            duration: Phaser.Math.Between(2400, 3800),
+            ease: "Sine.easeOut",
+            onComplete: () => obj.destroy(),
+          });
+        },
+      });
+      this._trackTimer(ev);
+    } else if (mode === "streak") {
+      // NGỌN LỬA BẤT BẠI: Tàn lửa đỏ-cam-vàng bùng bay ngược từ dưới bục lên
+      const cols = [0xff3838, 0xff7b00, 0xffc300, 0xff5252];
+      const ev = this.time.addEvent({
+        delay: 110,
+        loop: true,
+        callback: () => {
+          if (!this.scene.isActive("RatingScene")) return;
+          const x = Phaser.Math.Between(70, width - 70);
+          const y = height - Phaser.Math.Between(20, 120);
+          const col = Phaser.Utils.Array.GetRandom(cols);
+          const p = this.add.circle(x, y, Phaser.Math.Between(2.5, 6), col, 0.92).setBlendMode(Phaser.BlendModes.ADD).setDepth(6);
+          this._trackObj(p);
+          this.tweens.add({
+            targets: p,
+            y: y - Phaser.Math.Between(180, 380),
+            x: x + Phaser.Math.Between(-55, 55),
+            scale: 0.15,
+            alpha: 0,
+            duration: Phaser.Math.Between(1200, 2200),
+            ease: "Cubic.easeOut",
+            onComplete: () => p.destroy(),
+          });
+        },
+      });
+      this._trackTimer(ev);
+    } else {
+      // CAO THỦ MÙA GIẢI: Pháo hoa chiến thắng + sao vàng bay lấp lánh
+      const ev = this.time.addEvent({
+        delay: 260,
+        loop: true,
+        callback: () => {
+          if (!this.scene.isActive("RatingScene")) return;
+          const x = Phaser.Math.Between(80, width - 80);
+          const y = Phaser.Math.Between(90, height - 100);
+          const s = this.add.star(x, y, 5, 2, Phaser.Math.Between(4, 8), 0xffe066, 0).setDepth(5);
+          this._trackObj(s);
+          this.tweens.add({
+            targets: s,
+            alpha: { from: 0, to: 0.9 },
+            scale: { from: 0.4, to: 1.2 },
+            y: y - 30,
+            duration: 900,
+            yoyo: true,
+            onComplete: () => s.destroy(),
+          });
+        },
+      });
+      this._trackTimer(ev);
+    }
   }
 
   // ══════════════════════════════════════════════════════════
   //  _buildPodium: Khởi tạo bục và các nhân vật
   // ══════════════════════════════════════════════════════════
-  _buildPodium(ranking, width, height) {
+  _buildPodium(ranking, width, height, seq = this._tabSeq) {
     const CHAR_H = 210; // Chiều cao hiển thị của nhân vật
     const scaleX = width / 1128;
     const scaleY = height / 636;
@@ -168,11 +591,13 @@ export default class RatingScene extends Phaser.Scene {
       const py = layout.podiumY;
 
       // 1. Bóng đen dưới chân nhân vật (ngay trên mặt đĩa bục)
-      const shadow = this.add
-        .ellipse(px, py + 4, 76, 20, 0x000000, 0.45)
-        .setDepth(15)
-        .setScale(0.2)
-        .setAlpha(0);
+      const shadow = this._trackObj(
+        this.add
+          .ellipse(px, py + 4, 76, 20, 0x000000, 0.45)
+          .setDepth(15)
+          .setScale(0.2)
+          .setAlpha(0)
+      );
 
       // 2. Tính vị trí đỉnh đầu thực tế của nhân vật để đặt bảng tên
       // Trong sprite 900x900, chân ở Y=750 (cách đáy 150px = 16.67%)
@@ -183,10 +608,12 @@ export default class RatingScene extends Phaser.Scene {
 
       // 3. Bảng thông tin nổi không khung đen (blur halo + chữ gradient đồng bộ màu aura Top 1 Cam / Top 2 Tím / Top 3 Xanh dương, không icon)
       const badgeY = headY - 40;
-      const badgeContainer = this.add
-        .container(px, badgeY)
-        .setDepth(30)
-        .setAlpha(0);
+      const badgeContainer = this._trackObj(
+        this.add
+          .container(px, badgeY)
+          .setDepth(30)
+          .setAlpha(0)
+      );
 
       const BADGE_THEMES = {
         1: {
@@ -224,13 +651,13 @@ export default class RatingScene extends Phaser.Scene {
         },
       };
       const bt = BADGE_THEMES[rank] || BADGE_THEMES[3];
-      const winsCount = Number(data.wins || 0);
-      const winsStr = winsCount === 1 ? "1 Trận Thắng" : `${winsCount} Trận Thắng`;
+      const winsStr = data.primary_label || `${Number(data.wins || 0)} Trận Thắng`;
+      const topRankHeader = data.title_badge ? `${layout.rankLabel} • ${String(data.title_badge).toUpperCase()}` : layout.rankLabel;
       const uname = String(data.username || "Player").slice(0, 18);
 
-      const cw = 250, ch = 92;
+      const cw = 268, ch = 94;
       const DPR = 2;
-      const texKey = `rank_badge_${rank}_${uname}_${winsCount}_${Date.now()}`;
+      const texKey = `rank_badge_${this._activeTab}_${rank}_${uname}_${Date.now()}`;
       if (this.textures.exists(texKey)) this.textures.remove(texKey);
       const cTex = this.textures.createCanvas(texKey, cw * DPR, ch * DPR);
       const ctx = cTex.getContext();
@@ -253,20 +680,20 @@ export default class RatingScene extends Phaser.Scene {
       ctx.lineJoin = "round";
 
       // Dòng 1: QUÁN QUÂN / HẠNG 2 / HẠNG 3 (chữ gradient nổi phát sáng, không icon)
-      ctx.font = `900 ${rank === 1 ? 16 : 14.5}px Signika, Arial, sans-serif`;
+      ctx.font = `900 ${rank === 1 ? 14.5 : 13}px Signika, Arial, sans-serif`;
       ctx.save();
       ctx.shadowColor = bt.glow;
       ctx.shadowBlur = 9;
       ctx.lineWidth = 4.2;
       ctx.strokeStyle = bt.stroke;
-      ctx.strokeText(layout.rankLabel, cx, 22);
+      ctx.strokeText(topRankHeader, cx, 22);
       ctx.restore();
       const rGrad = ctx.createLinearGradient(cx, 13, cx, 31);
       rGrad.addColorStop(0, bt.rankTop);
       rGrad.addColorStop(0.55, bt.rankMid);
       rGrad.addColorStop(1, bt.rankBot);
       ctx.fillStyle = rGrad;
-      ctx.fillText(layout.rankLabel, cx, 22);
+      ctx.fillText(topRankHeader, cx, 22);
 
       // Dòng 2: Tên người chơi (trắng sáng đậm sắc nét)
       ctx.font = "900 19px Signika, Arial, sans-serif";
@@ -300,6 +727,38 @@ export default class RatingScene extends Phaser.Scene {
 
       const badgeImg = this.add.image(0, 0, texKey).setDisplaySize(cw, ch);
       badgeContainer.add(badgeImg);
+
+      // Huy hiệu Avatar trang bị (viền Vàng / Bạc / Đồng) ngay góc trái bảng tên bục Top 3
+      const avId = Math.max(1, Math.min(50, Number(data.active_avatar_id || 1)));
+      const avKey = `rank_av_${avId}`;
+      const rimColor = rank === 1 ? 0xffd700 : rank === 2 ? 0xe2e8f0 : 0xf6ad55;
+      const mountPodiumAvatar = () => {
+        if (!badgeContainer?.active || !this.textures.exists(avKey)) return;
+        const avX = -cw / 2 + 12;
+        const avY = -2;
+        const avR = 20;
+        const rim = this.add.circle(avX, avY, avR + 2.5, rimColor, 1).setStrokeStyle(2, 0x2b1200, 0.9);
+        const avImg = this.add.image(avX, avY, avKey).setDisplaySize(avR * 2, avR * 2);
+        const maskG = this.make.graphics({ add: false });
+        maskG.fillStyle(0xffffff);
+        maskG.fillCircle(px + avX, badgeY + avY, avR);
+        this._trackObj(maskG);
+        avImg.setMask(maskG.createGeometryMask());
+        badgeContainer.add([rim, avImg]);
+      };
+      if (this.textures.exists(avKey)) {
+        mountPodiumAvatar();
+      } else {
+        this.load.image(avKey, `assets/resources/Avatar/thumbs_96/${avId}.png`);
+        this.load.once(`filecomplete-image-${avKey}`, mountPodiumAvatar);
+        this.load.start();
+      }
+
+      // Click vào bảng tên hoặc nhân vật trên bục để Soi Hồ Sơ Chi Tiết
+      const inspectZone = this.add.zone(0, 0, cw, ch).setInteractive({ cursor: "pointer" });
+      inspectZone.on("pointerup", () => this._inspectPlayer(data.user_id));
+      badgeContainer.add(inspectZone);
+
       this.tweens.add({
         targets: badgeImg,
         y: -4,
@@ -322,26 +781,29 @@ export default class RatingScene extends Phaser.Scene {
       };
     });
 
-    this._revealChain(revealOrder, groups, 0, width, height);
+    this._revealChain(revealOrder, groups, 0, width, height, seq);
   }
 
   // ══════════════════════════════════════════════════════════
   //  _revealChain: Hiển thị tuần tự từng hạng với hoạt ảnh
   // ══════════════════════════════════════════════════════════
-  _revealChain(order, groups, idx, width, height) {
+  _revealChain(order, groups, idx, width, height, seq = this._tabSeq) {
+    if (seq !== this._tabSeq || !this.scene.isActive("RatingScene")) return;
     if (idx >= order.length) {
+      if (this._activeTab === "season") this._fireworksBurst(width, height, seq);
       return;
     }
 
     const rank = order[idx];
     const g = groups[rank];
     if (!g) {
-      this.time.delayedCall(200, () => this._revealChain(order, groups, idx + 1, width, height));
+      this._trackTimer(this.time.delayedCall(200, () => this._revealChain(order, groups, idx + 1, width, height, seq)));
       return;
     }
 
     // 1. Spawn nhân vật và animate bóng đổ
     this._spawnCharacter(g, () => {
+      if (seq !== this._tabSeq || !this.scene.isActive("RatingScene")) return;
       // 2. Hiện bóng đổ dưới chân
       this.tweens.add({
         targets: g.shadow,
@@ -366,8 +828,8 @@ export default class RatingScene extends Phaser.Scene {
       this._spawnRankMagicAura(g.px, g.py, rank);
 
       // Chờ một chút rồi đến lượt thứ hạng tiếp theo
-      this.time.delayedCall(650, () => this._revealChain(order, groups, idx + 1, width, height));
-    });
+      this._trackTimer(this.time.delayedCall(520, () => this._revealChain(order, groups, idx + 1, width, height, seq)));
+    }, seq);
   }
 
   // ══════════════════════════════════════════════════════════
@@ -532,10 +994,12 @@ export default class RatingScene extends Phaser.Scene {
     }
 
     // 1. Vòng ma pháp nằm phẳng trên mặt bục như bóng (xoay mượt không bị lật đứng)
-    const groundContainer = this.add.container(sx, footY)
-      .setDepth(16)
-      .setScale(1, 0.40)
-      .setAlpha(0);
+    const groundContainer = this._trackObj(
+      this.add.container(sx, footY)
+        .setDepth(16)
+        .setScale(1, 0.40)
+        .setAlpha(0)
+    );
 
     const runeOuter = this.add.image(0, 0, runeKey)
       .setBlendMode(Phaser.BlendModes.ADD)
@@ -558,8 +1022,8 @@ export default class RatingScene extends Phaser.Scene {
     });
 
     // 2. Dải năng lượng xoáy 3D ôm quanh nhân vật (Back depth 18 / Front depth 22)
-    const vortexBack  = this.add.graphics().setDepth(18).setBlendMode(Phaser.BlendModes.ADD);
-    const vortexFront = this.add.graphics().setDepth(22).setBlendMode(Phaser.BlendModes.ADD);
+    const vortexBack  = this._trackObj(this.add.graphics().setDepth(18).setBlendMode(Phaser.BlendModes.ADD));
+    const vortexFront = this._trackObj(this.add.graphics().setDepth(22).setBlendMode(Phaser.BlendModes.ADD));
     let phase = rank * 1.4;
 
     const drawSwirl = () => {
@@ -605,17 +1069,19 @@ export default class RatingScene extends Phaser.Scene {
       });
     };
     drawSwirl();
-    this.time.addEvent({ delay: 20, loop: true, callback: drawSwirl });
+    this._trackTimer(this.time.addEvent({ delay: 20, loop: true, callback: drawSwirl }));
 
     // 3. Các tia sáng năng lượng bay thẳng lên
     const beamCount = rank === 1 ? 8 : 6;
     for (let i = 0; i < beamCount; i++) {
       const isFront = i % 2 === 0;
-      const beam = this.add.image(sx, footY, beamKey)
-        .setDepth(isFront ? 22 : 18)
-        .setBlendMode(Phaser.BlendModes.ADD)
-        .setOrigin(0.5, 1)
-        .setAlpha(0);
+      const beam = this._trackObj(
+        this.add.image(sx, footY, beamKey)
+          .setDepth(isFront ? 22 : 18)
+          .setBlendMode(Phaser.BlendModes.ADD)
+          .setOrigin(0.5, 1)
+          .setAlpha(0)
+      );
 
       const launchBeam = () => {
         if (!beam?.active) return;
@@ -651,10 +1117,12 @@ export default class RatingScene extends Phaser.Scene {
     // 4. Các đốm sáng mana bay xoáy lên quanh nhân vật
     const sparkCount = rank === 1 ? 12 : 8;
     for (let i = 0; i < sparkCount; i++) {
-      const sp = this.add.image(sx, footY, sparkKey)
-        .setDepth(22)
-        .setBlendMode(Phaser.BlendModes.ADD)
-        .setAlpha(0);
+      const sp = this._trackObj(
+        this.add.image(sx, footY, sparkKey)
+          .setDepth(22)
+          .setBlendMode(Phaser.BlendModes.ADD)
+          .setAlpha(0)
+      );
 
       const launchSpark = () => {
         if (!sp?.active) return;
@@ -681,7 +1149,7 @@ export default class RatingScene extends Phaser.Scene {
   // ══════════════════════════════════════════════════════════
   //  _spawnCharacter: Hoạt ảnh bước lên bục của nhân vật
   // ══════════════════════════════════════════════════════════
-  _spawnCharacter(g, onDone) {
+  _spawnCharacter(g, onDone, seq = this._tabSeq) {
     const { px, targetSpriteY, data, charH } = g;
     const charName = (data.characterName || "Dark_Oracle").replace(/ /g, "_");
     const skin = data.skin_id || 1;
@@ -692,13 +1160,15 @@ export default class RatingScene extends Phaser.Scene {
     const spriteX = px + 5;
 
     const spawnSprite = () => {
+      if (seq !== this._tabSeq || !this.scene.isActive("RatingScene")) return;
       if (!this.textures.exists(fk0)) {
-        // Fallback icon đại diện nếu chưa load được ảnh
-        const ph = this.add
-          .text(px, targetSpriteY, "👤", { fontSize: "56px" })
-          .setOrigin(0.5, 1)
-          .setDepth(20)
-          .setAlpha(0);
+        const ph = this._trackObj(
+          this.add
+            .text(px, targetSpriteY, "👤", { fontSize: "56px" })
+            .setOrigin(0.5, 1)
+            .setDepth(20)
+            .setAlpha(0)
+        );
         this.tweens.add({
           targets: ph,
           alpha: 1,
@@ -710,13 +1180,17 @@ export default class RatingScene extends Phaser.Scene {
         return;
       }
 
-      // Khởi tạo sprite nhân vật
-      const sp = this.add
-        .sprite(spriteX, targetSpriteY + 80, fk0)
-        .setDisplaySize(charH, charH)
-        .setOrigin(0.5, 1)
-        .setDepth(20)
-        .setAlpha(0);
+      // Khởi tạo sprite nhân vật (bấm vào nhân vật trên bục để Soi Hồ Sơ Chi Tiết)
+      const sp = this._trackObj(
+        this.add
+          .sprite(spriteX, targetSpriteY + 80, fk0)
+          .setDisplaySize(charH, charH)
+          .setOrigin(0.5, 1)
+          .setDepth(20)
+          .setAlpha(0)
+          .setInteractive({ cursor: "pointer" })
+      );
+      sp.on("pointerup", () => this._inspectPlayer(data.user_id));
 
       // Tạo Animation Idle mượt mà nếu chưa tồn tại
       const ak = `${charName}_${skin}_idle`;
@@ -795,8 +1269,8 @@ export default class RatingScene extends Phaser.Scene {
   // ══════════════════════════════════════════════════════════
   //  Hiệu ứng pháo hoa lớn ăn mừng sau khi đủ cả 3 người
   // ══════════════════════════════════════════════════════════
-  _fireworksBurst(width, height) {
-    if (!this.scene.isActive("RatingScene")) return;
+  _fireworksBurst(width, height, seq = this._tabSeq) {
+    if (seq !== this._tabSeq || !this.scene.isActive("RatingScene")) return;
 
     const pts = [
       { x: width * 0.18, y: height * 0.48 },
@@ -857,6 +1331,6 @@ export default class RatingScene extends Phaser.Scene {
     });
 
     // Lặp lại pháo hoa tuần hoàn
-    this.time.delayedCall(2800, () => this._fireworksBurst(width, height));
+    this._trackTimer(this.time.delayedCall(2800, () => this._fireworksBurst(width, height, seq)));
   }
 }

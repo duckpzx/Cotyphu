@@ -37,6 +37,7 @@ import payosService, { TOPUP_PACKAGES } from "./src/server/services/payos.servic
 import audioConfigService from "./src/server/services/audioConfig.service.js";
 import weatherConfigService from "./src/server/services/weatherConfig.service.js";
 import supportService from "./src/server/services/support.service.js";
+import rankingService from "./src/server/services/ranking.service.js";
 import systemConsoleService from "./src/server/services/systemConsole.service.js";
 
 const SECRET = process.env.JWT_SECRET;
@@ -4706,6 +4707,7 @@ server.listen(3000, "0.0.0.0", async () => {
     audioConfigService.ensureAudioSchema(),
     weatherConfigService.ensureWeatherSchema(),
     supportService.ensureSupportSchema(),
+    rankingService.ensureRankingSchema(),
   ]);
 
   // ── Dọn dẹp các phòng bị kẹt khi server restart ──────────────
@@ -5615,60 +5617,80 @@ app.post("/users/:userId/avatars/active", async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-// GET /ranking — Top 3 người chơi có số trận thắng nhiều nhất
-// Trả về: [{ rank, user_id, username, wins, characterName, skin_id }]
+// GET /ranking?type=season|wealth|scholar|streak&user_id=...
+// 4 Bảng Xếp Hạng chuyên biệt (Cao Thủ / Tỷ Phú / Trạng Nguyên / Chuỗi Thắng)
 // ══════════════════════════════════════════════════════════════════
 app.get("/ranking", async (req, res) => {
   try {
-    // Đếm số trận thắng theo winner_id
-    const [winRows] = await db.query(`
-      SELECT winner_id, COUNT(*) AS wins
-      FROM game_results
-      WHERE winner_id IS NOT NULL
-      GROUP BY winner_id
-      ORDER BY wins DESC
-      LIMIT 3
-    `);
-
-    if (!winRows.length) {
-      return res.json({ success: true, ranking: [] });
-    }
-
-    const userIds = winRows.map(r => r.winner_id);
-
-    // Lấy thông tin username + nhân vật đang active
-    const [userRows] = await db.query(`
-      SELECT
-        u.id,
-        u.username,
-        u.active_character_id,
-        c.name           AS characterName,
-        COALESCE(cs.skin_number, 1) AS skin_id
-      FROM users u
-      LEFT JOIN user_characters uc ON uc.user_id = u.id AND uc.character_id = u.active_character_id
-      LEFT JOIN characters c ON c.id = uc.character_id
-      LEFT JOIN character_skins cs ON cs.id = uc.active_skin_id
-      WHERE u.id IN (${userIds.map(() => "?").join(",")})
-    `, userIds);
-
-    const userMap = {};
-    userRows.forEach(u => { userMap[u.id] = u; });
-
-    const ranking = winRows.map((r, i) => {
-      const u = userMap[r.winner_id] || {};
-      return {
-        rank: i + 1,
-        user_id: r.winner_id,
-        username: u.username || `Player ${r.winner_id}`,
-        wins: Number(r.wins),
-        characterName: u.characterName || "Dark_Oracle",
-        skin_id: u.skin_id || 1
-      };
-    });
-
-    res.json({ success: true, ranking });
+    const type = req.query?.type || "season";
+    const viewerId = req.query?.user_id ? Number(req.query.user_id) : null;
+    const limit = req.query?.limit ? Number(req.query.limit) : 20;
+    const data = await rankingService.getLeaderboard(type, { viewerId, limit });
+    res.json(data);
   } catch (err) {
-    console.error("GET /ranking error:", err);
+    logger.err("RANKING", "GET /ranking failed", err);
     res.status(500).json({ success: false, message: "Lỗi server" });
+  }
+});
+
+// Thả tim vinh danh người chơi trên BXH (1 lần/ngày)
+app.post("/api/ranking/kudos", async (req, res) => {
+  const u = getSupportAuthUser(req);
+  if (!u) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+  try {
+    const r = await rankingService.giveKudos(u.id, req.body?.to_user_id);
+    res.status(r.success ? 200 : 400).json(r);
+  } catch (err) {
+    logger.err("RANKING", "POST /api/ranking/kudos failed", err);
+    res.status(500).json({ success: false, message: "Lỗi máy chủ" });
+  }
+});
+
+// Soi hồ sơ chi tiết đối thủ từ BXH (Avatar, Skin, Tỷ lệ thắng, IQ, Bộ thẻ Tarot tủ, trạng thái kết bạn)
+app.get("/api/ranking/profile/:userId", async (req, res) => {
+  const viewer = getSupportAuthUser(req);
+  try {
+    const r = await rankingService.getPlayerProfile(req.params.userId, { viewerId: viewer?.id || null });
+    res.status(r.success ? 200 : 404).json(r);
+  } catch (err) {
+    logger.err("RANKING", "GET /api/ranking/profile failed", err);
+    res.status(500).json({ success: false, message: "Lỗi tải hồ sơ" });
+  }
+});
+
+// Gửi lời mời kết bạn ngay từ BXH
+app.post("/api/ranking/friend-request", async (req, res) => {
+  const u = getSupportAuthUser(req);
+  if (!u) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+  try {
+    const r = await rankingService.sendFriendRequest(u.id, req.body?.to_user_id);
+    res.status(r.success ? 200 : 400).json(r);
+  } catch (err) {
+    logger.err("RANKING", "POST /api/ranking/friend-request failed", err);
+    res.status(500).json({ success: false, message: "Lỗi gửi lời mời kết bạn" });
+  }
+});
+
+// Lấy danh sách & nhận Quà Mốc Rank (Thương Gia / Triệu Phú / Tỷ Phú / Huyền Thoại)
+app.get("/api/ranking/rewards", async (req, res) => {
+  const u = getSupportAuthUser(req);
+  if (!u) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+  try {
+    res.json(await rankingService.getRankRewards(u.id));
+  } catch (err) {
+    logger.err("RANKING", "GET /api/ranking/rewards failed", err);
+    res.status(500).json({ success: false, message: "Lỗi tải quà mốc Rank" });
+  }
+});
+
+app.post("/api/ranking/rewards/claim", async (req, res) => {
+  const u = getSupportAuthUser(req);
+  if (!u) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+  try {
+    const r = await rankingService.claimRankReward(u.id, req.body?.milestone_key);
+    res.status(r.success ? 200 : 400).json(r);
+  } catch (err) {
+    logger.err("RANKING", "POST /api/ranking/rewards/claim failed", err);
+    res.status(500).json({ success: false, message: "Lỗi nhận quà mốc Rank" });
   }
 });
