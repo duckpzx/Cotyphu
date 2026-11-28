@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-dotenv.config();
+dotenv.config({ quiet: true });
 import jwt from "jsonwebtoken";
 import userRepo from "../repositories/user.repo.js";
 

@@ -1,4 +1,5 @@
 import db from "../config/db.js";
+import logger from "../utils/logger.js";
 
 const VALID_MODES = new Set(["none", "snow", "peach", "both"]);
 
@@ -19,9 +20,9 @@ const weatherConfigService = {
       await db.query(
         `INSERT IGNORE INTO weather_settings (id, mode, density) VALUES (1, 'snow', 72)`
       );
-      console.log("🌸 [WEATHER] Verified weather_settings table");
+      logger.ok("WEATHER", "Verified table: weather_settings");
     } catch (err) {
-      console.error("ensureWeatherSchema error:", err.message);
+      logger.err("WEATHER", "ensureWeatherSchema failed", err);
     }
   },
 

@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import db from "../config/db.js";
+import logger from "../utils/logger.js";
 
 const DEFAULT_SLA_RULES = [
   { category: "PAYMENT", label: "Nạp tiền & Giao dịch", priority: "HIGH",   sla_minutes: 15,  auto_reply: "Hệ thống ưu tiên kiểm tra giao dịch nạp tiền của bạn trong vòng 15 phút." },
@@ -208,9 +209,9 @@ const supportService = {
         }
       }
 
-      console.log("🎧 [SUPPORT] Verified support_tickets, messages, ai_logs, kb_articles, macros & sla_rules");
+      logger.ok("SUPPORT", "Verified tables: support_tickets, messages, ai_logs, kb, macros, sla");
     } catch (err) {
-      console.error("ensureSupportSchema error:", err.message);
+      logger.err("SUPPORT", "ensureSupportSchema failed", err);
     }
   },
 
@@ -492,10 +493,10 @@ const supportService = {
                   break outerGemini;
                 }
               } else {
-                console.warn(`⚠️ [SUPPORT-AI] ${modelName} HTTP ${gRes.status}:`, gJson?.error?.message || "unknown");
+                logger.warn("SUP-AI", `${modelName} HTTP ${gRes.status}`, gJson?.error?.message || "unknown");
               }
             } catch (err) {
-              console.warn(`⚠️ [SUPPORT-AI] ${modelName} fetch error:`, err.message);
+              logger.warn("SUP-AI", `${modelName} request failed`, err);
             }
           }
         }

@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import securityRepo from "../repositories/security.repo.js";
+import logger from "../utils/logger.js";
 import systemConsoleService from "./systemConsole.service.js";
 
 /**
@@ -107,7 +108,7 @@ const securityService = {
         }
       }
     } catch (err) {
-      console.error("reloadBlacklistCache error:", err.message);
+      logger.err("SECURITY", "reloadBlacklistCache failed", err);
     }
   },
 

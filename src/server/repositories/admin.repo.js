@@ -1,4 +1,5 @@
 import db from "../config/db.js";
+import logger from "../utils/logger.js";
 
 const REQUIRED_USER_COLUMNS = [
   { name: "role", sql: "ADD COLUMN role ENUM('user','admin') NOT NULL DEFAULT 'user'" },
@@ -22,7 +23,7 @@ const adminRepo = {
       for (const col of REQUIRED_USER_COLUMNS) {
         if (!existing.has(col.name)) {
           await db.query(`ALTER TABLE users ${col.sql}`);
-          console.log(`🛡️ [ADMIN] Added users.${col.name}`);
+          logger.info("ADMIN", `Added column users.${col.name}`);
         }
       }
 
@@ -49,11 +50,12 @@ const adminRepo = {
         const [firstRows] = await db.query("SELECT id, username FROM users ORDER BY id ASC LIMIT 1");
         if (firstRows[0]) {
           await db.query("UPDATE users SET role = 'admin' WHERE id = ?", [firstRows[0].id]);
-          console.log(`👑 [ADMIN] Auto-promoted first user '${firstRows[0].username}' (id=${firstRows[0].id}) to admin`);
+          logger.info("ADMIN", `Promoted initial admin '${firstRows[0].username}' (id=${firstRows[0].id})`);
         }
       }
+      logger.ok("ADMIN", "Verified tables: users(rbac), admin_audit_logs");
     } catch (err) {
-      console.error("ensureAdminSchema error:", err.message);
+      logger.err("ADMIN", "ensureAdminSchema failed", err);
     }
   },
 
@@ -71,7 +73,7 @@ const adminRepo = {
         ]
       );
     } catch (err) {
-      console.error("logAudit error:", err.message);
+      logger.err("ADMIN", "logAudit failed", err);
     }
   },
 

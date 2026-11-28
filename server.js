@@ -1,6 +1,7 @@
 // ===== ENV =====
 import dotenv from "dotenv";
-dotenv.config();
+dotenv.config({ quiet: true });
+import logger from "./src/server/utils/logger.js";
 
 // ===== CORE =====
 import express from "express";
@@ -63,7 +64,7 @@ app.use(express.static(path.join(__dirname), {
   etag: true
 }));
 
-console.log("🚀 Server đang chạy...");
+// Startup banner is printed cleanly when server.listen() binds.
 
 // ===== SOCKET.IO =====
 const io = new Server(server, { cors: { origin: "*" } });
@@ -1943,13 +1944,13 @@ function handleLabLeave(socket) {
   // Dọn lab rỗng
   if (lab.members.size === 0) {
     labRooms.delete(labId);
-    console.log(`🧹 Lab ${labId} removed (empty)`);
+    logger.info("LAB", `Room ${labId} closed (empty)`);
   }
 }
 
 // ===== SOCKET EVENTS =====
 io.on("connection", (socket) => {
-  console.log(`\n✅ Connected: ${socket.id} | user_id: ${socket.user_id}`);
+  logger.ok("SOCKET", `Client connected`, { sid: socket.id, uid: socket.user_id });
 
   // ── Track online user ────────────────────────────────────────────────
   const userId = Number(socket.user_id);
@@ -4155,7 +4156,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
   // ── LEAVE / DISCONNECT ───────────────────────────────────────────
   socket.on("room:leave", async () => { await handleLeaveRoom(socket); });
   socket.on("disconnect", async () => {
-    console.log(`❌ Disconnected: ${socket.id}`);
+    logger.info("SOCKET", `Client disconnected`, { sid: socket.id, uid: socket.user_id });
 
     // Rời Lab nếu đang ở Lab
     if (socket.lab_room_id) {
@@ -4230,7 +4231,7 @@ socket.on("game:use_tarot", async ({ room_id, tarot_id, target_user_id = null, t
       user_id, name, charName, skin, spot_index,
     });
 
-    console.log(`🧪 ${name} joined lab ${labId} (spot ${spot_index}), total: ${lab.members.size}`);
+    logger.info("LAB", `${name} joined ${labId}`, { spot: spot_index, members: lab.members.size });
   });
 
   socket.on("lab:leave", () => { handleLabLeave(socket); });
@@ -4678,24 +4679,44 @@ app.get("/admin", (req, res) => {
   res.sendFile(path.join(__dirname, "admin.html"));
 });
 
-server.listen(3000, "0.0.0.0", () => {
-  console.log("✅ Server ready at (tất cả interface)");
+server.listen(3000, "0.0.0.0", async () => {
+  logger.banner({ name: "COTYPHU SERVER", host: "0.0.0.0", port: 3000 });
   startChatCleanupJob();
-  adminRepo.ensureAdminSchema();
-  securityService.init();
-  payosService.ensurePaymentSchema();
-  audioConfigService.ensureAudioSchema();
-  weatherConfigService.ensureWeatherSchema();
-  supportService.ensureSupportSchema();
+
+  // Kiểm tra kết nối MySQL 1 lần duy nhất trước khi chạy các tác vụ khởi tạo schema
+  try {
+    await db.query("SELECT 1");
+    logger.ok("MYSQL", "Database connection pool ready");
+  } catch (err) {
+    logger.err("MYSQL", "Database unavailable on startup — skipping schema sync", err);
+    systemConsoleService.log({
+      category: "SYSTEM",
+      level: "ERR",
+      action: "MYSQL_OFFLINE",
+      detail: logger.formatError(err),
+    });
+    return;
+  }
+
+  await Promise.allSettled([
+    ensureAvatarTables(),
+    adminRepo.ensureAdminSchema(),
+    securityService.init(),
+    payosService.ensurePaymentSchema(),
+    audioConfigService.ensureAudioSchema(),
+    weatherConfigService.ensureWeatherSchema(),
+    supportService.ensureSupportSchema(),
+  ]);
 
   // ── Dọn dẹp các phòng bị kẹt khi server restart ──────────────
   db.query(
     `UPDATE rooms SET room_status = 'finished', updated_at = NOW()
      WHERE room_status = 'playing'`
   ).then(([r]) => {
-    if (r.affectedRows > 0)
-      console.log(`🧹 Cleaned up ${r.affectedRows} stale 'playing' room(s) → 'finished'`);
-  }).catch(err => console.error("Startup room cleanup error:", err));
+    if (r.affectedRows > 0) {
+      logger.info("ROOM", `Recovered ${r.affectedRows} stale 'playing' room(s) -> 'finished'`);
+    }
+  }).catch(err => logger.err("ROOM", "Startup room cleanup failed", err));
 
   // ── Đảm bảo bảng game_results tồn tại ────────────────────────
   db.query(`
@@ -4714,8 +4735,8 @@ server.listen(3000, "0.0.0.0", () => {
       INDEX idx_winner (winner_id),
       INDEX idx_played (played_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-  `).then(() => console.log("✅ game_results table ready"))
-    .catch(err => console.error("game_results table error:", err));
+  `).then(() => logger.ok("MYSQL", "Verified table: game_results"))
+    .catch(err => logger.err("MYSQL", "Verify table game_results failed", err));
 });
 app.get("/characters/skills", async (req, res) => {
   try {
@@ -5483,10 +5504,9 @@ async function ensureAvatarTables() {
     }
     _avatarTablesReady = true;
   } catch (err) {
-    console.warn("ensureAvatarTables warning:", err.message);
+    logger.warn("AVATAR", "ensureAvatarTables skipped", err);
   }
 }
-ensureAvatarTables();
 
 // GET /shop/avatars — Danh sách 50 avatar trong cửa hàng
 app.get("/shop/avatars", (req, res) => {

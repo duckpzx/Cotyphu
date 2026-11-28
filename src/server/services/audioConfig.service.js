@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import db from "../config/db.js";
+import logger from "../utils/logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -122,9 +123,9 @@ const audioConfigService = {
         );
       }
 
-      console.log(`🔊 [AUDIO] Verified audio_settings table (${AUDIO_TRACKS.length} tracks)`);
+      logger.ok("AUDIO", `Verified table: audio_settings (${AUDIO_TRACKS.length} tracks)`);
     } catch (err) {
-      console.error("ensureAudioSchema error:", err.message);
+      logger.err("AUDIO", "ensureAudioSchema failed", err);
     }
   },
 

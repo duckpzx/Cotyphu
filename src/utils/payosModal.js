@@ -571,6 +571,13 @@ export async function openPayosTopUpFlow({
   `;
   document.body.appendChild(overlay);
 
+  // Chặn hoàn toàn click xuyên xuống Phaser Canvas phía sau (tránh bấm nhầm Cửa Hàng / Đấu Trường)
+  const prevInputEnabled = scene?.input ? scene.input.enabled : true;
+  if (scene?.input) scene.input.enabled = false;
+  ["pointerdown", "pointerup", "mousedown", "mouseup", "touchstart", "touchend", "wheel"].forEach((evName) => {
+    overlay.addEventListener(evName, (e) => e.stopPropagation());
+  });
+
   const pillsRow = overlay.querySelector("#topup-pills-row");
   const ecoinPreviewEl = overlay.querySelector("#topup-ecoin-preview");
   const bankNameEl = overlay.querySelector("#topup-bank-name");
@@ -613,6 +620,11 @@ export async function openPayosTopUpFlow({
     stopTimers();
     if (socket) socket.off("payment:paid", onSocketPaid);
     overlay.remove();
+    if (scene?.input) {
+      setTimeout(() => {
+        try { if (scene?.input) scene.input.enabled = prevInputEnabled; } catch {}
+      }, 60);
+    }
     onClose?.();
   };
 

@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import db from "../config/db.js";
+import logger from "../utils/logger.js";
 
 const PAYOS_API_URL = "https://api-merchant.payos.vn/v2/payment-requests";
 const VIETQR_GENERATE_URL = "https://vietqr.vn/api/vietqr/generate";
@@ -233,7 +234,7 @@ const payosService = {
       if (!cols || cols.length === 0) {
         await db.query("ALTER TABLE payment_orders ADD COLUMN transfer_code VARCHAR(32) NULL DEFAULT NULL AFTER order_code");
         await db.query("ALTER TABLE payment_orders ADD INDEX idx_pay_transfer_code (transfer_code)");
-        console.log("💳 [PAYOS] Added transfer_code column to payment_orders");
+        console.log("[PAYOS] Added transfer_code column to payment_orders");
       }
 
       // Bổ sung các cột ghi nhận giao dịch ngoại lệ (chỉ khi có tiền thật về qua Webhook nhưng không tự khớp)
@@ -245,7 +246,7 @@ const payosService = {
             ADD COLUMN exception_detail VARCHAR(255) NULL DEFAULT NULL AFTER exception_reason,
             ADD COLUMN paid_amount_vnd INT NULL DEFAULT NULL AFTER amount_vnd
         `);
-        console.log("💳 [PAYOS] Added exception tracking columns to payment_orders");
+        console.log("[PAYOS] Added exception tracking columns to payment_orders");
       }
 
       await db.query(`
@@ -278,9 +279,9 @@ const payosService = {
         ]
       );
 
-      console.log("💳 [PAYOS] Verified payment_orders & payment_settings tables");
+      logger.ok("PAYOS", "Verified tables: payment_orders, payment_settings");
     } catch (err) {
-      console.error("ensurePaymentSchema error:", err.message);
+      logger.err("PAYOS", "ensurePaymentSchema failed", err);
     }
   },
 
@@ -541,10 +542,10 @@ const payosService = {
             bankName = BANK_BIN_TO_NAME[String(d.bin)].name;
           }
         } else {
-          console.warn("⚠️ [PAYOS] createPaymentLink fallback to direct VietQR:", json?.desc || response.status);
+          console.warn("[PAYOS] createPaymentLink fallback to direct VietQR:", json?.desc || response.status);
         }
       } catch (err) {
-        console.warn("⚠️ [PAYOS] createPaymentLink network fallback to direct VietQR:", err.message);
+        console.warn("[PAYOS] createPaymentLink network fallback to direct VietQR:", err.message);
       }
     }
 
@@ -632,7 +633,7 @@ const payosService = {
       !data ||
       (Number(data.orderCode) === 123 && (data.description === "VQRIO123" || !data.amount))
     ) {
-      console.log("💳 [PAYOS] Received payOS webhook verification ping");
+      console.log("[PAYOS] Received payOS webhook verification ping");
       return { httpStatus: 200, payload: { success: true, message: "Webhook verified" } };
     }
 
@@ -640,7 +641,7 @@ const payosService = {
     if (checksumKey) {
       const valid = verifyPayosWebhookSignature(data, signature, checksumKey);
       if (!valid) {
-        console.warn("⚠️ [PAYOS] Invalid webhook signature for orderCode:", data?.orderCode);
+        console.warn("[PAYOS] Invalid webhook signature for orderCode:", data?.orderCode);
         return { httpStatus: 400, payload: { success: false, message: "Invalid signature" } };
       }
     }
@@ -693,7 +694,7 @@ const payosService = {
           JSON.stringify(body).slice(0, 3000),
         ]
       ).catch(() => {});
-      console.warn(`⚠️ [PAYOS] Recorded UNMATCHED_CONTENT exception: orderCode=${orderCode}, desc="${descText}"`);
+      console.warn(`[PAYOS] Recorded UNMATCHED_CONTENT exception: orderCode=${orderCode}, desc="${descText}"`);
       return { httpStatus: 200, payload: { success: true, message: "Recorded unmatched exception" } };
     }
 
@@ -716,7 +717,7 @@ const payosService = {
           order.id,
         ]
       );
-      console.warn(`⚠️ [PAYOS] Recorded EXPIRED_PAID exception for order ${order.order_code}`);
+      console.warn(`[PAYOS] Recorded EXPIRED_PAID exception for order ${order.order_code}`);
       return { httpStatus: 200, payload: { success: true, message: "Recorded expired payment exception" } };
     }
 
@@ -735,7 +736,7 @@ const payosService = {
           order.id,
         ]
       );
-      console.warn(`⚠️ [PAYOS] Underpaid order ${order.order_code}: paid=${paidAmount} < expected=${order.amount_vnd}`);
+      console.warn(`[PAYOS] Underpaid order ${order.order_code}: paid=${paidAmount} < expected=${order.amount_vnd}`);
       return { httpStatus: 200, payload: { success: false, message: "Recorded underpaid exception" } };
     }
 
@@ -761,7 +762,7 @@ const payosService = {
     const newEcoin = Number(userRow?.ecoin || 0);
 
     console.log(
-      `✅ [PAYOS] PAID order #${order.order_code} (${order.transfer_code || "-"}) | user=${order.user_id} | +${order.ecoin_amount.toLocaleString()} Ecoin (VND=${paidAmount.toLocaleString()}) -> balance=${newEcoin.toLocaleString()}`
+      `[PAYOS] PAID order #${order.order_code} (${order.transfer_code || "-"}) | user=${order.user_id} | +${order.ecoin_amount.toLocaleString()} Ecoin (VND=${paidAmount.toLocaleString()}) -> balance=${newEcoin.toLocaleString()}`
     );
 
     this._emitPaidSocket(order, newEcoin, { io, onlineUserSockets });
@@ -803,9 +804,12 @@ const payosService = {
           );
           const [[uRow]] = await db.query("SELECT ecoin FROM users WHERE id = ? LIMIT 1", [Number(order.user_id)]);
           const newEcoin = Number(uRow?.ecoin || 0);
-          console.log(
-            `✅ [PAYOS-SYNC] PAID order #${order.order_code} (${order.transfer_code}) | user=${order.user_id} | +${Number(order.ecoin_amount).toLocaleString()} Ecoin -> balance=${newEcoin.toLocaleString()}`
-          );
+          logger.ok("PAYOS", `Synced PAID order #${order.order_code}`, {
+            code: order.transfer_code,
+            uid: order.user_id,
+            add: `+${Number(order.ecoin_amount).toLocaleString()}`,
+            bal: newEcoin.toLocaleString(),
+          });
           this._emitPaidSocket(order, newEcoin, { io, onlineUserSockets });
           return { status: "PAID", ecoin: newEcoin, paid_at: new Date() };
         }
@@ -816,7 +820,7 @@ const payosService = {
         return { status: pStatus };
       }
     } catch (err) {
-      console.warn("⚠️ [PAYOS-SYNC] poll error:", err.message);
+      logger.warn("PAYOS", "Order poll failed", err);
     }
     return null;
   },
@@ -1055,7 +1059,7 @@ const payosService = {
     const newEcoin = Number(u?.ecoin || 0);
 
     console.log(
-      `✅ [ADMIN-EX] Admin #${adminId} resolved ${order.exception_reason} order #${code} | user=${order.user_id} | +${ecoinToAdd.toLocaleString()} Ecoin`
+      `[ADMIN-EX] Admin #${adminId} resolved ${order.exception_reason} order #${code} | user=${order.user_id} | +${ecoinToAdd.toLocaleString()} Ecoin`
     );
 
     this._emitPaidSocket({ ...order, ecoin_amount: ecoinToAdd }, newEcoin, { io, onlineUserSockets });

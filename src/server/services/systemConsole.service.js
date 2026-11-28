@@ -1,4 +1,5 @@
 import { extractClientIp, sanitizeSummary } from "./security.service.js";
+import { stripEmoji } from "../utils/logger.js";
 
 const MAX_LOGS = 1000;
 let seqId = 0;
@@ -29,8 +30,8 @@ function pushLog({
     user_id: user_id ? Number(user_id) : null,
     username: username ? String(username).slice(0, 60) : null,
     ip: String(ip || "server").slice(0, 64),
-    action: String(action || "").slice(0, 140),
-    detail: detail ? (typeof detail === "string" ? detail.slice(0, 400) : sanitizeSummary(detail)) : "",
+    action: stripEmoji(action).slice(0, 140),
+    detail: detail ? (typeof detail === "string" ? stripEmoji(detail).slice(0, 400) : stripEmoji(sanitizeSummary(detail))) : "",
   };
 
   logs.push(entry);

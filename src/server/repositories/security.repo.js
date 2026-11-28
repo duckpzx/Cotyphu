@@ -1,4 +1,5 @@
 import db from "../config/db.js";
+import logger from "../utils/logger.js";
 
 const securityRepo = {
   /**
@@ -61,9 +62,9 @@ const securityRepo = {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
 
-      console.log("🛡️ [SECURITY] Verified security_events, ip_blacklist, user_sessions_log tables");
+      logger.ok("SECURITY", "Verified tables: security_events, ip_blacklist, user_sessions_log");
     } catch (err) {
-      console.error("ensureSecuritySchema error:", err.message);
+      logger.err("SECURITY", "ensureSecuritySchema failed", err);
     }
   },
 

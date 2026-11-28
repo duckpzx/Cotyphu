@@ -329,12 +329,12 @@ async function renderOverview() {
 
     <div class="panel" style="margin-bottom:14px">
       <div class="panel-head" style="flex-wrap:wrap;gap:8px">
-        <h3>[ 📢 THÔNG BÁO CHẠY CHỮ GRADIENT — CHAT THẾ GIỚI ]</h3>
+        <h3>[ THÔNG BÁO CHẠY CHỮ GRADIENT — CHAT THẾ GIỚI ]</h3>
         <span class="muted">phát real-time tới tất cả người chơi đang online</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <input id="ovWorldAnnInput" class="input-sm" style="flex:1;min-width:260px" maxlength="360" placeholder="Nhập thông báo sự kiện / bảo trì / chúc mừng..." value="${esc(worldAnnMsg)}" />
-        <button type="button" id="ovWorldAnnSendBtn" class="btn btn-primary btn-sm">📢 PHÁT NGAY</button>
+        <button type="button" id="ovWorldAnnSendBtn" class="btn btn-primary btn-sm">PHÁT NGAY</button>
         <button type="button" id="ovWorldAnnResetBtn" class="btn btn-ghost btn-sm">↩ MẶC ĐỊNH</button>
       </div>
     </div>
@@ -1570,7 +1570,7 @@ async function renderStudioNpcs() {
           <div style="flex:1;min-width:0">
             <div><strong>${esc(npc.name)}</strong></div>
             <div class="muted">FPS: ${npc.fps} • Scale: ${npc.scale}x</div>
-            <div class="muted" style="margin-top:4px;word-break:break-all">${npc.is_custom ? `📁 ${esc(npc.disk_folder)}/` : "Đang dùng asset mặc định"}</div>
+            <div class="muted" style="margin-top:4px;word-break:break-all">${npc.is_custom ? `${esc(npc.disk_folder)}/` : "Đang dùng asset mặc định"}</div>
             <div class="actions-cell" style="margin-top:10px">
               <button class="btn ${isSelected ? "btn-primary" : "btn-secondary"} btn-sm" data-act="select-npc-slot" data-slot="${slotKey}">
                 ${isSelected ? "ĐANG CHỈNH SỬA" : "CHỌN THAY ẢNH"}
@@ -1604,7 +1604,7 @@ async function renderStudioNpcs() {
           <div class="toolbar" style="margin-top:8px;justify-content:center">
             <button id="studioModeIdleBtn" class="btn ${spriteStudioState.mode === "idle" ? "btn-primary" : "btn-secondary"} btn-sm">IDLE (${spriteStudioState.idleDataUrls.length})</button>
             ${hasAttackSlot ? `<button id="studioModeAtkBtn" class="btn ${spriteStudioState.mode === "attack" ? "btn-primary" : "btn-secondary"} btn-sm">ATTACK (${spriteStudioState.attackDataUrls.length})</button>` : ""}
-            <button id="studioPlayToggleBtn" class="btn btn-ghost btn-sm">${spriteStudioState.playing ? "⏸" : "▶"}</button>
+            <button id="studioPlayToggleBtn" class="btn btn-ghost btn-sm">${spriteStudioState.playing ? "" : "▶"}</button>
           </div>
         </div>
 
@@ -1645,7 +1645,7 @@ async function renderStudioNpcs() {
           </div>
 
           <div class="toolbar">
-            <button id="studioSaveBtn" class="btn btn-primary">💾 LƯU &amp; GHI VÀO Ổ CỨNG DỰ ÁN</button>
+            <button id="studioSaveBtn" class="btn btn-primary">LƯU &amp; GHI VÀO Ổ CỨNG DỰ ÁN</button>
             <span class="muted">Lưu vào <code>assets/custom_npcs/${esc(spriteStudioState.slot)}/</code></span>
           </div>
         </div>
@@ -1724,7 +1724,7 @@ async function renderStudioNpcs() {
   }
   $("studioPlayToggleBtn").onclick = () => {
     spriteStudioState.playing = !spriteStudioState.playing;
-    $("studioPlayToggleBtn").textContent = spriteStudioState.playing ? "⏸" : "▶";
+    $("studioPlayToggleBtn").textContent = spriteStudioState.playing ? "" : "▶";
   };
   $("studioFpsRange").oninput = (e) => {
     spriteStudioState.fps = Number(e.target.value);
@@ -1744,7 +1744,7 @@ async function renderStudioNpcs() {
       return showToast("Hãy chọn thư mục hoặc ảnh PNG mới trước khi bấm Lưu!", "error");
     }
     const btn = $("studioSaveBtn");
-    btn.disabled = true; btn.textContent = "⏳ ĐANG GHI FILE...";
+    btn.disabled = true; btn.textContent = "ĐANG GHI FILE...";
     try {
       const saveRes = await api(`/assets/npcs/${spriteStudioState.slot}/upload`, {
         method: "POST",
@@ -1762,7 +1762,7 @@ async function renderStudioNpcs() {
       spriteStudioState.attackDataUrls = [];
       renderStudioNpcs();
     } finally {
-      btn.disabled = false; btn.textContent = "💾 LƯU & GHI VÀO Ổ CỨNG DỰ ÁN";
+      btn.disabled = false; btn.textContent = "LƯU & GHI VÀO Ổ CỨNG DỰ ÁN";
     }
   };
 
@@ -1807,7 +1807,7 @@ async function renderStudioSkins() {
               <button id="skinModeIdleBtn" class="btn ${skinStudioState.mode === "idle" ? "btn-primary" : "btn-secondary"} btn-sm">IDLE (${skinStudioState.idleDataUrls.length})</button>
               <button id="skinModeRunBtn" class="btn ${skinStudioState.mode === "run" ? "btn-primary" : "btn-secondary"} btn-sm">RUN (${skinStudioState.runDataUrls.length})</button>
               <button id="skinModeHurtBtn" class="btn ${skinStudioState.mode === "hurt" ? "btn-primary" : "btn-secondary"} btn-sm">HURT (${skinStudioState.hurtDataUrls.length})</button>
-              <button id="skinPlayBtn" class="btn btn-ghost btn-sm">${skinStudioState.playing ? "⏸" : "▶"}</button>
+              <button id="skinPlayBtn" class="btn btn-ghost btn-sm">${skinStudioState.playing ? "" : "▶"}</button>
             </div>
           </div>
 
@@ -1828,8 +1828,8 @@ async function renderStudioSkins() {
             </div>
 
             <div class="toolbar">
-              <button id="skinSaveBtn" class="btn btn-primary">💾 LƯU TRANG PHỤC &amp; GIÁ VÀO GAME</button>
-              <span class="muted">📁 <code>${esc(activeSkin.disk_folder)}</code></span>
+              <button id="skinSaveBtn" class="btn btn-primary">LƯU TRANG PHỤC &amp; GIÁ VÀO GAME</button>
+              <span class="muted"><code>${esc(activeSkin.disk_folder)}</code></span>
             </div>
           </div>
         </div>
@@ -1929,12 +1929,12 @@ async function renderStudioSkins() {
   $("skinModeHurtBtn").onclick = () => { skinStudioState.mode = "hurt"; skinStudioState.frameIdx = 0; refreshSkinBtns(); startStudioAnimLoop(skinStudioState, getSkinFrames, "skinPreviewImg", "skinFrameHud", false); };
   $("skinPlayBtn").onclick = () => {
     skinStudioState.playing = !skinStudioState.playing;
-    $("skinPlayBtn").textContent = skinStudioState.playing ? "⏸" : "▶";
+    $("skinPlayBtn").textContent = skinStudioState.playing ? "" : "▶";
   };
 
   $("skinSaveBtn").onclick = async () => {
     const btn = $("skinSaveBtn");
-    btn.disabled = true; btn.textContent = "⏳ ĐANG GHI FILE...";
+    btn.disabled = true; btn.textContent = "ĐANG GHI FILE...";
     try {
       const saveRes = await api(`/assets/skins/${activeSkin.skin_id}/upload`, {
         method: "POST",
@@ -1950,7 +1950,7 @@ async function renderStudioSkins() {
       skinStudioState.idleDataUrls = []; skinStudioState.runDataUrls = []; skinStudioState.hurtDataUrls = [];
       renderStudioSkins();
     } finally {
-      btn.disabled = false; btn.textContent = "💾 LƯU TRANG PHỤC & GIÁ VÀO GAME";
+      btn.disabled = false; btn.textContent = "LƯU TRANG PHỤC & GIÁ VÀO GAME";
     }
   };
 
@@ -2030,7 +2030,7 @@ function openTarotImageModal(tarotId) {
       <div class="field"><label>Mô tả</label><textarea name="description">${esc(t.description || "")}</textarea></div>
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" onclick="document.getElementById('modalCloseBtn').click()">Hủy</button>
-        <button type="submit" class="btn btn-primary">💾 Lưu ảnh &amp; thông tin</button>
+        <button type="submit" class="btn btn-primary">Lưu ảnh &amp; thông tin</button>
       </div>
     </form>
   `);
@@ -2087,7 +2087,7 @@ async function renderStudioBackgrounds() {
             <div><strong>#${bg.id} ${esc(bg.name)}</strong></div>
             <div class="cyan-val">Giá: ${fmtMoney(bg.price_ecoin)} Ecoin</div>
             <div class="muted" style="word-break:break-all">${esc(bg.image_path)}</div>
-            <button class="btn btn-secondary btn-sm" data-act="edit-bg-asset" data-id="${bg.id}">🖼 Thay ảnh &amp; Sửa</button>
+            <button class="btn btn-secondary btn-sm" data-act="edit-bg-asset" data-id="${bg.id}">Thay ảnh &amp; Sửa</button>
           </div>
         `).join("")}
       </div>
@@ -2113,7 +2113,7 @@ function openBackgroundModal(bgId) {
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" onclick="document.getElementById('modalCloseBtn').click()">Hủy</button>
-        <button type="submit" class="btn btn-primary">💾 Lưu phông nền</button>
+        <button type="submit" class="btn btn-primary">Lưu phông nền</button>
       </div>
     </form>
   `);
@@ -2193,7 +2193,7 @@ async function renderStudioOrbs() {
               </div>
               <div class="orb-pair-body">
                 ${renderOrbSlot(lv1, "LV.1 CƠ BẢN")}
-                <div class="orb-pair-arrow" title="Nâng cấp lên Lv.2">➜</div>
+                <div class="orb-pair-arrow" title="Nâng cấp lên Lv.2"></div>
                 ${renderOrbSlot(lv2, "LV.2 CÓ CÁNH")}
               </div>
             </div>
@@ -2223,7 +2223,7 @@ function openOrbUploadModal(orbKey) {
       <div class="muted">Đường dẫn ghi đè: <code>${esc(o.rel_path)}</code> (tự sao lưu bản gốc trước khi ghi).</div>
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" onclick="document.getElementById('modalCloseBtn').click()">Hủy</button>
-        <button type="submit" class="btn btn-primary">💾 Lưu ảnh tinh cầu</button>
+        <button type="submit" class="btn btn-primary">Lưu ảnh tinh cầu</button>
       </div>
     </form>
   `);
@@ -2385,7 +2385,7 @@ async function renderStudioMaps() {
         <div class="toolbar">
           <button id="mapUndoBtn" class="btn btn-secondary btn-sm" title="Hoàn tác (Ctrl+Z)">↶ Undo (${mapEditorState.undoStack.length})</button>
           <button id="mapRedoBtn" class="btn btn-secondary btn-sm" title="Làm lại (Ctrl+Y)">↷ Redo (${mapEditorState.redoStack.length})</button>
-          <button id="mapSaveBackupBtn" class="btn btn-ghost btn-sm" title="Lưu mốc Backup vị trí 37 ô">📌 Lưu Backup</button>
+          <button id="mapSaveBackupBtn" class="btn btn-ghost btn-sm" title="Lưu mốc Backup vị trí 37 ô">Lưu Backup</button>
           <button id="mapRestoreBackupBtn" class="btn btn-warning btn-sm" title="Khôi phục bản Backup vị trí 37 ô gần nhất">↺ Khôi phục Backup</button>
           <button id="mapExportJsonBtn" class="btn btn-ghost btn-sm" title="Tải file JSON backup tọa độ">⬇ JSON</button>
           <button id="mapImportJsonBtn" class="btn btn-ghost btn-sm" title="Nạp file JSON tọa độ đã backup">⬆ JSON</button>
@@ -2402,9 +2402,9 @@ async function renderStudioMaps() {
       <div class="toolbar" style="margin-top:12px;justify-content:space-between">
         <div class="muted">&gt; ${mapEditorState.editingId ? `Đang chỉnh sửa map ID: <b class="cyan-val">${esc(mapEditorState.editingId)}</b>` : `Chế độ: <b class="accent-green">THÊM MAP MỚI</b> (giữ nguyên toàn bộ map cũ)`}</div>
         <div class="toolbar">
-          ${mapEditorState.editingId ? `<button id="mapUpdateExistingBtn" class="btn btn-secondary btn-sm">💾 Cập nhật map này</button>` : ""}
+          ${mapEditorState.editingId ? `<button id="mapUpdateExistingBtn" class="btn btn-secondary btn-sm">Cập nhật map này</button>` : ""}
           <button id="mapSaveOnlyBtn" class="btn btn-secondary btn-sm">+ Thêm vào kho</button>
-          <button id="mapSaveActivateBtn" class="btn btn-primary btn-sm">➕ THÊM MAP MỚI &amp; ÁP DỤNG</button>
+          <button id="mapSaveActivateBtn" class="btn btn-primary btn-sm">THÊM MAP MỚI &amp; ÁP DỤNG</button>
         </div>
       </div>
     </div>
@@ -2465,7 +2465,7 @@ async function renderStudioMaps() {
 
   $("mapSaveBackupBtn").onclick = () => {
     autoBackupMapCoords();
-    showToast("📌 Đã lưu bản Backup 37 tọa độ thành công!");
+    showToast("Đã lưu bản Backup 37 tọa độ thành công!");
   };
 
   $("mapRestoreBackupBtn").onclick = () => {
@@ -2605,25 +2605,25 @@ function computeLobbyAtmosphereCss(hourFloat) {
   const h = ((hourFloat % 24) + 24) % 24;
   if (h >= 5 && h < 7.5) {
     const t = (h - 5) / 2.5, bell = Math.sin(t * Math.PI);
-    return { nightAlpha: 0.85 * (1 - t), tintCss: `rgba(255, 170, 85, ${(0.18 * bell).toFixed(3)})`, blend: "normal", label: "🌅 BÌNH MINH (NẮNG SỚM DỊU)" };
+    return { nightAlpha: 0.85 * (1 - t), tintCss: `rgba(255, 170, 85, ${(0.18 * bell).toFixed(3)})`, blend: "normal", label: "BÌNH MINH (NẮNG SỚM DỊU)" };
   }
   if (h >= 7.5 && h < 10.5) {
     const t = (h - 7.5) / 3.0;
-    return { nightAlpha: 0, tintCss: `rgba(255, 243, 204, ${(0.08 * (1 - t * 0.5)).toFixed(3)})`, blend: "screen", label: "🌤️ BUỔI SÁNG (NẮNG NHẸ)" };
+    return { nightAlpha: 0, tintCss: `rgba(255, 243, 204, ${(0.08 * (1 - t * 0.5)).toFixed(3)})`, blend: "screen", label: "BUỔI SÁNG (NẮNG NHẸ)" };
   }
   if (h >= 10.5 && h < 15.5) {
     const t = (h - 10.5) / 5.0, bell = Math.sin(t * Math.PI);
-    return { nightAlpha: 0, tintCss: `rgba(255, 255, 255, ${(0.03 + 0.07 * bell).toFixed(3)})`, blend: "screen", label: "☀️ BUỔI TRƯA (SÁNG RỰC RỠ)" };
+    return { nightAlpha: 0, tintCss: `rgba(255, 255, 255, ${(0.03 + 0.07 * bell).toFixed(3)})`, blend: "screen", label: "BUỔI TRƯA (SÁNG RỰC RỠ)" };
   }
   if (h >= 15.5 && h < 18.5) {
     const t = (h - 15.5) / 3.0, bell = Math.sin(t * Math.PI);
-    return { nightAlpha: 0.55 * t, tintCss: `rgba(255, 107, 53, ${(0.24 * bell).toFixed(3)})`, blend: "normal", label: "🌇 HOÀNG HÔN (CHUYỂN TỐI DẦN)" };
+    return { nightAlpha: 0.55 * t, tintCss: `rgba(255, 107, 53, ${(0.24 * bell).toFixed(3)})`, blend: "normal", label: "HOÀNG HÔN (CHUYỂN TỐI DẦN)" };
   }
   if (h >= 18.5 && h < 20.5) {
     const t = (h - 18.5) / 2.0;
-    return { nightAlpha: 0.55 + 0.45 * t, tintCss: `rgba(43, 30, 90, ${(0.16 * (1 - t * 0.4)).toFixed(3)})`, blend: "normal", label: "🌆 CHẠNG VẠNG (TỐI DẦN)" };
+    return { nightAlpha: 0.55 + 0.45 * t, tintCss: `rgba(43, 30, 90, ${(0.16 * (1 - t * 0.4)).toFixed(3)})`, blend: "normal", label: "CHẠNG VẠNG (TỐI DẦN)" };
   }
-  return { nightAlpha: 1, tintCss: "rgba(10, 25, 54, 0.10)", blend: "normal", label: "🌙 BAN ĐÊM" };
+  return { nightAlpha: 1, tintCss: "rgba(10, 25, 54, 0.10)", blend: "normal", label: "BAN ĐÊM" };
 }
 
 function fmtHourFloat(h) {
@@ -2725,7 +2725,7 @@ async function renderStudioLobby() {
       <div class="toolbar" style="margin-bottom:10px;justify-content:space-between">
         <div class="toolbar">
           <select id="lobbyIslandSelect" style="min-width:190px">
-            ${lobbyStudioState.islands.map(it => `<option value="${esc(it.key)}" ${it.key === curIsland.key ? "selected" : ""}>📍 ${esc(it.label)}</option>`).join("")}
+            ${lobbyStudioState.islands.map(it => `<option value="${esc(it.key)}" ${it.key === curIsland.key ? "selected" : ""}>${esc(it.label)}</option>`).join("")}
           </select>
           <span class="muted">X:</span>
           <input id="lobbyIslandXInput" type="number" step="0.001" min="0.04" max="0.96" value="${curIsland.x}" style="width:86px;min-width:86px" />
@@ -2734,7 +2734,7 @@ async function renderStudioLobby() {
         </div>
         <div class="toolbar">
           <button id="lobbyResetIslandsBtn" class="btn btn-ghost btn-sm">↺ Vị trí gốc</button>
-          <button id="lobbySaveIslandsBtn" class="btn btn-primary btn-sm">💾 Lưu vị trí chữ (${esc(previewObj?.name || "Sảnh này")})</button>
+          <button id="lobbySaveIslandsBtn" class="btn btn-primary btn-sm">Lưu vị trí chữ (${esc(previewObj?.name || "Sảnh này")})</button>
         </div>
       </div>
 
@@ -2752,16 +2752,16 @@ async function renderStudioLobby() {
         <input id="lobbyHourSlider" type="range" min="0" max="23.75" step="0.25" value="${lobbyStudioState.simHour.toFixed(2)}" />
         <div class="toolbar" style="margin-top:8px;justify-content:space-between">
           <div class="toolbar">
-            <button class="btn btn-ghost btn-sm" data-sim-hour="6.25">🌅 06:15 Bình minh</button>
-            <button class="btn btn-ghost btn-sm" data-sim-hour="9">🌤️ 09:00 Sáng</button>
-            <button class="btn btn-ghost btn-sm" data-sim-hour="12.5">☀️ 12:30 Trưa</button>
-            <button class="btn btn-ghost btn-sm" data-sim-hour="17.25">🌇 17:15 Hoàng hôn</button>
-            <button class="btn btn-ghost btn-sm" data-sim-hour="19.5">🌆 19:30 Chạng vạng</button>
-            <button class="btn btn-ghost btn-sm" data-sim-hour="22.5">🌙 22:30 Đêm</button>
+            <button class="btn btn-ghost btn-sm" data-sim-hour="6.25">06:15 Bình minh</button>
+            <button class="btn btn-ghost btn-sm" data-sim-hour="9">09:00 Sáng</button>
+            <button class="btn btn-ghost btn-sm" data-sim-hour="12.5">12:30 Trưa</button>
+            <button class="btn btn-ghost btn-sm" data-sim-hour="17.25">17:15 Hoàng hôn</button>
+            <button class="btn btn-ghost btn-sm" data-sim-hour="19.5">19:30 Chạng vạng</button>
+            <button class="btn btn-ghost btn-sm" data-sim-hour="22.5">22:30 Đêm</button>
           </div>
           <div class="toolbar">
-            <button id="lobbyApplyAutoTimeBtn" class="btn ${lobbyStudioState.timeMode === "auto" ? "btn-primary" : "btn-secondary"} btn-sm">⏱ Bật Tự động 24h</button>
-            <button id="lobbyApplyFixedTimeBtn" class="btn ${lobbyStudioState.timeMode === "fixed" ? "btn-warning" : "btn-secondary"} btn-sm">📌 Ép giờ này để Demo</button>
+            <button id="lobbyApplyAutoTimeBtn" class="btn ${lobbyStudioState.timeMode === "auto" ? "btn-primary" : "btn-secondary"} btn-sm">Bật Tự động 24h</button>
+            <button id="lobbyApplyFixedTimeBtn" class="btn ${lobbyStudioState.timeMode === "fixed" ? "btn-warning" : "btn-secondary"} btn-sm">Ép giờ này để Demo</button>
           </div>
         </div>
       </div>
@@ -2792,10 +2792,10 @@ async function renderStudioLobby() {
       </div>
       <div class="toolbar">
         ${lobbyStudioState.editingId ? `
-          <button id="lobbyUpdateExistingBtn" class="btn btn-primary btn-sm">💾 CẬP NHẬT BỘ SẢNH NÀY</button>
+          <button id="lobbyUpdateExistingBtn" class="btn btn-primary btn-sm">CẬP NHẬT BỘ SẢNH NÀY</button>
           <button id="lobbyCancelEditBtn" class="btn btn-ghost btn-sm">✖ Hủy sửa</button>
         ` : `
-          <button id="lobbySaveNewBtn" class="btn btn-primary btn-sm">➕ THÊM BỘ SẢNH MỚI &amp; ÁP DỤNG</button>
+          <button id="lobbySaveNewBtn" class="btn btn-primary btn-sm">THÊM BỘ SẢNH MỚI &amp; ÁP DỤNG</button>
           <button id="lobbySaveStockBtn" class="btn btn-secondary btn-sm">+ Lưu vào kho</button>
         `}
       </div>
@@ -2821,16 +2821,16 @@ async function renderStudioLobby() {
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
                 <div>
                   <img class="bg-thumb" src="${esc(p.day_url + v)}" alt="Day" />
-                  <div class="muted" style="text-align:center;margin-top:3px">☀️ BAN NGÀY</div>
+                  <div class="muted" style="text-align:center;margin-top:3px">BAN NGÀY</div>
                 </div>
                 <div>
                   <img class="bg-thumb" src="${esc(p.night_url + v)}" alt="Night" />
-                  <div class="muted" style="text-align:center;margin-top:3px">🌙 BAN ĐÊM</div>
+                  <div class="muted" style="text-align:center;margin-top:3px">BAN ĐÊM</div>
                 </div>
               </div>
               <div class="actions-cell">
                 ${!isActive ? `<button class="btn btn-primary btn-sm" data-act="activate-lobby" data-id="${esc(p.id)}">Áp dụng</button>` : ""}
-                <button class="btn ${isEditing ? "btn-warning" : "btn-secondary"} btn-sm" data-act="edit-lobby" data-id="${esc(p.id)}">✏️ Sửa giao diện</button>
+                <button class="btn ${isEditing ? "btn-warning" : "btn-secondary"} btn-sm" data-act="edit-lobby" data-id="${esc(p.id)}">Sửa giao diện</button>
                 ${p.id === "default" && p.has_override ? `<button class="btn btn-ghost btn-sm" data-act="reset-default-lobby">↩ Khôi phục gốc</button>` : ""}
                 ${p.is_custom ? `<button class="btn btn-danger btn-sm" data-act="delete-lobby" data-id="${esc(p.id)}">Xóa</button>` : ""}
               </div>
@@ -3077,8 +3077,8 @@ async function renderStudioScenes() {
     ${studioSubTabsHtml()}
 
     <div class="toolbar" style="margin-bottom:4px">
-      <button class="btn ${st === "rating" ? "btn-primary" : "btn-secondary"} btn-sm" data-act="switch-scene-type" data-type="rating">🏆 Bảng Vàng Xếp Hạng (3 bục)</button>
-      <button class="btn ${st === "lab" ? "btn-primary" : "btn-secondary"} btn-sm" data-act="switch-scene-type" data-type="lab">🧪 Phòng Nghiên Cứu (6 vị trí + Phù Thủy)</button>
+      <button class="btn ${st === "rating" ? "btn-primary" : "btn-secondary"} btn-sm" data-act="switch-scene-type" data-type="rating">Bảng Vàng Xếp Hạng (3 bục)</button>
+      <button class="btn ${st === "lab" ? "btn-primary" : "btn-secondary"} btn-sm" data-act="switch-scene-type" data-type="lab">Phòng Nghiên Cứu (6 vị trí + Phù Thủy)</button>
     </div>
 
     <div class="panel">
@@ -3118,9 +3118,9 @@ async function renderStudioScenes() {
       <div class="toolbar" style="margin-top:12px;justify-content:space-between">
         <div class="muted">&gt; ${sceneEditorState.editingId ? `Đang sửa preset: <b class="cyan-val">${esc(sceneEditorState.editingId)}</b>` : `Chế độ: <b class="accent-green">THÊM MỚI</b> (giữ nguyên toàn bộ preset cũ)`}</div>
         <div class="toolbar">
-          ${sceneEditorState.editingId ? `<button id="sceneUpdateBtn" class="btn btn-secondary btn-sm">💾 Cập nhật preset này</button>` : ""}
+          ${sceneEditorState.editingId ? `<button id="sceneUpdateBtn" class="btn btn-secondary btn-sm">Cập nhật preset này</button>` : ""}
           <button id="sceneSaveStockBtn" class="btn btn-secondary btn-sm">+ Thêm vào kho</button>
-          <button id="sceneSaveActivateBtn" class="btn btn-primary btn-sm">➕ THÊM MỚI &amp; ÁP DỤNG</button>
+          <button id="sceneSaveActivateBtn" class="btn btn-primary btn-sm">THÊM MỚI &amp; ÁP DỤNG</button>
         </div>
       </div>
     </div>
@@ -3903,15 +3903,15 @@ async function renderStudioWeather() {
 
   const weatherModes = [
     { id: "none",  label: "Tắt hiệu ứng", desc: "Không hiển thị hạt rơi trên mọi Scene" },
-    { id: "snow",  label: "❄️ Tuyết Rơi (Giáng Sinh)", desc: "Tinh thể tuyết 6 cánh xoay nhẹ + hạt tuyết bokeh 3 tầng" },
-    { id: "peach", label: "🌸 Hoa Đào (Mùa Xuân / Tết)", desc: "Cánh hoa đào lật 3D mềm + bông đào 5 cánh nhụy vàng" },
-    { id: "both",  label: "✨ Kết Hợp Cả Hai", desc: "Tuyết rơi lung linh hòa quyện cùng cánh hoa đào" },
+    { id: "snow",  label: "Tuyết Rơi (Giáng Sinh)", desc: "Tinh thể tuyết 6 cánh xoay nhẹ + hạt tuyết bokeh 3 tầng" },
+    { id: "peach", label: "Hoa Đào (Mùa Xuân / Tết)", desc: "Cánh hoa đào lật 3D mềm + bông đào 5 cánh nhụy vàng" },
+    { id: "both",  label: "Kết Hợp Cả Hai", desc: "Tuyết rơi lung linh hòa quyện cùng cánh hoa đào" },
   ];
 
   const bgOptions = [
-    { id: "board", label: `🗺️ ${activeMapName}`, url: activeMapUrl },
-    { id: "day",   label: "☀️ Sảnh Ngày (Đang dùng)", url: activeDayUrl },
-    { id: "night", label: "🌙 Sảnh Đêm (Đang dùng)",  url: activeNightUrl },
+    { id: "board", label: `${activeMapName}`, url: activeMapUrl },
+    { id: "day",   label: "Sảnh Ngày (Đang dùng)", url: activeDayUrl },
+    { id: "night", label: "Sảnh Đêm (Đang dùng)",  url: activeNightUrl },
   ];
 
   setTabHtml(`
@@ -3948,7 +3948,7 @@ async function renderStudioWeather() {
           </div>
 
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button type="button" id="swSaveBtn" class="btn btn-primary" style="flex:1">💾 LƯU &amp; ÁP DỤNG TOÀN GAME</button>
+            <button type="button" id="swSaveBtn" class="btn btn-primary" style="flex:1">LƯU &amp; ÁP DỤNG TOÀN GAME</button>
           </div>
           <div id="swStatusHint" style="font-size:11.5px;color:var(--green);">
             ✓ Đang đồng bộ với cấu hình trực tiếp trên Server (${esc(savedMode)} • mật độ ${savedDensity})
@@ -4122,7 +4122,7 @@ async function renderStudioWeather() {
   $("swSaveBtn")?.addEventListener("click", async () => {
     const btn = $("swSaveBtn");
     btn.disabled = true;
-    btn.textContent = "⏳ ĐANG LƯU...";
+    btn.textContent = "ĐANG LƯU...";
     try {
       const r = await api("/weather", {
         method: "PUT",
@@ -4134,12 +4134,12 @@ async function renderStudioWeather() {
       } else {
         showToast(r.message || "Lỗi lưu hiệu ứng thời tiết", "error");
         btn.disabled = false;
-        btn.textContent = "💾 LƯU & ÁP DỤNG TOÀN GAME";
+        btn.textContent = "LƯU & ÁP DỤNG TOÀN GAME";
       }
     } catch (err) {
       showToast(err.message || "Lỗi lưu hiệu ứng thời tiết", "error");
       btn.disabled = false;
-      btn.textContent = "💾 LƯU & ÁP DỤNG TOÀN GAME";
+      btn.textContent = "LƯU & ÁP DỤNG TOÀN GAME";
     }
   });
 }
@@ -4487,7 +4487,7 @@ async function renderPayments(statusFilter = "all", searchQuery = "") {
               <span class="muted">WEBHOOK URL:</span>
               <code id="payWebhookUrlText" class="cyan-val" style="flex:1">${esc(webhookUrl)}</code>
               <button type="button" id="copyWebhookUrlBtn" class="btn btn-ghost btn-sm">COPY</button>
-              <button type="button" id="testWebhookPingBtn" class="btn btn-primary btn-sm">🧪 TEST PING HMAC</button>
+              <button type="button" id="testWebhookPingBtn" class="btn btn-primary btn-sm">TEST PING HMAC</button>
             </div>
             <div id="testWebhookResult" class="muted" style="font-size:12px;margin-bottom:10px"></div>
 
@@ -4507,7 +4507,7 @@ async function renderPayments(statusFilter = "all", searchQuery = "") {
             </div>
 
             <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
-              <button type="submit" class="btn btn-primary">💾 LƯU CẤU HÌNH THANH TOÁN</button>
+              <button type="submit" class="btn btn-primary">LƯU CẤU HÌNH THANH TOÁN</button>
               ${settings.payos_configured ? `<button type="button" id="clearPayosKeysBtn" class="btn btn-danger btn-sm">XÓA KEY PAYOS</button>` : ""}
             </div>
           </div>
@@ -4541,7 +4541,7 @@ async function renderPayments(statusFilter = "all", searchQuery = "") {
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button type="button" id="addPkgRowBtn" class="btn btn-ghost btn-sm">+ THÊM GÓI</button>
             <button type="button" id="resetPkgBtn" class="btn btn-danger btn-sm">KHÔI PHỤC MẶC ĐỊNH</button>
-            <button type="button" id="savePkgBtn" class="btn btn-primary btn-sm">💾 LƯU BẢNG GIÁ</button>
+            <button type="button" id="savePkgBtn" class="btn btn-primary btn-sm">LƯU BẢNG GIÁ</button>
           </div>
         </div>
         <p class="muted" style="font-size:12px;margin:0 0 12px">
@@ -5071,7 +5071,7 @@ async function renderSupportKnowledgeBase(statusFilter, categoryFilter, searchQu
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input id="kbActive" type="checkbox" style="width:auto" ${art ? (art.is_active ? "checked" : "") : "checked"} /> Kích hoạt bài tri thức này</label>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input id="kbEsc" type="checkbox" style="width:auto" ${art?.escalate_allowed ? "checked" : ""} /> Hiện thêm nút chuyển phiếu Admin</label>
         </div>
-        <button type="submit" class="btn btn-primary btn-block">💾 LƯU VÀO KHO TRI THỨC AI</button>
+        <button type="submit" class="btn btn-primary btn-block">LƯU VÀO KHO TRI THỨC AI</button>
       </form>
     `);
     $("kbForm").onsubmit = async (e) => {
@@ -5108,7 +5108,7 @@ async function renderSupportKnowledgeBase(statusFilter, categoryFilter, searchQu
           </div>
         </div>
         <div class="field"><label>NỘI DUNG MẪU</label><textarea id="macContent" rows="4" required>${esc(mac?.content || "")}</textarea></div>
-        <button type="submit" class="btn btn-primary btn-block">💾 LƯU MẪU PHẢN HỒI</button>
+        <button type="submit" class="btn btn-primary btn-block">LƯU MẪU PHẢN HỒI</button>
       </form>
     `);
     $("macForm").onsubmit = async (e) => {
@@ -5155,7 +5155,7 @@ async function renderSupportSlaRules(statusFilter, categoryFilter, searchQuery) 
     <div class="panel">
       <div class="panel-head" style="flex-wrap:wrap;gap:8px;">
         <h3>[ CẤU HÌNH LUẬT SLA &amp; TỰ ĐỘNG ĐỊNH TUYẾN ƯU TIÊN (AUTO-TRIAGE) ]</h3>
-        <button id="saveSlaRulesBtn" class="btn btn-primary btn-sm">💾 LƯU CẤU HÌNH SLA</button>
+        <button id="saveSlaRulesBtn" class="btn btn-primary btn-sm">LƯU CẤU HÌNH SLA</button>
       </div>
       <div class="muted" style="font-size:12px;margin-bottom:12px;">
         Khi người chơi tạo phiếu mới, hệ thống tự động gán Mức Ưu Tiên, đếm ngược thời hạn SLA (phút) và gửi Tin nhắn xác nhận tự động theo bảng dưới đây.
@@ -5292,11 +5292,11 @@ async function openSupportTicketModal(ticketId) {
 
   const actionBarHtml = `
     <div style="background:#0c1926;border:1px solid #224461;border-radius:6px;padding:8px 10px;margin-bottom:10px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:12px;">
-      <span style="color:#f5c542;font-weight:700;">⚡ XỬ LÝ 1-CLICK:</span>
+      <span style="color:#f5c542;font-weight:700;">XỬ LÝ 1-CLICK:</span>
       <input id="supCompAmount" class="input-sm" type="number" min="1000" step="1000" placeholder="Số Ecoin bù..." style="width:125px" />
-      <button type="button" id="supCompBtn" class="btn btn-primary btn-sm">💰 CỘNG BÙ ECOIN + GỬI BIÊN LAI</button>
-      <button type="button" id="supUnmuteBtn" class="btn btn-ghost btn-sm">🔓 GỠ CẤM CHAT</button>
-      <button type="button" id="supCopilotBtn" class="btn btn-secondary btn-sm" style="margin-left:auto;">✨ AI COPILOT SOẠN TRẢ LỜI</button>
+      <button type="button" id="supCompBtn" class="btn btn-primary btn-sm">CỘNG BÙ ECOIN + GỬI BIÊN LAI</button>
+      <button type="button" id="supUnmuteBtn" class="btn btn-ghost btn-sm">GỠ CẤM CHAT</button>
+      <button type="button" id="supCopilotBtn" class="btn btn-secondary btn-sm" style="margin-left:auto;">AI COPILOT SOẠN TRẢ LỜI</button>
     </div>
   `;
 
@@ -5361,7 +5361,7 @@ async function openSupportTicketModal(ticketId) {
   $("supCopilotBtn")?.addEventListener("click", async () => {
     const btn = $("supCopilotBtn");
     btn.disabled = true;
-    btn.textContent = "⏳ AI đang soạn...";
+    btn.textContent = "AI đang soạn...";
     const r = await api(`/support/tickets/${ticketId}/copilot-draft`, { method: "POST" });
     if (r?.success && r.draft && $("adminSupReplyInput")) {
       $("adminSupReplyInput").value = r.draft;
@@ -5370,7 +5370,7 @@ async function openSupportTicketModal(ticketId) {
       showToast(r?.message || "Lỗi AI Copilot", "error");
     }
     btn.disabled = false;
-    btn.textContent = "✨ AI COPILOT SOẠN TRẢ LỜI";
+    btn.textContent = "AI COPILOT SOẠN TRẢ LỜI";
   });
 
   $("supCompBtn")?.addEventListener("click", async () => {

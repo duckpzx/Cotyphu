@@ -666,6 +666,13 @@ export function openSupportModal(opts = {}) {
   `;
   document.body.appendChild(overlay);
 
+  // Chặn hoàn toàn click xuyên xuống Phaser Canvas phía sau
+  const prevInputEnabled = scene?.input ? scene.input.enabled : true;
+  if (scene?.input) scene.input.enabled = false;
+  ["pointerdown", "pointerup", "mousedown", "mouseup", "touchstart", "touchend", "wheel"].forEach((evName) => {
+    overlay.addEventListener(evName, (e) => e.stopPropagation());
+  });
+
   const bodyEl = overlay.querySelector("#supBody");
   const closeBtn = overlay.querySelector("#supCloseBtn");
 
@@ -694,6 +701,11 @@ export function openSupportModal(opts = {}) {
       worldSock.off("support:ticket_resolved", onTicketResolved);
     }
     overlay.remove();
+    if (scene?.input) {
+      setTimeout(() => {
+        try { if (scene?.input) scene.input.enabled = prevInputEnabled; } catch {}
+      }, 60);
+    }
   };
 
   closeBtn.addEventListener("click", cleanup);
