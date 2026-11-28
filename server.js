@@ -38,6 +38,7 @@ import audioConfigService from "./src/server/services/audioConfig.service.js";
 import weatherConfigService from "./src/server/services/weatherConfig.service.js";
 import supportService from "./src/server/services/support.service.js";
 import rankingService from "./src/server/services/ranking.service.js";
+import labService from "./src/server/services/lab.service.js";
 import systemConsoleService from "./src/server/services/systemConsole.service.js";
 
 const SECRET = process.env.JWT_SECRET;
@@ -4708,6 +4709,7 @@ server.listen(3000, "0.0.0.0", async () => {
     weatherConfigService.ensureWeatherSchema(),
     supportService.ensureSupportSchema(),
     rankingService.ensureRankingSchema(),
+    labService.ensureLabSchema(),
   ]);
 
   // ── Dọn dẹp các phòng bị kẹt khi server restart ──────────────
@@ -5692,5 +5694,76 @@ app.post("/api/ranking/rewards/claim", async (req, res) => {
   } catch (err) {
     logger.err("RANKING", "POST /api/ranking/rewards/claim failed", err);
     res.status(500).json({ success: false, message: "Lỗi nhận quà mốc Rank" });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// HỌC VIỆN TRÍ TUỆ (LAB SCENE): Quiz Sprint 60s, Bách Khoa Codex, Chế Tạo Bùa
+// ══════════════════════════════════════════════════════════════════
+app.get("/api/lab/quiz/start", async (req, res) => {
+  const u = getSupportAuthUser(req);
+  if (!u) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+  try {
+    res.json(await labService.startQuizSprint(u.id));
+  } catch (err) {
+    logger.err("LAB", "GET /api/lab/quiz/start failed", err);
+    res.status(500).json({ success: false, message: "Lỗi tải câu hỏi Quiz 60s" });
+  }
+});
+
+app.post("/api/lab/quiz/submit", async (req, res) => {
+  const u = getSupportAuthUser(req);
+  if (!u) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+  try {
+    res.json(await labService.submitQuizSprint(u.id, req.body || {}));
+  } catch (err) {
+    logger.err("LAB", "POST /api/lab/quiz/submit failed", err);
+    res.status(500).json({ success: false, message: "Lỗi lưu kết quả Quiz 60s" });
+  }
+});
+
+app.get("/api/lab/codex", async (req, res) => {
+  const u = getSupportAuthUser(req);
+  if (!u) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+  try {
+    res.json(await labService.getCodex(u.id));
+  } catch (err) {
+    logger.err("LAB", "GET /api/lab/codex failed", err);
+    res.status(500).json({ success: false, message: "Lỗi tải Bách Khoa Toàn Thư" });
+  }
+});
+
+app.post("/api/lab/codex/claim", async (req, res) => {
+  const u = getSupportAuthUser(req);
+  if (!u) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+  try {
+    const r = await labService.claimCodexReward(u.id, req.body?.reward_key);
+    res.status(r.success ? 200 : 400).json(r);
+  } catch (err) {
+    logger.err("LAB", "POST /api/lab/codex/claim failed", err);
+    res.status(500).json({ success: false, message: "Lỗi nhận thưởng sưu tập" });
+  }
+});
+
+app.get("/api/lab/buffs", async (req, res) => {
+  const u = getSupportAuthUser(req);
+  if (!u) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+  try {
+    res.json(await labService.getLabBuffs(u.id));
+  } catch (err) {
+    logger.err("LAB", "GET /api/lab/buffs failed", err);
+    res.status(500).json({ success: false, message: "Lỗi tải Bùa Trợ Chiến" });
+  }
+});
+
+app.post("/api/lab/buffs/craft", async (req, res) => {
+  const u = getSupportAuthUser(req);
+  if (!u) return res.status(401).json({ success: false, message: "Bạn chưa đăng nhập!" });
+  try {
+    const r = await labService.craftLabBuff(u.id, req.body?.buff_key);
+    res.status(r.success ? 200 : 400).json(r);
+  } catch (err) {
+    logger.err("LAB", "POST /api/lab/buffs/craft failed", err);
+    res.status(500).json({ success: false, message: "Lỗi chế tạo bùa" });
   }
 });

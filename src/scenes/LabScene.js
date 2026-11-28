@@ -2,6 +2,8 @@ import { setupClickSound, playOutSound } from "../utils/clickSound.js";
 import { getActiveProfile, getPlayerData }  from "../server/utils/playerData.js";
 import { SERVER_URL }   from "../config.js";
 import { openTarotUpgradeModal } from "./components/TarotUpgradeModal.js";
+import { openQuizSprintModal, openCodexModal, openLabBuffsModal } from "../utils/labModals.js";
+import EcoinManager from "../server/utils/ecoinManager.js";
 
 // ── Tọa độ 6 tảng đá (lấy từ debug mode) ────────────────────────
 const PLATFORM_SPOTS = [
@@ -112,8 +114,76 @@ export default class LabScene extends Phaser.Scene {
         // ── Phù thủy NPC tại Spot 3 ──────────────────────────────────
         this._spawnWizard(width, height);
 
+        // ── 3 Điểm Nghiên Cứu Học Viện (Quiz 60s • Bách Khoa • Chế Tạo Bùa) ──
+        this._buildAcademyControls(width, height);
+
         // ── Kết nối socket và join Lab ────────────────────────────────
         this._connectAndJoin();
+    }
+
+    _buildAcademyControls(width, height) {
+        const onEcoinUpdated = (newEcoin) => {
+            try { EcoinManager.set(this, newEcoin); } catch {}
+        };
+
+        // 1. Thanh 3 nút 3D góc trên phải: Luyện Thi 60s | Bách Khoa | Chế Tạo Bùa
+        const actions = [
+            { label: "🎓 Luyện Thi 60s", top: 0x38bdf8, bot: 0x0284c7, stroke: 0x075985, text: "#ffffff", fn: () => openQuizSprintModal({ scene: this, onEcoinUpdated }) },
+            { label: "📖 Bách Khoa",     top: 0xffd65c, bot: 0xd9820b, stroke: 0x7c4304, text: "#4a1f00", fn: () => openCodexModal({ scene: this, onEcoinUpdated }) },
+            { label: "⚗️ Chế Tạo Bùa",   top: 0xc084fc, bot: 0x7c3aed, stroke: 0x4c1d95, text: "#ffffff", fn: () => openLabBuffsModal({ scene: this, onEcoinUpdated }) },
+        ];
+        const btnW = 152, btnH = 38, gap = 9;
+        const totalW = actions.length * btnW + (actions.length - 1) * gap;
+        const startX = width - totalW - 18 + btnW / 2;
+        const btnY = 48;
+
+        actions.forEach((a, i) => {
+            const c = this.add.container(startX + i * (btnW + gap), btnY).setDepth(210);
+            const g = this.add.graphics();
+            const draw = (hover = false) => {
+                g.clear();
+                const hw = btnW / 2, hh = btnH / 2;
+                g.fillStyle(0x000000, 0.30);
+                g.fillRoundedRect(-hw, -hh + 3, btnW, btnH, 14);
+                g.fillGradientStyle(a.top, a.top, a.bot, a.bot, 1);
+                g.fillRoundedRect(-hw, -hh, btnW, btnH, 14);
+                g.fillStyle(0xffffff, hover ? 0.42 : 0.28);
+                g.fillRoundedRect(-hw + 6, -hh + 3, btnW - 12, hh - 4, 8);
+                g.lineStyle(2.2, a.stroke, 1);
+                g.strokeRoundedRect(-hw, -hh, btnW, btnH, 14);
+            };
+            draw(false);
+            const t = this.add.text(0, 0, a.label, {
+                fontFamily: "Signika", fontSize: "14px", fontStyle: "bold", color: a.text,
+            }).setOrigin(0.5);
+            const z = this.add.zone(0, 0, btnW, btnH).setInteractive({ cursor: "pointer" });
+            z.on("pointerover", () => { draw(true); c.setScale(1.04); });
+            z.on("pointerout",  () => { draw(false); c.setScale(1); });
+            z.on("pointerup",   () => a.fn());
+            c.add([g, t, z]);
+        });
+
+        // 2. Điểm tương tác trực tiếp ngay trên các đảo phụ của bản đồ (Đảo Tuần Lộc bên phải & Ngôi nhà bên trái)
+        const createIslandStation = (rx, ry, label, glowHex, textColor, strokeColor, onClick) => {
+            const x = width * rx, y = height * ry;
+            const c = this.add.container(x, y).setDepth(15);
+            const ring = this.add.circle(0, 14, 24, glowHex, 0.22).setStrokeStyle(2, glowHex, 0.85);
+            const lbl = this.add.text(0, -14, label, {
+                fontFamily: "Signika", fontSize: "14.5px", fontStyle: "bold",
+                color: textColor, stroke: strokeColor, strokeThickness: 4.5,
+                shadow: { offsetX: 0, offsetY: 2, color: "#000000", blur: 6, fill: true },
+            }).setOrigin(0.5);
+            const z = this.add.zone(0, 0, 140, 62).setInteractive({ cursor: "pointer" });
+            z.on("pointerover", () => this.tweens.add({ targets: c, scale: 1.09, duration: 110 }));
+            z.on("pointerout",  () => this.tweens.add({ targets: c, scale: 1, duration: 110 }));
+            z.on("pointerup", onClick);
+            c.add([ring, lbl, z]);
+            this.tweens.add({ targets: lbl, y: -20, duration: 1150, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+            this.tweens.add({ targets: ring, scale: { from: 0.9, to: 1.15 }, alpha: { from: 0.9, to: 0.45 }, duration: 1200, yoyo: true, repeat: -1 });
+        };
+
+        createIslandStation(0.835, 0.44, "🎓 THỬ THÁCH QUIZ 60s", 0x38bdf8, "#e0f2fe", "#0c4a6e", () => openQuizSprintModal({ scene: this, onEcoinUpdated }));
+        createIslandStation(0.185, 0.365, "📖 BÁCH KHOA CHIẾN THUẬT", 0xffd65c, "#fef9c3", "#713f12", () => openCodexModal({ scene: this, onEcoinUpdated }));
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -139,12 +209,12 @@ export default class LabScene extends Phaser.Scene {
         }
 
         // Shadow
-        this.add.ellipse(sx, sy + 4, 44 * minR, 16 * minR, 0x000000, 0.3)
+        this.add.ellipse(sx, sy + 6, 62 * minR, 22 * minR, 0x000000, 0.32)
             .setOrigin(0.5).setDepth(9);
 
-        // Sprite phù thủy — hơi to hơn nhân vật player
+        // Sprite phù thủy — phóng to hài hòa trên bục trung tâm
         const wizard = this.add.sprite(sx, sy, "wizard_idle_000")
-            .setScale(0.43 * minR).setOrigin(0.5, 0.8).setDepth(10)
+            .setScale(0.56 * minR).setOrigin(0.5, 0.8).setDepth(10)
             .setFlipX(spot.flipX ?? false);
 
         if (this.anims.exists("wizard_idle")) wizard.play("wizard_idle");
@@ -163,7 +233,7 @@ export default class LabScene extends Phaser.Scene {
         wizard.on("pointerout",  () => wizard.clearTint());
 
         // Nhãn "NÂNG CẤP THẺ BÀI" không khung nền: chữ gradient tím-hồng + quầng sáng blur đồng bộ hiệu ứng ma pháp bên dưới
-        const bx = sx, by0 = sy - 126 * minR;
+        const bx = sx, by0 = sy - 158 * minR;
         const btnWrap = this.add.container(bx, by0).setDepth(14);
 
         const lblW = Math.round(250 * minR);
@@ -621,7 +691,7 @@ export default class LabScene extends Phaser.Scene {
         const frame0    = `${character}_${skin}_idle_000`;
 
         const sprite = this.add.sprite(sx, sy, frame0)
-            .setScale(0.26 * minR).setOrigin(0.5, 0.8).setDepth(10 + (isMe ? 1 : 0))
+            .setScale(0.35 * minR).setOrigin(0.5, 0.8).setDepth(10 + (isMe ? 1 : 0))
             .setFlipX(shouldFlip);
         if (this.anims.exists(animKey)) sprite.play(animKey);
 
@@ -630,12 +700,12 @@ export default class LabScene extends Phaser.Scene {
             sprite.setTint(0xeeffee);
         }
 
-        const shadow = this.add.ellipse(sx, sy + 4, 38 * minR, 14 * minR, 0x000000, 0.3)
+        const shadow = this.add.ellipse(sx, sy + 5, 52 * minR, 18 * minR, 0x000000, 0.32)
             .setOrigin(0.5).setDepth(9);
 
         const nameColor = isMe ? "#ffff88" : "#ffffff";
-        const nameText  = this.add.text(sx, sy - 120 * minR, member.name || "Player", {
-            fontFamily: "Signika", fontSize: Math.floor(22 * minR) + "px",
+        const nameText  = this.add.text(sx, sy - 156 * minR, member.name || "Player", {
+            fontFamily: "Signika", fontSize: Math.floor(24 * minR) + "px",
             color: nameColor, fontStyle: "bold",
             stroke: "#000000", strokeThickness: 5,
         }).setOrigin(0.5).setDepth(12);
@@ -643,8 +713,8 @@ export default class LabScene extends Phaser.Scene {
         // Nhãn "Bạn" nếu là mình
         let meTag = null;
         if (isMe) {
-            meTag = this.add.text(sx, sy - 142 * minR, "[ Bạn ]", {
-                fontFamily: "Signika", fontSize: Math.floor(14 * minR) + "px",
+            meTag = this.add.text(sx, sy - 182 * minR, "[ Bạn ]", {
+                fontFamily: "Signika", fontSize: Math.floor(15 * minR) + "px",
                 color: "#88ffcc", stroke: "#000", strokeThickness: 3,
             }).setOrigin(0.5).setDepth(12);
         }

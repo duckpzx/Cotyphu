@@ -1159,7 +1159,10 @@ export default class RatingScene extends Phaser.Scene {
     // Để nhân vật đứng chính giữa bục: cộng bù 5px
     const spriteX = px + 5;
 
+    let spawned = false;
     const spawnSprite = () => {
+      if (spawned) return;
+      spawned = true;
       if (seq !== this._tabSeq || !this.scene.isActive("RatingScene")) return;
       if (!this.textures.exists(fk0)) {
         const ph = this._trackObj(
@@ -1235,7 +1238,6 @@ export default class RatingScene extends Phaser.Scene {
 
     if (needLoad) {
       this.load.once("complete", spawnSprite);
-      this.load.once("loaderror", spawnSprite);
       this.load.start();
     } else {
       spawnSprite();
